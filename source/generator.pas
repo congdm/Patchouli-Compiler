@@ -10,9 +10,10 @@ interface
 		mode_reg = 10; mode_regI = 11; mode_cond = 12;
 		type_boolean = 0; type_integer = 1; type_array = 2; type_record = 3;
 		
-		reg_RCX = 2; reg_R8 = 3; reg_R9 = 4; reg_R10 = 5; reg_R11 = 6;
-		reg_RSI = 7; reg_RDI = 8; reg_R12 = 9; reg_R13 = 10; reg_R14 = 11; reg_R15 = 12; reg_RBX = 13;
-		reg_RBP = 14; reg_RSP = 15; reg_RAX = 16; reg_RDX = 17;
+		reg_RCX = 0; reg_RSI = 1; reg_RDI = 2;
+		reg_R8 = 3; reg_R9 = 4; reg_R10 = 5; reg_R11 = 6;
+		reg_R12 = 7; reg_R13 = 8; reg_R14 = 9; reg_R15 = 10; 
+		reg_RBX = 11; reg_RBP = 12; reg_RSP = 13; reg_RAX = 14; reg_RDX = 15;
 
 	type
 		Type_ = ^Type_desc;
@@ -76,7 +77,10 @@ interface
 	
 	procedure SFunc_ORD (var x : Item);
 	procedure SFunc_ODD (var x : Item);
-	procedure SFunc_BIT (var x, y : Item);
+	procedure SFunc_GET (var x, y : Item);
+	procedure SFunc_PUT (var x, y : Item);
+	
+	procedure End_module;
 
 implementation
 	uses
@@ -806,8 +810,6 @@ implementation
 		end;
 		
 	procedure SFunc_ODD (var x : Item);
-		var
-			lb1, lb2 : AnsiString;
 		begin
 		if x.typ^.form <> type_integer then
 			begin
@@ -824,8 +826,39 @@ implementation
 			end;
 		end;
 		
-	procedure SFunc_BIT (var x, y : Item);
+	procedure SFunc_GET (var x, y : Item);
 		begin
+		if (x.typ^.form <> type_integer) or (y.typ^.form <> type_integer) then
+			begin
+			Scanner.Mark ('Procedure GET inputs must be INTEGER type');
+			Make_clean_const (x, int_type, 0);
+			Make_clean_const (y, int_type, 0);
+			end
+		else
+			begin
+			load (x); x.mode := mode_regI; x.a := 0;
+			Store (y, x);
+			end;
+		end;
+	
+	procedure SFunc_PUT (var x, y : Item);
+		begin
+		if (x.typ^.form <> type_integer) or (y.typ^.form <> type_integer) then
+			begin
+			Scanner.Mark ('Procedure PUT inputs must be INTEGER type');
+			Make_clean_const (x, int_type, 0);
+			Make_clean_const (y, int_type, 0);
+			end
+		else
+			begin
+			load (x); x.mode := mode_regI; x.a := 0;
+			Store (x, y);
+			end;
+		end;
+		
+	procedure End_module;
+		begin
+		Put_op_sym (op_RET, '');
 		end;
 
 (* --------------------------------------------------------------------------------------- *)

@@ -131,7 +131,7 @@ implementation
 	procedure ProcedureDecl; forward;
 	procedure ProcedureStatement (var x : Generator.Item; obj : Generator.Object_); forward;
 	procedure StandFunc (var x : Generator.Item; fctno : Int64); forward;
-	procedure StandFuncStatement (var x : Generator.Item; obj : Generator.Object_); forward;
+	procedure StandFuncStatement (var x : Generator.Item); forward;
 		
 	procedure Declarations (var var_base : Int64; is_grow_up : Boolean);
 		var
@@ -316,7 +316,9 @@ implementation
 						Scanner.Mark ('Incompatible types');
 					end
 				else if x.mode = Generator.class_proc then
-					ProcedureStatement (x, obj);
+					ProcedureStatement (x, obj)
+				else if x.mode = Generator.class_sproc then
+					StandFuncStatement (x);
 				end
 			else if sym = Scanner.sym_if then
 				IfStatement
@@ -703,8 +705,6 @@ implementation
 		end;
 		
 	procedure StandFunc (var x : Generator.Item; fctno : Int64);
-		var
-			y, z : Generator.Item;
 		begin
 		if sym = Scanner.sym_lparen then
 			begin
@@ -712,14 +712,7 @@ implementation
 			if fctno = 2 then (* ORD *)
 				Generator.SFunc_ORD (x)
 			else if fctno = 3 then (* ODD *)
-				Generator.SFunc_ODD (x)
-			else if fctno = 4 then (* BIT *)
-				begin
-				if sym = Scanner.sym_comma then
-					begin Scanner.Get (sym); expression (y); Generator.SFunc_BIT (x, y); end
-				else
-					Scanner.Mark ('Comma expected');
-				end;
+				Generator.SFunc_ODD (x);
 			if sym = Scanner.sym_rparen then Scanner.Get (sym)
 			else Scanner.Mark ('No closing )');
 			end
@@ -730,8 +723,34 @@ implementation
 			end;
 		end;
 		
-	procedure StandFuncStatement (var x : Generator.Item; obj : Generator.Object_);
+	procedure StandFuncStatement (var x : Generator.Item);
+		var
+			y : Generator.Item;
 		begin
+		if sym = Scanner.sym_lparen then
+			begin
+			Scanner.Get (sym); expression (x);
+			if sym = Scanner.sym_comma then
+				begin
+				Scanner.Get (sym); expression (y);
+				if x.a = 0 then (* GET *)
+					Generator.SFunc_GET (x, y)
+				else if x.a = 1 then (* PUT *)
+					Generator.SFunc_PUT (x, y);
+				end
+			else
+				begin
+				Scanner.Mark ('Comma expected');
+				Generator.Make_clean_const (x, Generator.int_type, 0);
+				end;
+			if sym = Scanner.sym_rparen then Scanner.Get (sym)
+			else Scanner.Mark ('No closing )');
+			end
+		else
+			begin
+			Scanner.Mark ('Paramaters missing?');
+			Generator.Make_clean_const (x, Generator.int_type, 0);
+			end;
 		end;
 		
 	procedure Module;
@@ -761,6 +780,7 @@ implementation
 		Generator.Emit_label ('MAIN');
 		if sym = Scanner.sym_begin then begin Scanner.Get (sym); StatementSequence; end;
 		
+		Generator.End_module;
 		if sym = Scanner.sym_end then Scanner.Get (sym) else Scanner.Mark ('No END keyword');
 		if sym = Scanner.sym_ident then 
 			begin
@@ -782,6 +802,5 @@ initialization
 	enter (Generator.class_sproc, 1, 'PUT', nil);
 	enter (Generator.class_sproc, 2, 'ORD', Generator.int_type);
 	enter (Generator.class_sproc, 3, 'ODD', Generator.bool_type);
-	enter (Generator.class_sproc, 4, 'BIT', Generator.bool_type);
 	universe := top_scope;
 end.

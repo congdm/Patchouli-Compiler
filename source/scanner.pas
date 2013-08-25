@@ -181,6 +181,8 @@ procedure Get (var sym : Integer);
 		'-' : begin sym := sym_minus; Read_char; end;
 		'=' : begin sym := sym_equal; Read_char; end;
 		'#' : begin sym := sym_not_equal; Read_char; end;
+		'&' : begin sym := sym_and; Read_char; end;
+		'~' : begin sym := sym_not; Read_char; end;
 		'<' : begin 
 				Read_char; 
 				if ch = '=' then begin sym := sym_less_equal; Read_char; end
