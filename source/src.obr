@@ -1,0 +1,21 @@
+MODULE Sample;
+
+TYPE
+	List = RECORD
+		x, y : INTEGER;
+		z : INTEGER;
+	END;
+
+VAR
+	x, y, z : INTEGER;
+	al : List;
+
+PROCEDURE Hello (a : INTEGER; VAR b : INTEGER);
+BEGIN
+	a := b; b := a; Hello (a, b); Hello (b, a);
+END Hello;
+	
+BEGIN
+	IF ODD (x) THEN
+	END;
+END Sample.
