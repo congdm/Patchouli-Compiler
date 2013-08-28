@@ -19,10 +19,6 @@ section '.text' code readable executable
 	mov	ecx,eax
 	call	[ExitProcess]
 
-RANGE_CHECK_TRAP:
-	mov	ecx,eax
-	call	[ExitProcess]
-
 PROC_1:
  PUSH rbp
  MOV rbp, rsp
@@ -30,7 +26,7 @@ PROC_1:
  MOV rax, $FFFFFFFFFFFFFFF0
  AND rsp, rax
 
- MOV rax, [rbp + 16]
+ MOV al, [rbp + 16]
  MOV [Buffer], al
 
  mov rcx, [Console_handle]
@@ -43,96 +39,96 @@ PROC_1:
 
  LEAVE
  RET 8
-PROC_6:
+
+PROC_7:
  PUSH rbp
  MOV rbp, rsp
  SUB rsp, 8
- MOV rcx, [rbx + 160]
+ MOV rcx, qword [rbx + 20]
  SUB rcx, 1
- MOV [rbp + -8], rcx
-WHILE_13:
+ MOV qword [rbp + -8], rcx
+WHILE_14:
  CMP qword [rbp + -8], 0
- JL WHILE_13_END
- MOV rcx, [rbp + -8]
- CMP rcx, 20
- JAE RANGE_CHECK_TRAP
- IMUL rcx, rcx, 8
+ JL WHILE_14_END
+ MOV rcx, qword [rbp + -8]
+ IMUL rcx, rcx, 1
  ADD rcx, rbx
- PUSH qword [rcx + 0]
+ MOVSX rcx, byte [rcx + 0]
+ PUSH rcx
  CALL PROC_1
- MOV rcx, [rbp + -8]
+ MOV rcx, qword [rbp + -8]
  SUB rcx, 1
- MOV [rbp + -8], rcx
- JMP WHILE_13
-WHILE_13_END:
+ MOV qword [rbp + -8], rcx
+ JMP WHILE_14
+WHILE_14_END:
  LEAVE
  RET 0
-PROC_30:
+
+PROC_31:
  PUSH rbp
  MOV rbp, rsp
  SUB rsp, 16
- MOV qword [rbx + 160], 0
+ MOV qword [rbx + 20], 0
  CMP qword [rbp + 16], 0
- JLE IF_35_END
+ JLE IF_36_END
  MOV qword [rbp + -8], 0
-WHILE_38:
+WHILE_39:
  CMP qword [rbp + -8], 20
- JGE WHILE_38_END
- MOV rcx, [rbp + -8]
- CMP rcx, 20
- JAE RANGE_CHECK_TRAP
- IMUL rcx, rcx, 8
+ JGE WHILE_39_END
+ MOV rcx, qword [rbp + -8]
+ IMUL rcx, rcx, 1
  ADD rcx, rbx
- MOV qword [rcx + 0], 0
+ MOV byte [rcx + 0], 0
  MOV rcx, 1
- ADD rcx, [rbp + -8]
- MOV [rbp + -8], rcx
- JMP WHILE_38
-WHILE_38_END:
-REPEAT_52:
- XOR rdx, rdx
+ ADD rcx, qword [rbp + -8]
+ MOV qword [rbp + -8], rcx
+ JMP WHILE_39
+WHILE_39_END:
+REPEAT_51:
  MOV rcx, 10
- MOV rax, [rbp + 16]
+ MOV rax, qword [rbp + 16]
+ CQO
  IDIV rcx
  MOV rcx, rdx
- MOV [rbp + -16], rcx
- XOR rdx, rdx
+ MOV qword [rbp + -16], rcx
  MOV rcx, 10
- MOV rax, [rbp + 16]
+ MOV rax, qword [rbp + 16]
+ CQO
  IDIV rcx
  MOV rcx, rax
- MOV [rbp + 16], rcx
- MOV rcx, [rbx + 160]
- CMP rcx, 20
- JAE RANGE_CHECK_TRAP
- IMUL rcx, rcx, 8
+ MOV qword [rbp + 16], rcx
+ MOV rcx, qword [rbx + 20]
+ IMUL rcx, rcx, 1
  ADD rcx, rbx
  MOV rsi, 48
- ADD rsi, [rbp + -16]
- MOV [rcx + 0], rsi
+ ADD rsi, qword [rbp + -16]
+ CMP rsi, -128
+ JL INTEGER_OVERFLOW_TRAP
+ CMP rsi, 127
+ JG INTEGER_OVERFLOW_TRAP
+ MOV byte [rcx + 0], sil
  MOV rcx, 1
- ADD rcx, [rbx + 160]
- MOV [rbx + 160], rcx
+ ADD rcx, qword [rbx + 20]
+ MOV qword [rbx + 20], rcx
  CMP qword [rbp + 16], 0
- JNE REPEAT_52
-IF_35_END:
+ JNE REPEAT_51
+IF_36_END:
  LEAVE
  RET 8
-PROC_81:
- PUSH rbp
- MOV rbp, rsp
- MOV rcx, [rbp + 24]
- MOV rcx, [rcx + 0]
- ADD rcx, [rbp + 16]
- MOV rsi, [rbp + 24]
- MOV [rsi + 0], rcx
- LEAVE
- RET 16
+
 MAIN:
  PUSH 45
- CALL PROC_30
- CALL PROC_6
+ CALL PROC_31
+ CALL PROC_7
  RET
+
+RANGE_CHECK_TRAP:
+	mov	ecx,eax
+	call	[ExitProcess]
+
+INTEGER_OVERFLOW_TRAP:
+	mov	ecx,eax
+	call	[ExitProcess]
 
 section '.data' data readable writeable
 

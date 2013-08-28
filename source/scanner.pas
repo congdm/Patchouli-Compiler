@@ -7,16 +7,17 @@ type
 
 const
 	sym_null = 0;
-	sym_times = 1; sym_div = 3; sym_mod = 4; sym_and = 5; sym_plus = 6; sym_minus = 7; sym_or = 8;
+	sym_times = 1; sym_slash = 2; sym_div = 3; sym_mod = 4; sym_and = 5; sym_plus = 6; sym_minus = 7; sym_or = 8;
 	sym_equal = 9; sym_not_equal = 10; sym_less = 11; sym_greater_equal = 12; sym_less_equal = 13; sym_greater = 14; 
-	sym_period = 18; sym_comma = 19; sym_colon = 20; sym_rparen = 22; sym_rbrak = 23;
+	sym_period = 18; sym_comma = 19; sym_colon = 20; sym_upto = 21; sym_rparen = 22; sym_rbrak = 23; sym_rbrace = 24;
 	sym_of = 25; sym_then = 26; sym_do = 27;
-	sym_lparen = 29; sym_lbrak = 30; sym_not = 32; sym_becomes = 33; sym_number = 34; sym_ident = 37;
+	sym_lparen = 29; sym_lbrak = 30; sym_lbrace = 31; sym_not = 32; sym_becomes = 33; sym_number = 34; sym_ident = 37;
 	sym_semicolon = 38; sym_end = 40; sym_else = 41; sym_elsif = 42; sym_until = 43;
 	sym_if = 44; sym_while = 46; sym_repeat = 47;
 	sym_array = 54; sym_record = 55;
-	sym_const = 57; sym_type = 58; sym_var = 59; sym_procedure = 60; sym_begin = 61; sym_module = 63;
-	sym_eof = 64;
+	sym_const = 57; sym_type = 58; sym_var = 59; sym_procedure = 60; sym_begin = 61; sym_return = 63; 
+	sym_module = 64;
+	sym_eof = 65;
 	
 var
 	value : Int64;
@@ -36,12 +37,13 @@ var
 	textfile : Textfile_type;
 	ch : Char;
 	eof_flag : Boolean;
+	line_num : Integer;
 
 procedure Init (var t : Textfile_type; pos : Integer);
 	begin
 	textfile := t;
 	Seek (textfile, pos);
-	ch := #0;
+	ch := #0; line_num := 1;
 	eof_flag := False;
 	end;
 	
@@ -49,6 +51,7 @@ procedure Read_char;
 	begin
 	try
 		Read (textfile, ch);
+		if ch = #13 then Inc (line_num);
 	except
 		ch := #0;
 		eof_flag := True;
@@ -61,7 +64,10 @@ procedure Get_word (var sym : Integer);
 		
 	begin
 	s := '';
-	while ((ch >= 'A') and (ch <= 'Z')) or ((ch >= 'a') and (ch <= 'z')) or ((ch >= '0') and (ch <= '9')) do
+	while ((ch >= 'A') and (ch <= 'Z'))
+			or ((ch >= 'a') and (ch <= 'z'))
+			or ((ch >= '0') and (ch <= '9')) 
+			or (ch = '_') do
 		begin
 		s := s + ch;
 		Read_char;
@@ -113,6 +119,8 @@ procedure Get_word (var sym : Integer);
 		sym := sym_begin
 	else if s = 'MODULE' then
 		sym := sym_module
+	else if s = 'RETURN' then
+		sym := sym_return
 	else
 		begin
 		sym := sym_ident;
@@ -170,13 +178,14 @@ procedure Get (var sym : Integer);
 		begin sym := sym_eof; exit; end;
 	
 	// Detect symbol
-	if ((ch >= 'A') and (ch <= 'Z')) or ((ch >= 'a') and (ch <= 'z')) then
+	if ((ch >= 'A') and (ch <= 'Z')) or ((ch >= 'a') and (ch <= 'z')) or (ch = '_') then
 		Get_word (sym)
 	else if (ch >= '0') and (ch <= '9') then
 		Get_number (sym)
 	else
 	case ch of
 		'*' : begin sym := sym_times; Read_char; end;
+		'/' : begin sym := sym_slash; Read_char; end;
 		'+' : begin sym := sym_plus; Read_char; end;
 		'-' : begin sym := sym_minus; Read_char; end;
 		'=' : begin sym := sym_equal; Read_char; end;
@@ -193,7 +202,11 @@ procedure Get (var sym : Integer);
 				if ch = '=' then begin sym := sym_greater_equal; Read_char; end
 				else sym := sym_greater;
 				end;
-		'.' : begin sym := sym_period; Read_char; end;
+		'.' : begin 
+				Read_char; 
+				if ch = '.' then begin sym := sym_upto; Read_char; end
+				else sym := sym_period;
+				end;
 		',' : begin sym := sym_comma; Read_char; end;
 		':' : begin 
 				Read_char; 
@@ -202,8 +215,10 @@ procedure Get (var sym : Integer);
 				end;
 		')' : begin sym := sym_rparen; Read_char; end;
 		']' : begin sym := sym_rbrak; Read_char; end;
-		'(' : begin sym := sym_lparen; Read_char; end;				
+		'}' : begin sym := sym_rbrace; Read_char; end;
+		'(' : begin sym := sym_lparen; Read_char; end;
 		'[' : begin sym := sym_lbrak; Read_char; end;
+		'{' : begin sym := sym_lbrace; Read_char; end;
 		';' : begin sym := sym_semicolon; Read_char; end;
 		else  begin sym := sym_null; Read_char; end;
 		end;
@@ -211,7 +226,7 @@ procedure Get (var sym : Integer);
 	
 	procedure Mark (msg : String);
 		begin
-		Writeln (msg);
+		Writeln (IntToStr (line_num) + ': ' + msg);
 		end;
 
 end.

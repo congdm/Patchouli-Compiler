@@ -116,92 +116,17 @@ implementation
 (* ------------------------------------------------------------------------------------------ *)		
 // Begin parser procedures part
 
-	procedure Declarations (var var_base : Int64; is_grow_up : Boolean); forward;
-	procedure IdentList (class_ : Integer; var first : Generator.Object_); forward;
 	procedure StatementSequence; forward;
-	procedure Type_ (var typ : Generator.Type_); forward;
 	procedure factor (var x : Generator.Item); forward;
 	procedure term (var x : Generator.Item); forward;
 	procedure SimpleExpression (var x : Generator.Item); forward;
 	procedure expression (var x : Generator.Item); forward;
 	procedure selector (var x : Generator.Item); forward;
-	procedure IfStatement; forward;
-	procedure WhileStatement; forward;
-	procedure RepeatStatement; forward;
 	procedure ProcedureDecl; forward;
 	procedure ProcedureStatement (var x : Generator.Item; obj : Generator.Object_); forward;
 	procedure StandFunc (var x : Generator.Item; fctno : Int64); forward;
 	procedure StandFuncStatement (var x : Generator.Item); forward;
-		
-	procedure Declarations (var var_base : Int64; is_grow_up : Boolean);
-		var
-			obj, first : Generator.Object_;
-			tp : Generator.Type_;
-		begin
-		while true do
-			begin
-			if sym = Scanner.sym_const then 
-				begin
-				Scanner.Get (sym);
-				while sym = Scanner.sym_ident do
-					begin
-					New_obj (obj, Generator.class_const);
-					Scanner.Get (sym);
-					if sym = Scanner.sym_equal then Scanner.Get (sym) else Scanner.Mark ('No = in const declaration');
-					if sym = Scanner.sym_number then
-						begin
-						obj^.val := Scanner.value;
-						Scanner.Get (sym);
-						end
-					else
-						Scanner.Mark ('Const value not defined');
-					if sym = Scanner.sym_semicolon then Scanner.Get (sym) else Scanner.Mark ('No ; after const declartation');
-					end;
-				end;
-				
-			if sym = Scanner.sym_type then
-				begin
-				Scanner.Get (sym);
-				while sym = Scanner.sym_ident do
-					begin
-					New_obj (obj, Generator.class_typ);
-					Scanner.Get (sym);
-					if sym = Scanner.sym_equal then Scanner.Get (sym) else Scanner.Mark ('No = in type declaration');
-					Type_ (obj^.typ);
-					if sym = Scanner.sym_semicolon then Scanner.Get (sym) else Scanner.Mark ('No ; after type declartation');
-					end;
-				end;
-				
-			if sym = Scanner.sym_var then
-				begin
-				Scanner.Get (sym);
-				while sym = Scanner.sym_ident do
-					begin
-					IdentList (Generator.class_var, first);
-					Type_ (tp);
-					obj := first;
-					while obj <> guard do
-						begin
-						obj^.typ := tp;
-						obj^.lev := Generator.cur_lev;
-						obj^.is_param := False;
-						if is_grow_up then
-							begin obj^.val := var_base; var_base := var_base + obj^.typ^.size; end
-						else
-							begin var_base := var_base - obj^.typ^.size; obj^.val := var_base; end;
-						obj := obj^.next;
-						end;
-					if sym = Scanner.sym_semicolon then Scanner.Get (sym) else Scanner.Mark ('No ; after variable declartation');
-					end;
-				end;
-				
-			if (sym >= Scanner.sym_const) and (sym <= Scanner.sym_var) then
-				Scanner.Mark ('Bad declaration sequence')
-			else break;
-			
-			end;
-		end;
-		
+	
 	procedure IdentList (class_ : Integer; var first : Generator.Object_);
 		var
 			obj : Generator.Object_;
@@ -290,12 +215,194 @@ implementation
 			
 		else
 			begin Scanner.Mark ('No type identifier'); end;
-		end; 
+		end;
+		
+	procedure Declarations (var var_base : Int64; is_grow_up : Boolean);
+		var
+			obj, first : Generator.Object_;
+			tp : Generator.Type_;
+		begin
+		while true do
+			begin
+			if sym = Scanner.sym_const then 
+				begin
+				Scanner.Get (sym);
+				while sym = Scanner.sym_ident do
+					begin
+					New_obj (obj, Generator.class_const);
+					Scanner.Get (sym);
+					if sym = Scanner.sym_equal then Scanner.Get (sym) else Scanner.Mark ('No = in const declaration');
+					if sym = Scanner.sym_number then
+						begin
+						obj^.val := Scanner.value;
+						Scanner.Get (sym);
+						end
+					else
+						Scanner.Mark ('Const value not defined');
+					if sym = Scanner.sym_semicolon then Scanner.Get (sym) else Scanner.Mark ('No ; after const declartation');
+					end;
+				end;
+				
+			if sym = Scanner.sym_type then
+				begin
+				Scanner.Get (sym);
+				while sym = Scanner.sym_ident do
+					begin
+					New_obj (obj, Generator.class_typ);
+					Scanner.Get (sym);
+					if sym = Scanner.sym_equal then Scanner.Get (sym) else Scanner.Mark ('No = in type declaration');
+					Type_ (obj^.typ);
+					if sym = Scanner.sym_semicolon then Scanner.Get (sym) else Scanner.Mark ('No ; after type declartation');
+					end;
+				end;
+				
+			if sym = Scanner.sym_var then
+				begin
+				Scanner.Get (sym);
+				while sym = Scanner.sym_ident do
+					begin
+					IdentList (Generator.class_var, first);
+					Type_ (tp);
+					obj := first;
+					while obj <> guard do
+						begin
+						obj^.typ := tp;
+						obj^.lev := Generator.cur_lev;
+						obj^.is_param := False;
+						if is_grow_up then
+							begin obj^.val := var_base; var_base := var_base + obj^.typ^.size; end
+						else
+							begin var_base := var_base - obj^.typ^.size; obj^.val := var_base; end;
+						obj := obj^.next;
+						end;
+					if sym = Scanner.sym_semicolon then Scanner.Get (sym) else Scanner.Mark ('No ; after variable declartation');
+					end;
+				end;
+				
+			if (sym >= Scanner.sym_const) and (sym <= Scanner.sym_var) then
+				Scanner.Mark ('Bad declaration sequence')
+			else break;
+			
+			end;
+		end;
+		
+	procedure AssignmentStatement (var x : Generator.Item);
+		var
+			y : Generator.Item;
+		begin
+		Scanner.Get (sym); expression (y);
+		if (x.typ^.form = Generator.type_integer) and (x.typ^.form = y.typ^.form) then
+			begin
+			if x.typ <> Generator.Get_result_int_type (x, y) then
+				Scanner.Mark ('Can not store bigger int into smaller int type')
+			else
+				Generator.Store (x, y);
+			end
+		else if (x.typ^.form = Generator.type_boolean) and (x.typ^.form = y.typ^.form) then
+			begin Generator.Store (x, y) end
+		else if (x.typ^.form = Generator.type_set) and (x.typ^.form = y.typ^.form) then
+			begin Generator.Store (x, y) end
+		else
+			begin Scanner.Mark ('Incompatible types'); end;
+		end;
+		
+	procedure IfStatement;
+		var
+			x : Generator.Item; 
+			elb, lb : AnsiString; 
+			l : Integer;
+		begin
+		l := Generator.line_num;
+		elb := 'IF_' + IntToStr (l) + '_END'; 
+		
+		Scanner.Get (sym); expression (x);
+		Generator.Cond_jump (x);
+		
+		if sym = Scanner.sym_then then Scanner.Get (sym) else Scanner.Mark ('THEN missing');
+		StatementSequence;
+		
+		while sym = Scanner.sym_elsif do
+			begin
+			Generator.Jump (elb);
+			lb := 'ELSIF_' + IntToStr (Generator.line_num);
+			Generator.Fix_link (x.a, lb); Generator.Emit_label (lb);
+			
+			Scanner.Get (sym); expression (x);
+			Generator.Cond_jump (x);
+			
+			if sym = Scanner.sym_then then Scanner.Get (sym) else Scanner.Mark ('THEN missing');
+			StatementSequence; 
+			end;
+		
+		if sym = Scanner.sym_else then
+			begin
+			Generator.Jump (elb);
+			lb := 'ELSE_' + IntToStr (Generator.line_num);
+			Generator.Fix_link (x.a, lb); Generator.Emit_label (lb);
+			
+			Scanner.Get (sym);
+			StatementSequence;
+			end
+		else
+			begin Generator.Fix_link (x.a, elb); end;
+		
+		Generator.Emit_label (elb);
+		if sym = Scanner.sym_end then Scanner.Get (sym) else Scanner.Mark ('No END for IF statement');
+		end;
+		
+	procedure WhileStatement;
+		var
+			x : Generator.Item;
+			slb, elb : AnsiString;
+			l : Integer;
+		begin
+		l := Generator.line_num;
+		slb := 'WHILE_' + IntToStr (l);
+		elb := slb + '_END';
+		Generator.Emit_label (slb);
+		
+		Scanner.Get (sym); expression (x);
+		Generator.Cond_jump (x);
+		
+		if sym = Scanner.sym_do then Scanner.Get (sym) else Scanner.Mark ('DO missing');
+		StatementSequence; 
+		Generator.Jump (slb);
+		
+		Generator.Fix_link (x.a, elb);
+		Generator.Emit_label (elb);
+		if sym = Scanner.sym_end then Scanner.Get (sym) else Scanner.Mark ('No END for WHILE statement');
+		end;
+		
+	procedure RepeatStatement;
+		var
+			x : Generator.Item;
+			slb : AnsiString;
+			l : Integer;
+		begin
+		l := Generator.line_num;
+		slb := 'REPEAT_' + IntToStr (l);
+		Generator.Emit_label (slb);
+		
+		Scanner.Get (sym);
+		StatementSequence;
+		
+		if sym = Scanner.sym_until then
+			begin
+			Scanner.Get (sym); expression (x);
+			Generator.Cond_jump (x);
+			Generator.Fix_link (x.a, slb);
+			end
+		else
+			begin
+			Scanner.Mark ('No UNTIL for REPEAT statement');
+			Scanner.Get (sym);
+			end;
+		end;
 		
 	procedure StatementSequence;
 		var
 			obj : Generator.Object_;
-			x, y : Generator.Item;
+			x : Generator.Item;
 		begin
 		while true do
 			begin
@@ -308,12 +415,7 @@ implementation
 				selector (x);
 				if sym = Scanner.sym_becomes then
 					begin
-					Scanner.Get (sym); expression (y);
-					if ((x.typ^.form = Generator.type_integer) or (x.typ^.form = Generator.type_boolean))
-							and (x.typ^.form = y.typ^.form) then
-						Generator.Store (x, y)
-					else
-						Scanner.Mark ('Incompatible types');
+					AssignmentStatement (x);
 					end
 				else if x.mode = Generator.class_proc then
 					ProcedureStatement (x, obj)
@@ -326,12 +428,64 @@ implementation
 				WhileStatement
 			else if sym = Scanner.sym_repeat then
 				RepeatStatement;
+				
+			Generator.Reset_reg_stack;
 			
 			if sym = Scanner.sym_semicolon then
 				Scanner.Get (sym)
 			else if ((sym >= Scanner.sym_semicolon) and (sym < Scanner.sym_if)) or (sym >= Scanner.sym_array) then
 				break
 			else Scanner.Mark ('No semicolon');
+			end;
+		end;
+		
+	procedure element (var x : Generator.Item);
+		var
+			y, z : Generator.Item;
+		begin
+		expression (y);
+		if sym = Scanner.sym_upto then
+			begin
+			Scanner.Get (sym); expression (z);
+			if (y.typ^.form <> Generator.type_integer) or (z.typ^.form <> Generator.type_integer) then
+				begin
+				Scanner.Mark ('Integer value expected');
+				Generator.Make_clean_const (y, Generator.int_type, 0);
+				Generator.Make_clean_const (z, Generator.int_type, 0);
+				end
+			else
+				Generator.Set3 (x, y, z);
+			end
+		else
+			begin
+			if y.typ^.form <> Generator.type_integer then
+				begin
+				Scanner.Mark ('Integer value expected');
+				Generator.Make_clean_const (y, Generator.int_type, 0);
+				end
+			else
+				Generator.Set2 (x, y);
+			end;
+		end;
+		
+	procedure set_ (var x : Generator.Item);
+		begin
+		Scanner.Get (sym);
+		Generator.Make_const (x, Generator.set_type, 0);
+		if sym = Scanner.sym_rbrace then
+			begin
+			Scanner.Get (sym)
+			end
+		else
+			begin
+			while true do
+				begin
+				element (x);
+				if sym = Scanner.sym_comma then Scanner.Get (sym)
+				else if sym = Scanner.sym_rbrace then break
+				else begin Scanner.Mark ('Comma expected'); break; end;
+				end;
+			if sym = Scanner.sym_rbrace then Scanner.Get (sym) else Scanner.Mark ('SET without closing }');
 			end;
 		end;
 		
@@ -361,6 +515,10 @@ implementation
 			begin
 			Scanner.Get (sym); factor (x);
 			Check_bool (x); Generator.Op1 (Scanner.sym_not, x);
+			end
+		else if sym = Scanner.sym_lbrace then
+			begin
+			set_ (x);
 			end
 		else
 			begin Scanner.Mark ('Invalid factor?'); Generator.Make_item (x, guard); end;
@@ -464,104 +622,12 @@ implementation
 			end;
 		end;
 		
-	procedure IfStatement;
-		var
-			x : Generator.Item; 
-			elb, lb : AnsiString; 
-			l : Integer;
-		begin
-		l := Generator.line_num;
-		elb := 'IF_' + IntToStr (l) + '_END'; 
-		
-		Scanner.Get (sym); expression (x);
-		Generator.Cond_jump (x);
-		
-		if sym = Scanner.sym_then then Scanner.Get (sym) else Scanner.Mark ('THEN missing');
-		StatementSequence;
-		
-		while sym = Scanner.sym_elsif do
-			begin
-			Generator.Jump (elb);
-			lb := 'ELSIF_' + IntToStr (Generator.line_num);
-			Generator.Fix_link (x.a, lb); Generator.Emit_label (lb);
-			
-			Scanner.Get (sym); expression (x);
-			Generator.Cond_jump (x);
-			
-			if sym = Scanner.sym_then then Scanner.Get (sym) else Scanner.Mark ('THEN missing');
-			StatementSequence; 
-			end;
-		
-		if sym = Scanner.sym_else then
-			begin
-			Generator.Jump (elb);
-			lb := 'ELSE_' + IntToStr (Generator.line_num);
-			Generator.Fix_link (x.a, lb); Generator.Emit_label (lb);
-			
-			Scanner.Get (sym);
-			StatementSequence;
-			end
-		else
-			begin Generator.Fix_link (x.a, elb); end;
-		
-		Generator.Emit_label (elb);
-		if sym = Scanner.sym_end then Scanner.Get (sym) else Scanner.Mark ('No END for IF statement');
-		end;
-		
-	procedure WhileStatement;
-		var
-			x : Generator.Item;
-			slb, elb : AnsiString;
-			l : Integer;
-		begin
-		l := Generator.line_num;
-		slb := 'WHILE_' + IntToStr (l);
-		elb := slb + '_END';
-		Generator.Emit_label (slb);
-		
-		Scanner.Get (sym); expression (x);
-		Generator.Cond_jump (x);
-		
-		if sym = Scanner.sym_do then Scanner.Get (sym) else Scanner.Mark ('DO missing');
-		StatementSequence; 
-		Generator.Jump (slb);
-		
-		Generator.Fix_link (x.a, elb);
-		Generator.Emit_label (elb);
-		if sym = Scanner.sym_end then Scanner.Get (sym) else Scanner.Mark ('No END for WHILE statement');
-		end;
-		
-	procedure RepeatStatement;
-		var
-			x : Generator.Item;
-			slb : AnsiString;
-			l : Integer;
-		begin
-		l := Generator.line_num;
-		slb := 'REPEAT_' + IntToStr (l);
-		Generator.Emit_label (slb);
-		
-		Scanner.Get (sym);
-		StatementSequence;
-		
-		if sym = Scanner.sym_until then
-			begin
-			Scanner.Get (sym); expression (x);
-			Generator.Cond_jump (x);
-			Generator.Fix_link (x.a, slb);
-			end
-		else
-			begin
-			Scanner.Mark ('No UNTIL for REPEAT statement');
-			Scanner.Get (sym);
-			end;
-		end;
-		
 	procedure ProcedureDecl;
 		var
-			proc : Generator.Object_;
+			proc, obj : Generator.Object_;
 			proc_id : AnsiString;
 			local_block_size, para_block_size : Int64;
+			x : Generator.Item;
 			
 		procedure FPSection;
 			var
@@ -585,16 +651,12 @@ implementation
 				Scanner.Mark ('Identifiers list not found');
 			
 			cls := first^.class_; read_only := first^.read_only;
-			if cls = class_par then
-				begin para_size := Word_size end
-			else if (cls = Generator.class_var) and Is_structured_type (tp) then 
+			para_size := Word_size;
+			if (cls = Generator.class_var) and Is_structured_type (tp) then 
 				begin	
-				para_size := Word_size;
 				cls := Generator.class_par;
 				read_only := True;
-				end
-			else
-				begin	para_size := tp^.size; end;
+				end;
 				
 			obj := first;
 			while obj <> guard do
@@ -640,6 +702,22 @@ implementation
 				end;
 			if para_block_size < 0 then Fix_param_adr;
 			
+			if sym = Scanner.sym_colon then
+				begin
+				Scanner.Get (sym);
+				if sym = Scanner.sym_ident then
+					begin
+					proc^.class_ := Generator.class_func;
+					find (obj); Scanner.Get (sym);
+					if obj^.class_ = Generator.class_typ then
+						begin proc^.typ := obj^.typ; end
+					else
+						begin Scanner.Mark ('Type not found'); proc^.typ := Generator.int_type; end;
+					end
+				else
+					begin Scanner.Mark ('Function result type missing?'); end;
+				end;
+			
 			local_block_size := 0; proc^.dsc := top_scope^.next;
 			if sym = Scanner.sym_semicolon then Scanner.Get (sym) else Scanner.Mark ('No semicolon');
 			Declarations (local_block_size, False);
@@ -647,11 +725,34 @@ implementation
 			
 			(* Nesting procedures not implemented yet *)
 			
-			proc.val := Generator.line_num;
+			proc^.val := Generator.line_num;
 			Generator.Emit_label ('PROC_' + IntToStr (Generator.line_num));
 			Generator.Enter (para_block_size, local_block_size);
 			if sym = Scanner.sym_begin then
 				begin Scanner.Get (sym); StatementSequence; end;
+			
+			if proc^.class_ = Generator.class_func then
+				begin
+				if sym = Scanner.sym_return then
+					begin
+					Scanner.Get (sym); expression (x);
+					if x.typ = proc^.typ then Generator.Set_Function_result (x)
+					else Scanner.Mark ('Incompatible function result type');
+					end
+				else
+					Scanner.Mark ('Function procedure without RETURN');
+				end
+			else if sym = Scanner.sym_return then
+				begin
+				Scanner.Mark ('Normal procedures can not have return value!');
+				expression (x);
+				end;
+				
+			Generator.Return (para_block_size);
+			Close_scope;
+			Generator.Inc_level (-1);
+			Generator.Reset_reg_stack;
+				
 			if sym = Scanner.sym_end then Scanner.Get (sym) else Scanner.Mark ('No END for PROCEDURE');
 			if sym = Scanner.sym_ident then
 				begin
@@ -660,7 +761,6 @@ implementation
 				end
 			else
 				Scanner.Mark ('No procedure identifier after END');
-			Generator.Return (para_block_size); Close_scope; Generator.Inc_level (-1);
 			end;
 		end; (* ProcedureDecl *)
 		
@@ -712,7 +812,13 @@ implementation
 			if fctno = 2 then (* ORD *)
 				Generator.SFunc_ORD (x)
 			else if fctno = 3 then (* ODD *)
-				Generator.SFunc_ODD (x);
+				Generator.SFunc_ODD (x)
+			else if fctno = 4 then (* TOINT8 *)
+				Generator.SFunc_TOINT8 (x)
+			else if fctno = 5 then (* TOINT16 *)
+				Generator.SFunc_TOINT16 (x)
+			else if fctno = 6 then (* TOINT32 *)
+				Generator.SFunc_TOINT32 (x);
 			if sym = Scanner.sym_rparen then Scanner.Get (sym)
 			else Scanner.Mark ('No closing )');
 			end
@@ -794,13 +900,23 @@ implementation
 initialization
 	New (guard); guard^.class_ := Generator.class_var; guard^.typ := Generator.int_type; guard^.val := 0;
 	top_scope := nil; Open_scope;
+	
 	enter (Generator.class_typ, 1, 'BOOLEAN', Generator.bool_type);
 	enter (Generator.class_typ, 2, 'INTEGER', Generator.int_type);
+	enter (Generator.class_typ, 3, 'INT8', Generator.int8_type);
+	enter (Generator.class_typ, 4, 'INT16', Generator.int16_type);
+	enter (Generator.class_typ, 5, 'INT32', Generator.int32_type);
+	enter (Generator.class_typ, 6, 'SET', Generator.set_type);
+	
 	enter (Generator.class_const, 1, 'TRUE', Generator.bool_type);
 	enter (Generator.class_const, 0, 'FALSE', Generator.bool_type);
+	
 	enter (Generator.class_sproc, 0, 'GET', nil);
 	enter (Generator.class_sproc, 1, 'PUT', nil);
 	enter (Generator.class_sproc, 2, 'ORD', Generator.int_type);
 	enter (Generator.class_sproc, 3, 'ODD', Generator.bool_type);
+	enter (Generator.class_sproc, 4, 'TOINT8', Generator.int8_type);
+	enter (Generator.class_sproc, 5, 'TOINT16', Generator.int16_type);
+	enter (Generator.class_sproc, 6, 'TOINT32', Generator.int32_type);
 	universe := top_scope;
 end.
