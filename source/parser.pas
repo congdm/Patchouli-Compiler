@@ -98,6 +98,33 @@ implementation
 			Scanner.Mark ('Not a boolean');
 		end;
 		
+	procedure Check_operator (var x : Generator.Item; op : Integer);
+		var
+			form : Integer;
+		begin
+		form := x.typ^.form;
+		if (op = Scanner.sym_plus) or (op = Scanner.sym_minus) or (op = Scanner.sym_times) then
+			begin
+			if (form <> Generator.type_integer) and (form <> Generator.type_set) then
+				Scanner.Mark ('+, -, * only compatible with INTEGER or SET types');
+			end
+		else if (op = Scanner.sym_div) or (op = Scanner.sym_mod) then
+			begin
+			if form <> Generator.type_integer then
+				Scanner.Mark ('DIV, MOD only compatible with INTEGER types');
+			end
+		else if op = Scanner.sym_slash then
+			begin
+			if form <> Generator.type_set then
+				Scanner.Mark ('/ only compatible with SET type');
+			end
+		else if (op = Scanner.sym_and) or (op = Scanner.sym_or) or (op = Scanner.sym_not) then
+			begin
+			if form <> Generator.type_set then
+				Scanner.Mark ('&, OR, ~ only compatible with BOOLEAN type');
+			end;
+		end;
+		
 	function Is_structured_type (tp : Generator.Type_) : Boolean;
 		begin
 		if (tp^.form = Generator.type_record) or (tp^.form = Generator.type_array) then
@@ -485,6 +512,7 @@ implementation
 				else if sym = Scanner.sym_rbrace then break
 				else begin Scanner.Mark ('Comma expected'); break; end;
 				end;
+			Generator.Set1 (x);
 			if sym = Scanner.sym_rbrace then Scanner.Get (sym) else Scanner.Mark ('SET without closing }');
 			end;
 		end;
@@ -533,11 +561,13 @@ implementation
 		while (sym >= Scanner.sym_times) and (sym <= Scanner.sym_and) do
 			begin
 			op := sym; Scanner.Get (sym);
+			Check_operator (x, op);
+			
 			if op = Scanner.sym_and then
-				begin Check_bool (x); Generator.Op1 (op, x); end
-			else Check_int (x);
+				begin Generator.Op1 (op, x); end;
+				
 			factor (y);
-			if x.typ = y.typ then Generator.Op2 (op, x, y)
+			if x.typ^.form = y.typ^.form then Generator.Op2 (op, x, y)
 			else Scanner.Mark ('Incompatible types');
 			end;
 		end;
@@ -548,7 +578,7 @@ implementation
 			op : Integer;
 		begin
 		if sym = Scanner.sym_plus then
-			begin	Scanner.Get (sym); term (x); Check_int (x); end
+			begin Scanner.Get (sym); term (x); Check_int (x); end
 		else if sym = Scanner.sym_minus then
 			begin Scanner.Get (sym); term (x); Check_int (x); Generator.Op1 (Scanner.sym_minus, x) end
 		else
@@ -557,11 +587,13 @@ implementation
 		while (sym >= Scanner.sym_plus) and (sym <= Scanner.sym_or) do
 			begin
 			op := sym; Scanner.Get (sym);
+			Check_operator (x, op);
+			
 			if op = Scanner.sym_or then
-				begin Check_bool (x); Generator.Op1 (op, x); end
-			else Check_int (x);
+				begin Generator.Op1 (op, x); end;
+			
 			term (y);
-			if x.typ = y.typ then Generator.Op2 (op, x, y)
+			if x.typ^.form = y.typ^.form then Generator.Op2 (op, x, y)
 			else Scanner.Mark ('Incompatible types');
 			end;
 		end;
@@ -575,10 +607,20 @@ implementation
 			begin
 			op := sym; Scanner.Get (sym);
 			SimpleExpression (y);
-			if x.typ = y.typ then Generator.Relation (op, x, y)
+			if x.typ^.form = y.typ^.form then Generator.Relation (op, x, y)
 			else Scanner.Mark ('Incompatible types');
 			x.typ := Generator.bool_type;
 			end
+		else if sym = Scanner.sym_in then
+			begin
+			Scanner.Get (sym);
+			SimpleExpression (y);
+			if (x.typ^.form = Generator.type_integer) and (y.typ^.form = Generator.type_set) then
+				begin Generator.Membership_test (x, y); end
+			else
+				Scanner.Mark ('Incompatible types');
+			x.typ := Generator.bool_type;
+			end;
 		end;
 		
 	procedure selector (var x : Generator.Item);

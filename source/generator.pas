@@ -58,6 +58,7 @@ interface
 	procedure Op1 (op : Integer; var x : Item);
 	procedure Op2 (op : Integer; var x, y : Item);
 	
+	procedure Set1 (var x : Item);
 	procedure Set2 (var x, y : Item);
 	procedure Set3 (var x, y, z : Item);
 	
@@ -65,6 +66,7 @@ interface
 	procedure Field (var x : Item; y : Object_);
 	
 	procedure Relation (op : Integer; var x, y : Item);
+	procedure Membership_test (var x, y : Item);
 	procedure Cond_jump (var x : Item);
 	procedure Emit_label (lb : AnsiString);
 	procedure Jump (lb : AnsiString);
@@ -99,25 +101,25 @@ implementation
 		(* This compiler only use registers for intermediate values *)
 		(* RAX, RBX, RCX, RDX, RSI, RDI, RBP, RSP is reserved for special purposes *)
 		
-		reg_R8 = 3; reg_R9 = 4; reg_R10 = 5; reg_R11 = 6;
-		reg_R12 = 7; reg_R13 = 8; reg_R14 = 9; reg_R15 = 10; 
-		reg_RBX = 11; reg_RBP = 12; reg_RSP = 13; reg_RAX = 14; reg_RDX = 15;
-		reg_RCX = 0; reg_RSI = 1; reg_RDI = 2;
+		reg_R8 = 0; reg_R9 = 1; reg_R10 = 2; reg_R11 = 3;
+		reg_R12 = 4; reg_R13 = 5; reg_R14 = 6; reg_R15 = 7; 
+		reg_RBX = 8; reg_RBP = 9; reg_RSP = 10; reg_RAX = 11; reg_RDX = 12;
+		reg_RCX = 13; reg_RSI = 14; reg_RDI = 15;
 		
-		reg_R8D = 35; reg_R9D = 36; reg_R10D = 37; reg_R11D = 38;
-		reg_R12D = 39; reg_R13D = 40; reg_R14D = 41; reg_R15D = 42;
-		reg_EBX = 43; reg_EBP = 44; reg_ESP = 45; reg_EAX = 46; reg_EDX = 47;
-		reg_ECX = 32; reg_ESI = 33; reg_EDI = 34;
+		reg_R8D  = reg_R8  + 32;   reg_R9D  = reg_R9  + 32;   reg_R10D = reg_R10 + 32;   reg_R11D = reg_R11 + 32;
+		reg_R12D = reg_R12 + 32;   reg_R13D = reg_R13 + 32;   reg_R14D = reg_R14 + 32;   reg_R15D = reg_R15 + 32;
+		reg_EBX  = reg_RBX + 32;   reg_EBP  = reg_RBP + 32;   reg_ESP  = reg_RSP + 32;   reg_EAX  = reg_RAX + 32;
+		reg_EDX  = reg_RDX + 32;   reg_ECX  = reg_RCX + 32;   reg_ESI  = reg_RSI + 32;   reg_EDI  = reg_RDI + 32;
 				
-		reg_R8W = 67; reg_R9W = 68; reg_R10W = 69; reg_R11W = 70;
-		reg_R12W = 71; reg_R13W = 72; reg_R14W = 73; reg_R15W = 74;
-		reg_BX = 75; reg_BP = 76; reg_SP = 77; reg_AX = 78; reg_DX = 79;
-		reg_CX = 64; reg_SI = 65; reg_DI = 66;
+		reg_R8W  = reg_R8  + 64;   reg_R9W  = reg_R9  + 64;   reg_R10W = reg_R10 + 64;   reg_R11W = reg_R11 + 64;
+		reg_R12W = reg_R12 + 64;   reg_R13W = reg_R13 + 64;   reg_R14W = reg_R14 + 64;   reg_R15W = reg_R15 + 64;
+		reg_BX   = reg_RBX + 64;   reg_BP   = reg_RBP + 64;   reg_SP   = reg_RSP + 64;   reg_AX   = reg_RAX + 64;
+		reg_DX   = reg_RDX + 64;   reg_CX   = reg_RCX + 64;   reg_SI   = reg_RSI + 64;   reg_DI   = reg_RDI + 64;
 		
-		reg_R8L = 99; reg_R9L = 100; reg_R10L = 101; reg_R11L = 102;
-		reg_R12L = 103; reg_R13L = 104; reg_R14L = 105; reg_R15L = 106;
-		reg_BL = 107; reg_BPL = 108; reg_SPL = 109; reg_AL = 110; reg_DL = 111;
-		reg_CL = 96; reg_SIL = 97; reg_DIL = 98;
+		reg_R8L  = reg_R8  + 96;   reg_R9L  = reg_R9  + 96;   reg_R10L = reg_R10 + 96;   reg_R11L = reg_R11 + 96;
+		reg_R12L = reg_R12 + 96;   reg_R13L = reg_R13 + 96;   reg_R14L = reg_R14 + 96;   reg_R15L = reg_R15 + 96;
+		reg_BL   = reg_RBX + 96;   reg_BPL  = reg_RBP + 96;   reg_SPL  = reg_RSP + 96;   reg_AL   = reg_RAX + 96;
+		reg_DL   = reg_RDX + 96;   reg_CL   = reg_RCX + 96;   reg_SIL  = reg_RSI + 96;   reg_DIL  = reg_RDI + 96;
 		
 		op_ADD = 0; op_SUB = 1; op_IMUL = 2; op_IDIV = 3; op_NEG = 4; vop_div = $10000; vop_mod = $10001;
 		op_AND = 5; op_OR = 6; op_NOT = 7; op_XOR = 8; op_CMP = 9; op_TEST = 10;
@@ -199,7 +201,10 @@ implementation
 		else if x.typ^.size = 4 then mem_prefix := 'dword'
 		else if x.typ^.size = 2 then mem_prefix := 'word'
 		else if x.typ^.size = 1 then mem_prefix := 'byte';
-		Result := mem_prefix + ' [' + reg_table [x.r] + ' + ' + IntToStr (x.a) + ']';
+		if x.lev = 0 then
+			Result := mem_prefix + ' [Global + ' + IntToStr (x.a) + ']'
+		else
+			Result := mem_prefix + ' [' + reg_table [x.r] + ' + ' + IntToStr (x.a) + ']';
 		end;
 		
 	function Reg32 (reg : Int64) : Int64;
@@ -289,6 +294,17 @@ implementation
 		begin
 		if (x >= $80000000) or (x < -$80000000) then Is_huge_const := True 
 		else Is_huge_const := False;
+		end;
+		
+	function Get_power_of_2 (x : Qword) : Integer;
+		begin
+		Result := 0;
+		while x > 1 do
+			begin
+			if (x mod 2) = 1 then begin Result := -1; exit; end;
+			x := x div 2;
+			Inc (Result);
+			end;
 		end;
 		
 	procedure Check_overflow (op : Integer; x, y : Int64);
@@ -458,7 +474,7 @@ implementation
 		
 		if y.mode = mode_cond then
 			Store_cond (x, y)
-		else if (y.mode = class_const) and (not Is_huge_const (y.a)) then
+		else if y.mode = class_const then
 			begin
 			if x.mode = class_var then
 				Put_op_mem_imm (op_MOV, x, y.a)
@@ -539,35 +555,52 @@ implementation
 		
 (* --------------------------------------------------------------------------------------- *)
 (* --------------------------------------------------------------------------------------- *)
-		
+	
+	(* In Oberon, divisor must be positive and negative *)
+	(* result is rounded toward negative infinity       *)
 	procedure Put_division_op (op : Int64; var x, y : Item);
 		var
 			r : Int64;
+			i : Integer;
 		begin
 		(* IDIV only accept dividend in RDX:RAX and divisor in reg/mem *)
-		if y.mode = class_const then load (y)
-		else if y.mode = class_par then Ref_to_regI (y);
-		if y.typ^.size < 8 then load (y);
-		
-		Load_to_reg (reg_RAX, x);
-		Put_op_bare (op_CQO);
-			
-		if y.mode = mode_reg then Put_op_reg (op_IDIV, y.r)
-		else Put_op_mem (op_IDIV, y);
-		
-		if op = vop_div then r := reg_RAX else r := reg_RDX;
-		
-		if (x.mode = mode_reg) or (x.mode = mode_regI) then
+		if (y.mode = class_const) and (y.a <= 0) then
 			begin
-			if (y.mode = mode_reg) or (y.mode = mode_regI) then Dec (cur_reg);
+			Scanner.Mark ('Divisor must be positive');
 			end
 		else
 			begin
-			if (y.mode <> mode_reg) and (y.mode <> mode_regI) then Inc_reg;
+			i := line_num;
+			load (y);
+			
+			Put_op_reg_reg (op_TEST, y.r, y.r);
+			Put_op_sym (op_JLE, 'NOT_POSITIVE_DIVISOR_TRAP');
+			
+			Load_to_reg (reg_RAX, x);
+			Put_op_bare (op_CQO);
+			Put_op_reg_reg (op_TEST, reg_RAX, reg_RAX);
+			Put_op_sym (op_JLE, 'NEGATIVE_DIVIDEND_' + IntToStr (i));
+				
+			Put_op_reg (op_IDIV, y.r);
+			Put_op_sym (op_JMP, 'END_DIVISION_' + IntToStr (i));
+			
+			Emit_label ('NEGATIVE_DIVIDEND_' + IntToStr (i));
+			Put_op_reg (op_IDIV, y.r);
+			Put_op_reg_reg (op_TEST, reg_RDX, reg_RDX);
+			Put_op_sym (op_JE, 'END_DIVISION_' + IntToStr (i));
+			if op = vop_div then
+				Put_op_reg_imm (op_SUB, reg_RAX, 1)
+			else
+				Put_op_reg_reg (op_ADD, reg_RDX, y.r);
+			
+			
+			Emit_label ('END_DIVISION_' + IntToStr (i));
+			if op = vop_div then r := reg_RAX else r := reg_RDX;
+			if (x.mode = mode_reg) or (x.mode = mode_regI) then
+				Dec (cur_reg);
+			x.r := cur_reg - 1; x.mode := mode_reg;
+			Put_op_reg_reg (op_MOV, x.r, r);
 			end;
-		
-		x.r := cur_reg - 1; x.mode := mode_reg;
-		Put_op_reg_reg (op_MOV, x.r, r);
 		end;
 		
 	procedure Put_subtract_op (var x, y : Item);
@@ -594,7 +627,7 @@ implementation
 			Dec (cur_reg);
 			end
 		else if y.mode = class_var then
-			begin	Put_op_reg_mem (op_SUB, x.r, y);	end;
+			begin Put_op_reg_mem (op_SUB, x.r, y);	end;
 		end;
 		
 	procedure Put_op (op : Int64; var x, y : Item);
@@ -667,7 +700,7 @@ implementation
 				if x.typ^.size < 8 then
 					begin load (x); Put_op_reg_reg (op_CMP, x.r, y.r); Dec (cur_reg); end
 				else
-					begin	Put_op_mem_reg (op_CMP, x, y.r); end;
+					begin Put_op_mem_reg (op_CMP, x, y.r); end;
 				Dec (cur_reg);
 				end
 			else if y.mode = class_const then begin Put_op_mem_imm (op_CMP, x, y.a); end;
@@ -804,10 +837,22 @@ implementation
 (* --------------------------------------------------------------------------------------- *)
 (* --------------------------------------------------------------------------------------- *)
 
-	function Shift_left (x : Qword; s : Integer) : Qword;
+	function Shift_left (x : Int64; s : Integer) : Int64;
 		begin
 		Result := x;
 		while s > 0 do begin Result := Result * 2; Dec (s); end;
+		end;
+		
+	function Shift_right (x : Int64; s : Integer) : Int64;
+		begin
+		Result := x;
+		while s > 0 do begin Result := Result div 2; Dec (s); end;
+		end;
+		
+	function Bit_test (x : Int64; s : Integer) : Boolean;
+		begin
+		x := Shift_right (x, s);
+		if (x mod 2) = 1 then Result := True else Result := False;
 		end;
 
 	(* procedure Set2 may use RCX during calculation *)
@@ -833,6 +878,7 @@ implementation
 				if Use_register (y) then begin x.mode := mode_reg; x.r := y.r; Clear_reg (x.r) end
 				else load (x);
 				y.mode := mode_reg; y.r := reg_RCX;
+				x.a := 0;
 				end;
 			load (y);
 			Put_op_reg_imm (op_CMP, y.r, 63);
@@ -878,6 +924,7 @@ implementation
 					begin
 					if Use_register (z) then begin x.mode := mode_reg; x.r := z.r; Clear_reg (x.r) end
 					else load (x);
+					x.a := 0;
 					end;
 				Put_op_reg_imm (op_CMP, reg_RCX, 63);
 				Put_op_sym (op_JA, lb);
@@ -907,6 +954,7 @@ implementation
 					begin
 					if Use_register (y) then begin x.mode := mode_reg; x.r := y.r; Clear_reg (x.r) end
 					else load (x);
+					x.a := 0;
 					end;
 				Put_op_reg_imm (op_CMP, reg_RCX, z.a);
 				Put_op_sym (op_JA, lb);
@@ -938,6 +986,7 @@ implementation
 					end
 				else
 					load (x);
+				x.a := 0;
 				end;
 				
 			if (z.mode <> mode_reg) or (z.r <> reg_RCX) then Load_to_reg (reg_RCX, z);
@@ -963,7 +1012,22 @@ implementation
 		end;
 		
 	procedure Set1 (var x : Item);
+		var
+			y : Item;
+			i : Integer;
 		begin
+		if (x.mode = mode_reg) and (x.a <> 0) then
+			begin
+			i := Get_power_of_2 (x.a);
+			if i < 0 then
+				begin
+				Make_const (y, set_type, x.a);
+				Put_op (op_OR, x, y);
+				end
+			else
+				begin Put_op_reg_imm (op_BTS, x.r, i); end;
+			x.a := 0;
+			end;
 		end;
 		
 (* --------------------------------------------------------------------------------------- *)
@@ -1045,6 +1109,40 @@ implementation
 			end;
 		end;
 		
+	procedure Membership_test (var x, y : Item);
+		begin
+		if (x.mode = class_const) and (y.mode = class_const) then
+			begin
+			if (x.a < 0) or (x.a > 63) then x.a := 0
+			else if Bit_test (y.a, x.a) then x.a := 1
+			else x.a := 0;
+			end
+		else if x.mode = class_const then
+			begin
+			if (x.a < 0) or (x.a > 63) then
+				x.a := 0
+			else
+				begin
+				load (y);
+				Put_op_reg_imm (op_BT, y.r, x.a);
+				x.mode := mode_cond;
+				x.a := 0; x.b := 0; x.c := op_JC;
+				Dec (cur_reg);
+				end;
+			end
+		else
+			begin
+			load (x); load (y);
+			Put_op_reg_imm (op_CMP, x.r, 63);
+			Put_op_sym (op_JA, '0');
+			x.a := line_num - 1;
+			Put_op_reg_reg (op_BT, y.r, x.r);
+			x.mode := mode_cond;
+			x.b := 0; x.c := op_JC;
+			cur_reg := cur_reg - 2;
+			end;
+		end;
+		
 	procedure Cond_jump (var x : Item);
 		var
 			lb : AnsiString;
@@ -1096,7 +1194,7 @@ implementation
 		begin
 		if cls = class_par then
 			if not x.read_only then
-				begin	Load_adr (x); Put_op_reg (op_PUSH, cur_reg - 1); Dec (cur_reg); end
+				begin Load_adr (x); Put_op_reg (op_PUSH, cur_reg - 1); Dec (cur_reg); end
 			else
 				begin Scanner.Mark ('Can not pass read-only var as var parameter'); end
 		else
@@ -1279,7 +1377,7 @@ implementation
 		begin
 		x.mode := y^.class_; x.typ := y^.typ; x.lev := y^.lev; x.a := y^.val; x.b := 0;
 		x.read_only := y^.read_only;
-		if y^.lev = 0 then x.r := reg_RBX
+		if y^.lev = 0 then begin end
 		else if y^.lev = cur_lev then x.r := reg_RBP
 		else begin Scanner.Mark ('Level!?'); x.r := 0; end;
 		end;
@@ -1305,11 +1403,13 @@ implementation
 		Emit_label ('RANGE_CHECK_TRAP');
 		Emit_blank_line;
 		Emit_label ('INTEGER_OVERFLOW_TRAP');
+		Emit_blank_line;
+		Emit_label ('NOT_POSITIVE_DIVISOR_TRAP');
 		end;
 		
 	procedure Reset_reg_stack;
 		begin
-		cur_reg := 3;
+		cur_reg := 0;
 		end;
 		
 (* --------------------------------------------------------------------------------------- *)
@@ -1450,15 +1550,15 @@ initialization
 	range_check_flag := True;
 	overflow_check_flag := True;
 
-	New (bool_type); bool_type^.form := type_boolean; bool_type^.size := 1;
-	New (int_type); int_type^.form := type_integer; int_type^.size := 8;
-	New (int8_type); int8_type^.form := type_integer; int8_type^.size := 1;
-	New (int16_type); int16_type^.form := type_integer; int16_type^.size := 2;
-	New (int32_type); int32_type^.form := type_integer; int32_type^.size := 4;
-	New (set_type); set_type^.form := type_set; set_type^.size := 8;
+	New (bool_type);  bool_type^.form  := type_boolean;  bool_type^.size  := 1;
+	New (int_type);   int_type^.form   := type_integer;  int_type^.size   := 8;
+	New (int8_type);  int8_type^.form  := type_integer;  int8_type^.size  := 1;
+	New (int16_type); int16_type^.form := type_integer;  int16_type^.size := 2;
+	New (int32_type); int32_type^.form := type_integer;  int32_type^.size := 4;
+	New (set_type);   set_type^.form   := type_set;      set_type^.size   := 8;
 
 	Init_mnemonic_table;
 	Init_relation_table;
 	
-	cur_reg := 3;
+	cur_reg := 0;
 end.
