@@ -65,7 +65,7 @@ implementation
 			obj : Generator.Object_;
 		begin
 		New (obj);
-		obj^.class_ := cl; obj^.val := n; obj^.name := name; 
+		obj^.class_ := cl; obj^.val := n; obj^.name := name;
 		obj^.typ := typ; obj^.dsc := nil;
 		obj^.next := top_scope^.next;
 		top_scope^.next := obj;
@@ -171,7 +171,7 @@ implementation
 					Scanner.Mark ('No identifier after ,');
 				end;
 				
-			if sym = Scanner.sym_colon then 
+			if sym = Scanner.sym_colon then
 				begin Scanner.Get (sym); end
 			else
 				Scanner.Mark ('No : after identifier list');
@@ -196,7 +196,7 @@ implementation
 		if sym = Scanner.sym_ident then
 			begin
 			find (obj); Scanner.Get (sym);
-			if obj^.class_ = class_typ then typ := obj^.typ else Scanner.Mark ('Type not found'); 
+			if obj^.class_ = class_typ then typ := obj^.typ else Scanner.Mark ('Type not found');
 			end
 			
 		else if sym = Scanner.sym_array then
@@ -205,8 +205,8 @@ implementation
 			if (x.mode <> Generator.class_const) or (x.a <= 0) then
 				begin Scanner.Mark ('Invalid array size'); x.a := 1; end;
 			if sym = Scanner.sym_of then Scanner.Get (sym) else Mark ('No OF in array declaration');
-			Type_ (tp);	New (typ); 
-			typ^.form := Generator.type_array; 
+			Type_ (tp);	New (typ);
+			typ^.form := Generator.type_array;
 			typ^.base := tp;
 			typ^.len := x.a;
 			typ^.size := typ^.len * tp^.size;
@@ -251,7 +251,7 @@ implementation
 		begin
 		while true do
 			begin
-			if sym = Scanner.sym_const then 
+			if sym = Scanner.sym_const then
 				begin
 				Scanner.Get (sym);
 				while sym = Scanner.sym_ident do
@@ -335,12 +335,12 @@ implementation
 		
 	procedure IfStatement;
 		var
-			x : Generator.Item; 
-			elb, lb : AnsiString; 
+			x : Generator.Item;
+			elb, lb : AnsiString;
 			l : Integer;
 		begin
 		l := Generator.line_num;
-		elb := 'IF_' + IntToStr (l) + '_END'; 
+		elb := 'IF_' + IntToStr (l) + '_END';
 		
 		Scanner.Get (sym); expression (x);
 		Generator.Cond_jump (x);
@@ -358,7 +358,7 @@ implementation
 			Generator.Cond_jump (x);
 			
 			if sym = Scanner.sym_then then Scanner.Get (sym) else Scanner.Mark ('THEN missing');
-			StatementSequence; 
+			StatementSequence;
 			end;
 		
 		if sym = Scanner.sym_else then
@@ -392,7 +392,7 @@ implementation
 		Generator.Cond_jump (x);
 		
 		if sym = Scanner.sym_do then Scanner.Get (sym) else Scanner.Mark ('DO missing');
-		StatementSequence; 
+		StatementSequence;
 		Generator.Jump (slb);
 		
 		Generator.Fix_link (x.a, elb);
@@ -644,7 +644,7 @@ implementation
 				end
 			else
 				begin
-				Scanner.Get (sym); 
+				Scanner.Get (sym);
 				if sym = Scanner.sym_ident then
 					begin
 					if x.typ^.form = Generator.type_record then
@@ -694,7 +694,7 @@ implementation
 			
 			cls := first^.class_; read_only := first^.read_only;
 			para_size := Word_size;
-			if (cls = Generator.class_var) and Is_structured_type (tp) then 
+			if (cls = Generator.class_var) and Is_structured_type (tp) then
 				begin	
 				cls := Generator.class_par;
 				read_only := True;
@@ -771,7 +771,10 @@ implementation
 			Generator.Emit_label ('PROC_' + IntToStr (Generator.line_num));
 			Generator.Enter (para_block_size, local_block_size);
 			if sym = Scanner.sym_begin then
-				begin Scanner.Get (sym); StatementSequence; end;
+				begin
+            Scanner.Get (sym);
+            StatementSequence;
+         	end;
 			
 			if proc^.class_ = Generator.class_func then
 				begin
@@ -825,7 +828,7 @@ implementation
 						begin
 						if y.typ = par^.typ then
 							Generator.Parameter (y, par^.class_)
-						else 
+						else
 							Scanner.Mark ('Incompatible param types');
 						par := par^.next;
 						end
@@ -930,7 +933,7 @@ implementation
 		
 		Generator.End_module;
 		if sym = Scanner.sym_end then Scanner.Get (sym) else Scanner.Mark ('No END keyword');
-		if sym = Scanner.sym_ident then 
+		if sym = Scanner.sym_ident then
 			begin
 			if Scanner.id <> modid then Scanner.Mark ('Wrong module identifier');
 			Scanner.Get (sym);

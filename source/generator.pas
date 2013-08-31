@@ -197,14 +197,21 @@ implementation
 		var
 			mem_prefix : AnsiString;
 		begin
-		if x.typ^.size = 8 then mem_prefix := 'qword'
-		else if x.typ^.size = 4 then mem_prefix := 'dword'
-		else if x.typ^.size = 2 then mem_prefix := 'word'
-		else if x.typ^.size = 1 then mem_prefix := 'byte';
-		if x.lev = 0 then
-			Result := mem_prefix + ' [Global + ' + IntToStr (x.a) + ']'
+		if x.typ^.size = 8 then mem_prefix := 'qword '
+		else if x.typ^.size = 4 then mem_prefix := 'dword '
+		else if x.typ^.size = 2 then mem_prefix := 'word '
+		else if x.typ^.size = 1 then mem_prefix := 'byte ';
+		if (x.lev = 0) and (x.mode = class_var) then
+			Result := mem_prefix + '[Global + ' + IntToStr (x.a) + ']'
 		else
-			Result := mem_prefix + ' [' + reg_table [x.r] + ' + ' + IntToStr (x.a) + ']';
+			Result := mem_prefix + '[' + reg_table [x.r] + ' + ' + IntToStr (x.a) + ']';
+		end;
+		
+	function Mem_op2 (base, index, scale, disp : Int64) : AnsiString;
+		begin
+		Result := '[' + reg_table [base] + ' + ';
+		Result := Result + reg_table [index] + ' * ' + IntToStr (scale) + ' + ';
+		Result := Result + IntToStr (disp) + ']';
 		end;
 		
 	function Reg32 (reg : Int64) : Int64;
@@ -285,6 +292,11 @@ implementation
 	procedure Put_op_sym_imm (op : Int64; sym : AnsiString; imm : Int64);
 		begin
 		Write_op (op_table [op], sym, IntToStr (imm), '');
+		end;
+		
+	procedure Put_op_reg_sym (op : Int64; reg : Int64; sym : AnsiString);
+		begin
+		Write_op (op_table [op], reg_table [reg], sym, '');
 		end;
 		
 (* --------------------------------------------------------------------------------------- *)
@@ -1032,8 +1044,11 @@ implementation
 		
 (* --------------------------------------------------------------------------------------- *)
 (* --------------------------------------------------------------------------------------- *)
-		
+	
+	(* Procedure Index may use RAX during calculation *)
 	procedure Index (var x, y : Item);
+		var
+			elem_size, scale : Integer;
 		begin
 		if y.mode = class_const then
 			begin
@@ -1048,17 +1063,34 @@ implementation
 				Put_op_reg_imm (op_CMP, y.r, x.typ^.len);
 				Put_op_sym (op_JAE, 'RANGE_CHECK_TRAP');
 				end;
-			Put_op_reg_reg_imm (op_IMUL, y.r, y.r, x.typ^.base^.size);
+				
+			elem_size := x.typ^.base^.size;
+			if (elem_size = 1) or (elem_size = 2) or (elem_size = 4) or (elem_size = 8) then
+				begin scale := elem_size end
+			else
+				begin
+				Put_op_reg_reg_imm (op_IMUL, y.r, y.r, elem_size);
+				scale := 1;
+				end;
 			
 			if x.mode = class_par then Ref_to_regI (x);
 			if x.mode = class_var then
 				begin
-				Put_op_reg_reg (op_ADD, y.r, x.r);
-				x.r := y.r; x.mode := mode_regI;
+				if x.lev = 0 then
+					begin
+					Put_op_reg_mem (op_LEA, reg_RAX, x);
+					Put_op_reg_sym (op_LEA, y.r, Mem_op2 (reg_RAX, y.r, scale, 0));
+					end
+				else
+					begin
+					Put_op_reg_sym (op_LEA, y.r, Mem_op2 (x.r, y.r, scale, x.a));
+					end;
+				x.r := y.r; x.mode := mode_regI; x.a := 0;
 				end
 			else if x.mode = mode_regI then
 				begin
-				Put_op_reg_reg (op_ADD, x.r, y.r);
+				Put_op_reg_sym (op_LEA, x.r, Mem_op2 (x.r, y.r, scale, x.a));
+				x.a := 0;
 				Dec (cur_reg);
 				end;
 			end;
