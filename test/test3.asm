@@ -24,7 +24,18 @@ END_SET_8:
  JA IF_21_END
  BT r9, r8
  JNC IF_21_END
+ MOV r8, qword [Global + 0]
+ MOV qword [Global + 8], r8
 IF_21_END:
+ MOV r8, qword [Global + 0]
+ MOV r9, qword [Global + 0]
+ NOT r9
+ AND r8, r9
+ JNE IF_30_END
+ MOV r10, 2
+ OR r10, qword [Global + 0]
+ MOV qword [Global + 0], r10
+IF_30_END:
  RET
 
 RANGE_CHECK_TRAP:

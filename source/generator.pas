@@ -66,6 +66,7 @@ interface
 	procedure Field (var x : Item; y : Object_);
 	
 	procedure Relation (op : Integer; var x, y : Item);
+	procedure Inclusion_test (op : Integer; var x, y : Item);
 	procedure Membership_test (var x, y : Item);
 	procedure Cond_jump (var x : Item);
 	procedure Emit_label (lb : AnsiString);
@@ -1141,6 +1142,25 @@ implementation
 			end;
 		end;
 		
+	procedure Inclusion_test (op : Integer; var x, y : Item);
+		begin
+		if (x.mode = class_const) and (y.mode = class_const) then
+			begin
+			if op = Scanner.sym_greater_equal then
+				if (y.a and not x.a) = 0 then x.a := 1 else x.a := 0
+			else
+				if (x.a and not y.a) = 0 then x.a := 1 else x.a := 0;
+			end
+		else
+			begin
+			load (x); load (y);
+			if op = Scanner.sym_greater_equal then Put_op_reg (op_NOT, x.r)
+			else Put_op_reg (op_NOT, y.r);
+			Put_op_reg_reg (op_AND, x.r, y.r);
+			x.c := op_JE; x.a := 0; x.b := 0;
+			end;
+		end;
+		
 	procedure Membership_test (var x, y : Item);
 		begin
 		if (x.mode = class_const) and (y.mode = class_const) then
@@ -1285,13 +1305,15 @@ implementation
 				end;
 			x.mode := mode_reg; x.r := cur_reg - 1;
 			end
-		else if (x.mode = class_const) and (x.typ^.form = type_boolean) then
+		else if (x.mode = class_const) and ((x.typ^.form = type_boolean) or (x.typ^.form = type_set)) then
 			begin (* do nothing *) end
 		else if x.typ^.form = type_boolean then
 			begin load (x); end
+		else if x.typ^.form = type_set then
+			begin load (x); end
 		else
 			begin
-			Scanner.Mark ('Function ORD input must be BOOLEAN type');
+			Scanner.Mark ('Function ORD input must be BOOLEAN or SET type');
 			Make_clean_const (x, int_type, 0);
 			end;
 		x.typ := int_type;
