@@ -11,6 +11,7 @@ interface
 		class_proc = 6; class_sproc = 7; class_func = 8;
 		mode_reg = 10; mode_regI = 11; mode_cond = 12;
 		type_boolean = 0; type_integer = 1; type_array = 2; type_record = 3; type_set = 4;
+		type_dynArray = 5;
 
 	type
 		Type_ = ^Type_desc;
@@ -63,6 +64,7 @@ interface
 	procedure Set3 (var x, y, z : Item);
 	
 	procedure Index (var x, y : Item);
+	procedure Dyn_array_Index (var x, y : Item);
 	procedure Field (var x : Item; y : Object_);
 	
 	procedure Relation (op : Integer; var x, y : Item);
@@ -78,6 +80,7 @@ interface
 	procedure Return (parblksize : Int64);
 	procedure Set_Function_result (var x : Item);
 	procedure Parameter (var x : Item; cls : Integer);
+	procedure Dyn_array_Param (var x : Item; fp : Object_);
 	procedure Call (var x : Item);
 	
 	procedure SFunc_ORD (var x : Item);
@@ -533,9 +536,9 @@ implementation
 	procedure Load_adr (var x : Item);
 		begin
 		if x.mode = class_var then
-			begin Put_op_reg_mem (op_LEA, cur_reg, x); Inc_reg; end
+			begin Inc_reg; Put_op_reg_mem (op_LEA, cur_reg - 1, x); x.r := cur_reg - 1; end
 		else if x.mode = class_par then
-			begin Put_op_reg_mem (op_MOV, cur_reg, x); Inc_reg; end
+			begin Inc_reg; Put_op_reg_mem (op_MOV, cur_reg - 1, x); x.r := cur_reg - 1; end
 		else if x.mode = mode_regI then
 			begin Put_op_reg_mem (op_LEA, x.r, x); end
 		else
@@ -743,11 +746,23 @@ implementation
 		begin
 		if op = Scanner.sym_minus then
 			begin
-			if x.mode = class_const then x.a := -x.a
-			else
+			if x.typ = set_type then
 				begin
-				if x.mode <> mode_reg then load (x);
-				Put_op_reg (op_NEG, x.r);
+				if x.mode = class_const then x.a := not x.a
+				else
+					begin
+					if x.mode <> mode_reg then load (x);
+					Put_op_reg (op_NOT, x.r);
+					end;
+				end
+			else (* x.typ is integer *)
+				begin
+				if x.mode = class_const then x.a := -x.a
+				else
+					begin
+					if x.mode <> mode_reg then load (x);
+					Put_op_reg (op_NEG, x.r);
+					end;
 				end;
 			end
 		else if op = Scanner.sym_not then
@@ -1058,7 +1073,7 @@ implementation
 			end
 		else
 			begin
-			if y.mode <> mode_reg then load (y);
+			load (y);
 			if range_check_flag then
 				begin
 				Put_op_reg_imm (op_CMP, y.r, x.typ^.len);
@@ -1090,11 +1105,44 @@ implementation
 				end
 			else if x.mode = mode_regI then
 				begin
-				Put_op_reg_sym (op_LEA, x.r, Mem_op2 (x.r, y.r, scale, x.a));
-				x.a := 0;
-				Dec (cur_reg);
+				if x.r < y.r then
+					Put_op_reg_sym (op_LEA, x.r, Mem_op2 (x.r, y.r, scale, x.a))
+				else
+					begin
+					Put_op_reg_sym (op_LEA, y.r, Mem_op2 (x.r, y.r, scale, x.a));
+					x.r := y.r;
+					end;
+				x.a := 0; Dec (cur_reg);
 				end;
 			end;
+		end;
+		
+	procedure Dyn_array_Index (var x, y : Item);
+		var
+			elem_size, scale : Integer;
+		begin
+		load (y);
+		if range_check_flag then
+			begin
+			x.a := x.a + 8;
+			Put_op_reg_mem (op_CMP, y.r, x);
+			Put_op_sym (op_JAE, 'RANGE_CHECK_TRAP');
+			x.a := x.a - 8;
+			end;
+			
+		elem_size := x.typ^.base^.size;
+		if (elem_size = 1) or (elem_size = 2) or (elem_size = 4) or (elem_size = 8) then
+			begin scale := elem_size end
+		else
+			begin
+			Put_op_reg_reg_imm (op_IMUL, y.r, y.r, elem_size);
+			scale := 1;
+			end;
+			
+		Ref_to_regI (x);	(* x (open array) is always in reference form *)
+		Put_op_reg_sym (op_LEA, y.r, Mem_op2 (x.r, y.r, scale, x.a));
+		x.r := y.r; x.a := 0;
+		Dec (cur_reg);
 		end;
 	
 	procedure Field (var x : Item; y : Object_);
@@ -1245,10 +1293,23 @@ implementation
 	procedure Parameter (var x : Item; cls : Integer);
 		begin
 		if cls = class_par then
+			begin
 			if not x.read_only then
-				begin Load_adr (x); Put_op_reg (op_PUSH, cur_reg - 1); Dec (cur_reg); end
+				begin
+				if x.mode = class_par then
+					Put_op_mem (op_PUSH, x)
+				else
+					begin
+					Load_adr (x);
+					Put_op_reg (op_PUSH, cur_reg - 1);
+					Dec (cur_reg);
+					end;
+				end
 			else
-				begin Scanner.Mark ('Can not pass read-only var as var parameter'); end
+				begin
+				Scanner.Mark ('Can not pass read-only var as var parameter');
+				end;
+			end
 		else
 			begin
 			if x.mode = class_par then Ref_to_regI (x)
@@ -1266,6 +1327,41 @@ implementation
 			else if x.mode = class_const then
 				begin Put_op_imm (op_PUSH, x.a); end;
 			end;
+		end;
+		
+	procedure Dyn_array_Param (var x : Item; fp : Object_);
+		begin
+		if x.typ^.form = type_array then
+			begin
+			if x.typ^.base = fp^.typ^.base then
+				begin
+				Put_op_imm (op_PUSH, x.typ^.len);
+				if x.mode = class_par then
+					Put_op_mem (op_PUSH, x)
+				else
+					begin
+					Load_adr (x);
+					Put_op_reg (op_PUSH, x.r);
+					Dec (cur_reg);
+					end;
+				end
+			else
+				Scanner.Mark ('Array base type incompatible');
+			end
+		else if x.typ^.form = type_dynArray then
+			begin
+			if x.typ^.base = fp^.typ^.base then
+				begin
+				x.a := x.a + 8;
+				Put_op_mem (op_PUSH, x);
+				x.a := x.a - 8;
+				Put_op_mem (op_PUSH, x);
+				end
+			else
+				Scanner.Mark ('Array base type incompatible');
+			end
+		else
+			Scanner.Mark ('Array type expected');
 		end;
 		
 	procedure Call (var x : Item);

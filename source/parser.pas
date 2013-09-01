@@ -119,7 +119,7 @@ implementation
 			end
 		else if (op = Scanner.sym_equal) or (op = Scanner.sym_not_equal) then
 			begin
-			if (form <> Generator.type_integer) or (form <> Generator.type_boolean) or (form <> Generator.type_set) then
+			if (form <> Generator.type_integer) and (form <> Generator.type_boolean) and (form <> Generator.type_set) then
 				Scanner.Mark ('=, # only compatible with INTEGER, BOOLEAN or SET types');
 			end
 		else if (op = Scanner.sym_greater) or (op = Scanner.sym_less) then
@@ -153,7 +153,8 @@ implementation
 		
 	function Is_structured_type (tp : Generator.Type_) : Boolean;
 		begin
-		if (tp^.form = Generator.type_record) or (tp^.form = Generator.type_array) then
+		if (tp^.form = Generator.type_record) or (tp^.form = Generator.type_array)
+				or (tp^.form = Generator.type_dynArray) then
 			Result := True
 		else
 			Result := False;
@@ -679,14 +680,17 @@ implementation
 				Scanner.Get (sym); expression (y); Check_int (y);
 				if x.typ^.form = Generator.type_array then
 					begin Index (x, y); x.typ := x.typ^.base; end
+				else if x.typ^.form = Generator.type_dynArray then
+					begin Dyn_array_Index (x, y); x.typ := x.typ^.base end
 				else
 					begin Scanner.Mark ('Not an array type') end;
+					
 				if sym = Scanner.sym_rbrak then
 					begin Scanner.Get (sym) end
 				else
 					begin Scanner.Mark ('Missing ]') end;
 				end
-			else
+			else (* RECORD case *)
 				begin
 				Scanner.Get (sym);
 				if sym = Scanner.sym_ident then
@@ -718,7 +722,7 @@ implementation
 		procedure FPSection;
 			var
 				obj, first : Generator.Object_;
-				tp : Generator.Type_;
+				tp, typ : Generator.Type_;
 				para_size : Int64;
 				cls : Integer;
 				read_only : Boolean;
@@ -727,17 +731,45 @@ implementation
 				begin Scanner.Get (sym); IdentList (Generator.class_par, first) end
 			else
 				begin IdentList (Generator.class_var, first) end;
+				
 			if sym = Scanner.sym_ident then
 				begin
 				find (obj); Scanner.Get (sym);
 				if obj^.class_ = Generator.class_typ then tp := obj^.typ
 				else begin Scanner.Mark ('Type not found'); tp := Generator.int_type; end;
 				end
+			else if sym = Scanner.sym_array then
+				begin
+				Scanner.Get (sym);
+				if sym = Scanner.sym_of then Scanner.Get (sym) else Mark ('Open array?');
+				if sym = Scanner.sym_ident then
+					begin Type_ (typ); end
+				else if sym = Scanner.sym_array then
+					begin
+					Scanner.Get (sym);
+					Scanner.Mark ('Multi-dimension open array not supported');
+					typ := Generator.int_type;
+					end
+				else
+					begin
+					Scanner.Mark ('No type identifier?');
+					typ := Generator.int_type;
+					end;
+
+				New (tp);
+				tp^.form := Generator.type_dynArray;
+				tp^.base := typ;
+				tp^.len := 0;
+				tp^.size := Word_size * 2;
+				end
 			else
 				Scanner.Mark ('Identifiers list without type');
 			
 			cls := first^.class_; read_only := first^.read_only;
-			para_size := Word_size;
+			if tp^.form = Generator.type_dynArray then
+				para_size := Word_size * 2
+			else
+				para_size := Word_size;
 			if (cls = Generator.class_var) and Is_structured_type (tp) then
 				begin	
 				cls := Generator.class_par;
@@ -870,7 +902,9 @@ implementation
 					expression (y);
 					if par^.is_param then
 						begin
-						if y.typ = par^.typ then
+						if par^.typ^.form = Generator.type_dynArray then
+							Generator.Dyn_array_Param (y, par)
+						else if y.typ = par^.typ then
 							Generator.Parameter (y, par^.class_)
 						else
 							Scanner.Mark ('Incompatible param types');
@@ -988,6 +1022,7 @@ implementation
 		
 initialization
 	New (guard); guard^.class_ := Generator.class_var; guard^.typ := Generator.int_type; guard^.val := 0;
+   guard^.is_param := False;
 	top_scope := nil; Open_scope;
 	
 	enter (Generator.class_typ, 1, 'BOOLEAN', Generator.bool_type);
