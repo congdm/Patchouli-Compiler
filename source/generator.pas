@@ -90,6 +90,7 @@ interface
 	procedure SFunc_TOINT8 (var x : Item);
 	procedure SFunc_TOINT16 (var x : Item);
 	procedure SFunc_TOINT32 (var x : Item);
+	procedure SFunc_LEN (var x : Item);
 	
 	function Get_result_int_type (var x, y : Item) : Type_;
 	procedure Reset_reg_stack;
@@ -422,13 +423,13 @@ implementation
 		end;
 		
 	procedure Put_load_mem_op (reg : Int64; var x : Item);
-		begin
-		if x.typ^.size = 8 then
-			Put_op_reg_mem (op_MOV, reg, x)
-		else if x.typ^.size = 4 then
+		begin	
+		if x.typ^.size = 4 then
 			Put_op_reg_mem (op_MOVSXD, reg, x)
+		else if (x.typ^.size = 2) or (x.typ^.size = 1) then
+			Put_op_reg_mem (op_MOVSX, reg, x)
 		else
-			Put_op_reg_mem (op_MOVSX, reg, x);
+			Put_op_reg_mem (op_MOV, reg, x);
 		end;
 
 	procedure load (var x : Item);
@@ -1403,13 +1404,11 @@ implementation
 			end
 		else if (x.mode = class_const) and ((x.typ^.form = type_boolean) or (x.typ^.form = type_set)) then
 			begin (* do nothing *) end
-		else if x.typ^.form = type_boolean then
-			begin load (x); end
-		else if x.typ^.form = type_set then
+		else if (x.typ^.form = type_boolean) or (x.typ^.form = type_set) then
 			begin load (x); end
 		else
 			begin
-			Scanner.Mark ('Function ORD input must be BOOLEAN or SET type');
+			Scanner.Mark ('Function ORD input type must be BOOLEAN or SET');
 			Make_clean_const (x, int_type, 0);
 			end;
 		x.typ := int_type;
@@ -1419,7 +1418,7 @@ implementation
 		begin
 		if x.typ^.form <> type_integer then
 			begin
-			Scanner.Mark ('Function ODD input must be INTEGER type');
+			Scanner.Mark ('Function ODD input must be an INTEGER');
 			Make_clean_const (x, bool_type, 0);
 			end
 		else if x.mode = class_const then
@@ -1434,27 +1433,44 @@ implementation
 		
 	procedure SFunc_GET (var x, y : Item);
 		begin
-		if (x.typ^.form <> type_integer) or (y.typ^.form <> type_integer) then
+		if (x.typ^.form <> type_integer) then
 			begin
-			Scanner.Mark ('Procedure GET inputs must be INTEGER type');
+			Scanner.Mark ('Function GET: address must be an INTEGER');
+			end
+		else if (y.mode = mode_reg) or (y.mode = class_const) then
+			begin
+			Scanner.Mark ('Function GET: destination must be a variable');
+			end
+		else if (y.typ^.form = type_array) or (y.typ^.form = type_dynArray) or (y.typ^.form = type_record) then
+			begin
+			Scanner.Mark ('Function GET: type of destination variable must be basic type');
 			end
 		else
 			begin
+			if y.mode = class_par then Ref_to_regI (y);
 			load (x); x.mode := mode_regI; x.a := 0;
-			Store (y, x);
+			load (x);
+			Put_op_mem_reg (op_MOV, y, x.r);
+			if Use_register (y) then cur_reg := cur_reg - 2 else Dec (cur_reg);
 			end;
 		end;
 	
 	procedure SFunc_PUT (var x, y : Item);
 		begin
-		if (x.typ^.form <> type_integer) or (y.typ^.form <> type_integer) then
+		if (x.typ^.form <> type_integer) then
 			begin
-			Scanner.Mark ('Procedure PUT inputs must be INTEGER type');
+			Scanner.Mark ('Function PUT: address must be an INTEGER');
+			end
+		else if (y.typ^.form = type_array) or (y.typ^.form = type_dynArray) or (y.typ^.form = type_record) then
+			begin
+			Scanner.Mark ('Function PUT: type of source must be basic type');
 			end
 		else
 			begin
-			load (x); x.mode := mode_regI; x.a := 0;
-			Store (x, y);
+			load (y);
+			load (x); x.mode := mode_regI; x.a := 0; x.typ := y.typ;
+			Put_op_mem_reg (op_MOV, x, y.r);
+			cur_reg := cur_reg - 2;
 			end;
 		end;
 		
@@ -1462,7 +1478,7 @@ implementation
 		begin
 		if x.typ^.form <> type_integer then
 			begin
-			Scanner.Mark ('Function TOINT8 input must be INTEGER type');
+			Scanner.Mark ('Function TOINT8 input must be an INTEGER');
 			end
 		else
 			begin
@@ -1481,7 +1497,7 @@ implementation
 		begin
 		if x.typ^.form <> type_integer then
 			begin
-			Scanner.Mark ('Function TOINT8 input must be INTEGER type');
+			Scanner.Mark ('Function TOINT16 input must be an INTEGER');
 			end
 		else
 			begin
@@ -1500,7 +1516,7 @@ implementation
 		begin
 		if x.typ^.form <> type_integer then
 			begin
-			Scanner.Mark ('Function TOINT8 input must be INTEGER type');
+			Scanner.Mark ('Function TOINT32 input must be an INTEGER');
 			end
 		else
 			begin
@@ -1512,6 +1528,25 @@ implementation
 				Put_op_reg_imm (op_CMP, x.r, 2147483647);
 				Put_op_sym (op_JG, 'INTEGER_OVERFLOW_TRAP');
 				end;
+			end;
+		end;
+		
+	procedure SFunc_LEN (var x : Item);
+		begin
+		if x.typ^.form = type_array then
+			begin
+			Make_clean_const (x, int_type, x.typ^.len);
+			end
+		else if x.typ^.form = type_dynArray then
+			begin
+			(* Open array is always in class_par mode *)
+			x.a := x.a + 8; x.mode := class_var;
+			load (x);
+			x.typ := int_type;
+			end
+		else
+			begin
+			Scanner.Mark ('Function LEN input must be an ARRAY');
 			end;
 		end;
 
@@ -1698,7 +1733,7 @@ initialization
 	cur_lev := 0;
 	line_num := 1;
 	range_check_flag := True;
-	overflow_check_flag := True;
+	overflow_check_flag := False;
 
 	New (bool_type);  bool_type^.form  := type_boolean;  bool_type^.size  := 1;
 	New (int_type);   int_type^.form   := type_integer;  int_type^.size   := 8;

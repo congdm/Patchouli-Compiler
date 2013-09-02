@@ -941,7 +941,9 @@ implementation
 			else if fctno = 5 then (* TOINT16 *)
 				Generator.SFunc_TOINT16 (x)
 			else if fctno = 6 then (* TOINT32 *)
-				Generator.SFunc_TOINT32 (x);
+				Generator.SFunc_TOINT32 (x)
+			else if fctno = 7 then (* LEN *)
+				Generator.SFunc_LEN (x);
 			if sym = Scanner.sym_rparen then Scanner.Get (sym)
 			else Scanner.Mark ('No closing )');
 			end
@@ -1042,5 +1044,6 @@ initialization
 	enter (Generator.class_sproc, 4, 'TOINT8', Generator.int8_type);
 	enter (Generator.class_sproc, 5, 'TOINT16', Generator.int16_type);
 	enter (Generator.class_sproc, 6, 'TOINT32', Generator.int32_type);
+	enter (Generator.class_sproc, 7, 'LEN', Generator.int_type);
 	universe := top_scope;
 end.
