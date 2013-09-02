@@ -376,7 +376,7 @@ implementation
 		
 		if sym = Scanner.sym_then then Scanner.Get (sym) else Scanner.Mark ('THEN missing');
 		StatementSequence;
-		
+
 		while sym = Scanner.sym_elsif do
 			begin
 			Generator.Jump (elb);
@@ -409,7 +409,7 @@ implementation
 	procedure WhileStatement;
 		var
 			x : Generator.Item;
-			slb, elb : AnsiString;
+			slb, elb, lb : AnsiString;
 			l : Integer;
 		begin
 		l := Generator.line_num;
@@ -423,6 +423,19 @@ implementation
 		if sym = Scanner.sym_do then Scanner.Get (sym) else Scanner.Mark ('DO missing');
 		StatementSequence;
 		Generator.Jump (slb);
+		
+		while sym = Scanner.sym_elsif do
+			begin
+			lb := 'WHILE_ELSIF_' + IntToStr (Generator.line_num);
+			Generator.Fix_link (x.a, lb); Generator.Emit_label (lb);
+			
+			Scanner.Get (sym); expression (x);
+			Generator.Cond_jump (x);
+			
+			if sym = Scanner.sym_do then Scanner.Get (sym) else Scanner.Mark ('DO missing');
+			StatementSequence;
+			Generator.Jump (slb);
+			end;
 		
 		Generator.Fix_link (x.a, elb);
 		Generator.Emit_label (elb);
@@ -455,6 +468,48 @@ implementation
 			end;
 		end;
 		
+	procedure ProcedureStatement (var x : Generator.Item; obj : Generator.Object_);
+		var
+			y : Generator.Item;
+			par : Generator.Object_;
+		begin
+		par := obj^.dsc;
+		if sym = Scanner.sym_lparen then
+			begin
+			Scanner.Get (sym);
+			if sym = Scanner.sym_rparen then
+				Scanner.Get (sym)
+			else
+				while true do
+					begin
+					expression (y);
+					if par^.is_param then
+						begin
+						if par^.typ^.form = Generator.type_dynArray then
+							Generator.Dyn_array_Param (y, par)
+						else if y.typ = par^.typ then
+							Generator.Parameter (y, par^.class_)
+						else
+							Scanner.Mark ('Incompatible param types');
+						par := par^.next;
+						end
+					else
+						Scanner.Mark ('Too many parameters');
+					if sym = Scanner.sym_comma then Scanner.Get (sym)
+					else if sym = Scanner.sym_rparen then begin Scanner.Get (sym); break; end
+					else if sym >= Scanner.sym_semicolon then begin Scanner.Mark ('No closing )'); break; end
+					else Scanner.Mark ('No ) or ,');
+					end;
+			end;
+		if obj^.val < 0 then
+			Scanner.Mark ('Forward call unsupported')
+		else
+			begin
+			Generator.Call (x);
+			if par^.is_param then Scanner.Mark ('Too few parameters');
+			end;
+		end;
+		
 	procedure StatementSequence;
 		var
 			obj : Generator.Object_;
@@ -462,8 +517,12 @@ implementation
 		begin
 		while true do
 			begin
-			if sym < Scanner.sym_ident then Scanner.Mark ('Statement beginning?');
-			
+			if sym < Scanner.sym_ident then
+				begin
+				Scanner.Mark ('Statement beginning?');
+				repeat Scanner.Get (sym) until sym >= Scanner.sym_ident;
+				end;
+				
 			if sym = Scanner.sym_ident then
 				begin
 				find (obj); Scanner.Get (sym);
@@ -485,11 +544,11 @@ implementation
 			else if sym = Scanner.sym_repeat then
 				RepeatStatement;
 			
-			Generator.Reset_reg_stack;
+			Generator.Check_reg_stack;
 			
 			if sym = Scanner.sym_semicolon then
 				Scanner.Get (sym)
-			else if ((sym >= Scanner.sym_semicolon) and (sym < Scanner.sym_if)) or (sym >= Scanner.sym_array) then
+			else if ((sym > Scanner.sym_semicolon) and (sym < Scanner.sym_if)) or (sym >= Scanner.sym_array) then
 				break
 			else Scanner.Mark ('No semicolon');
 			end;
@@ -550,6 +609,12 @@ implementation
 		var
 			obj : Generator.Object_;
 		begin
+		if sym < Scanner.sym_lparen then
+			begin
+			Scanner.Mark ('Identifier?');
+			repeat Scanner.Get (sym) until sym >= Scanner.sym_lparen;
+			end;
+			
 		if sym = Scanner.sym_ident then
 			begin
 			find (obj); Scanner.Get (sym);
@@ -844,7 +909,7 @@ implementation
 			(* Nesting procedures not implemented yet *)
 			
 			proc^.val := Generator.line_num;
-			Generator.Emit_label ('PROC_' + IntToStr (Generator.line_num));
+			Generator.Emit_label (proc^.name + '_');
 			Generator.Enter (para_block_size, local_block_size);
 			if sym = Scanner.sym_begin then
 				begin
@@ -867,12 +932,13 @@ implementation
 				begin
 				Scanner.Mark ('Normal procedures can not have return value!');
 				expression (x);
+				Make_clean_const (x, int_type, 0);
 				end;
 				
 			Generator.Return (para_block_size);
 			Close_scope;
 			Generator.Inc_level (-1);
-			Generator.Reset_reg_stack;
+			Generator.Check_reg_stack;
 				
 			if sym = Scanner.sym_end then Scanner.Get (sym) else Scanner.Mark ('No END for PROCEDURE');
 			if sym = Scanner.sym_ident then
@@ -884,48 +950,6 @@ implementation
 				Scanner.Mark ('No procedure identifier after END');
 			end;
 		end; (* ProcedureDecl *)
-		
-	procedure ProcedureStatement (var x : Generator.Item; obj : Generator.Object_);
-		var
-			y : Generator.Item;
-			par : Generator.Object_;
-		begin
-		par := obj^.dsc;
-		if sym = Scanner.sym_lparen then
-			begin
-			Scanner.Get (sym);
-			if sym = Scanner.sym_rparen then
-				Scanner.Get (sym)
-			else
-				while true do
-					begin
-					expression (y);
-					if par^.is_param then
-						begin
-						if par^.typ^.form = Generator.type_dynArray then
-							Generator.Dyn_array_Param (y, par)
-						else if y.typ = par^.typ then
-							Generator.Parameter (y, par^.class_)
-						else
-							Scanner.Mark ('Incompatible param types');
-						par := par^.next;
-						end
-					else
-						Scanner.Mark ('Too many parameters');
-					if sym = Scanner.sym_comma then Scanner.Get (sym)
-					else if sym = Scanner.sym_rparen then begin Scanner.Get (sym); break; end
-					else if sym >= Scanner.sym_semicolon then begin Scanner.Mark ('No closing )'); break; end
-					else Scanner.Mark ('No ) or ,');
-					end;
-			end;
-		if obj^.val < 0 then
-			Scanner.Mark ('Forward call unsupported')
-		else
-			begin
-			Generator.Call (x);
-			if par^.is_param then Scanner.Mark ('Too few parameters');
-			end;
-		end;
 		
 	procedure StandFunc (var x : Generator.Item; fctno : Int64);
 		begin
@@ -1008,10 +1032,10 @@ implementation
 			if sym = Scanner.sym_semicolon then Scanner.Get (sym) else Scanner.Mark ('No semicolon');
 			end;
 		
-		Generator.Emit_label ('MAIN');
-		if sym = Scanner.sym_begin then begin Scanner.Get (sym); StatementSequence; end;
+		Generator.Begin_Main;
+		if sym = Scanner.sym_begin then begin Scanner.Get (sym); StatementSequence; end;	
+		Generator.End_Main;
 		
-		Generator.End_module;
 		if sym = Scanner.sym_end then Scanner.Get (sym) else Scanner.Mark ('No END keyword');
 		if sym = Scanner.sym_ident then
 			begin

@@ -93,8 +93,9 @@ interface
 	procedure SFunc_LEN (var x : Item);
 	
 	function Get_result_int_type (var x, y : Item) : Type_;
-	procedure Reset_reg_stack;
-	procedure End_module;
+	procedure Check_reg_stack;
+	procedure Begin_Main;
+	procedure End_Main;
 
 implementation
 	uses
@@ -164,7 +165,7 @@ implementation
 			begin
 			line := asm_output [i];
 			if line.lb <> '' then Write (f, line.lb + ':');
-			if line.inst <> '' then Write (f, ' ' + line.inst);
+			if line.inst <> '' then Write (f, #9 + line.inst);
 			if line.o1 <> '' then Write (f, ' ' + line.o1);
 			if line.o2 <> '' then Write (f, ', ' + line.o2);
 			if line.o3 <> '' then Write (f, ', ' + line.o3);
@@ -1207,6 +1208,7 @@ implementation
 			else Put_op_reg (op_NOT, y.r);
 			Put_op_reg_reg (op_AND, x.r, y.r);
 			x.c := op_JE; x.a := 0; x.b := 0;
+			cur_reg := cur_reg - 2;
 			end;
 		end;
 		
@@ -1289,6 +1291,7 @@ implementation
 	procedure Set_Function_result (var x : Item);
 		begin
 		Load_to_reg (reg_RAX, x);
+		if Use_register (x) then Dec (cur_reg);
 		end;
 		
 	procedure Parameter (var x : Item; cls : Integer);
@@ -1367,7 +1370,7 @@ implementation
 		
 	procedure Call (var x : Item);
 		begin
-		Put_op_sym (op_CALL, 'PROC_' + IntToStr (x.a));
+		Put_op_sym (op_CALL, asm_output [x.a].lb);
 		end;
 		
 (* --------------------------------------------------------------------------------------- *)
@@ -1581,8 +1584,16 @@ implementation
 (* --------------------------------------------------------------------------------------- *)
 (* --------------------------------------------------------------------------------------- *)
 	
-	procedure End_module;
+	procedure Begin_Main;
 		begin
+		Emit_label ('MAIN');
+		Put_op_reg (op_PUSH, reg_RBP);
+		Put_op_reg_reg (op_MOV, reg_RBP, reg_RSP);
+		end;
+	
+	procedure End_Main;
+		begin
+		Put_op_bare (op_LEAVE);
 		Put_op_bare (op_RET);
 		Emit_blank_line;
 		Emit_label ('RANGE_CHECK_TRAP');
@@ -1592,9 +1603,13 @@ implementation
 		Emit_label ('NOT_POSITIVE_DIVISOR_TRAP');
 		end;
 		
-	procedure Reset_reg_stack;
+	procedure Check_reg_stack;
 		begin
-		cur_reg := 0;
+		if cur_reg <> 0 then
+			begin
+			Scanner.Mark ('Reg stack error');
+			cur_reg := 0;
+			end;
 		end;
 		
 (* --------------------------------------------------------------------------------------- *)
