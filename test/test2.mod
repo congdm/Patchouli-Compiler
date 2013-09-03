@@ -42,4 +42,6 @@ RETURN x END Add;
 BEGIN
 	IntToStr (45626473523);
 	WriteStr;
+	len := Add (len, 2);
+	Add (len, 1);
 END Test.

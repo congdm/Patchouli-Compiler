@@ -54,6 +54,7 @@ interface
 	procedure Make_item (var x : Item; y : Object_);
 	procedure Make_const (var x : Item; typ : Type_; val : Int64);
 	procedure Make_clean_const (var x : Item; typ : Type_; val : Int64);
+	procedure Make_function_result_item (var x : Item);
 	
 	procedure Store (var x, y : Item);
 	procedure Op1 (op : Integer; var x : Item);
@@ -1579,6 +1580,14 @@ implementation
 		begin
 		if (x.mode = mode_reg) or (x.mode = mode_regI) then Dec (cur_reg);
 		x.mode := class_const; x.typ := typ; x.a := val;
+		end;
+		
+	procedure Make_function_result_item (var x : Item);
+		begin
+		Inc_reg;
+		x.mode := mode_reg;
+		x.r := cur_reg - 1;
+		Put_op_reg_reg (op_MOV, x.r, reg_RAX);
 		end;
 		
 (* --------------------------------------------------------------------------------------- *)

@@ -121,6 +121,14 @@ MAIN:
 	PUSH r8
 	CALL IntToStr_
 	CALL WriteStr_
+	PUSH qword [Global + 20]
+	PUSH 2
+	CALL Add_
+	MOV r8, rax
+	MOV qword [Global + 20], r8
+	PUSH qword [Global + 20]
+	PUSH 1
+	CALL Add_
 	LEAVE
 	RET
 

@@ -177,9 +177,7 @@ implementation
 	procedure expression (var x : Generator.Item); forward;
 	procedure selector (var x : Generator.Item); forward;
 	procedure ProcedureDecl; forward;
-	procedure ProcedureStatement (var x : Generator.Item; obj : Generator.Object_); forward;
 	procedure StandFunc (var x : Generator.Item; fctno : Int64); forward;
-	procedure StandFuncStatement (var x : Generator.Item); forward;
 	
 	procedure IdentList (class_ : Integer; var first : Generator.Object_);
 		var
@@ -510,6 +508,36 @@ implementation
 			end;
 		end;
 		
+	procedure StandFuncStatement (var x : Generator.Item);
+		var
+			y : Generator.Item;
+		begin
+		if sym = Scanner.sym_lparen then
+			begin
+			Scanner.Get (sym); expression (x);
+			if sym = Scanner.sym_comma then
+				begin
+				Scanner.Get (sym); expression (y);
+				if x.a = 0 then (* GET *)
+					Generator.SFunc_GET (x, y)
+				else if x.a = 1 then (* PUT *)
+					Generator.SFunc_PUT (x, y);
+				end
+			else
+				begin
+				Scanner.Mark ('Comma expected');
+				Generator.Make_clean_const (x, Generator.int_type, 0);
+				end;
+			if sym = Scanner.sym_rparen then Scanner.Get (sym)
+			else Scanner.Mark ('No closing )');
+			end
+		else
+			begin
+			Scanner.Mark ('Paramaters missing?');
+			Generator.Make_clean_const (x, Generator.int_type, 0);
+			end;
+		end;
+		
 	procedure StatementSequence;
 		var
 			obj : Generator.Object_;
@@ -532,7 +560,7 @@ implementation
 					begin
 					AssignmentStatement (x);
 					end
-				else if x.mode = Generator.class_proc then
+				else if (x.mode = Generator.class_proc) or (x.mode = Generator.class_func) then
 					ProcedureStatement (x, obj)
 				else if x.mode = Generator.class_sproc then
 					StandFuncStatement (x);
@@ -605,6 +633,33 @@ implementation
 			end;
 		end;
 		
+	procedure StandFunc (var x : Generator.Item; fctno : Int64);
+		begin
+		if sym = Scanner.sym_lparen then
+			begin
+			Scanner.Get (sym); expression (x);
+			if fctno = 2 then (* ORD *)
+				Generator.SFunc_ORD (x)
+			else if fctno = 3 then (* ODD *)
+				Generator.SFunc_ODD (x)
+			else if fctno = 4 then (* TOINT8 *)
+				Generator.SFunc_TOINT8 (x)
+			else if fctno = 5 then (* TOINT16 *)
+				Generator.SFunc_TOINT16 (x)
+			else if fctno = 6 then (* TOINT32 *)
+				Generator.SFunc_TOINT32 (x)
+			else if fctno = 7 then (* LEN *)
+				Generator.SFunc_LEN (x);
+			if sym = Scanner.sym_rparen then Scanner.Get (sym)
+			else Scanner.Mark ('No closing )');
+			end
+		else
+			begin
+			Scanner.Mark ('Paramaters missing?');
+			Generator.Make_clean_const (x, Generator.int_type, 0);
+			end;
+		end;
+		
 	procedure factor (var x : Generator.Item);			
 		var
 			obj : Generator.Object_;
@@ -619,9 +674,19 @@ implementation
 			begin
 			find (obj); Scanner.Get (sym);
 			if obj^.class_ = Generator.class_sproc then
-				begin StandFunc (x, obj^.val); x.typ := obj^.typ; end
+				begin
+				StandFunc (x, obj^.val);
+				x.typ := obj^.typ;
+				end
+			else if obj^.class_ = Generator.class_func then
+				begin
+				Generator.Make_item (x, obj);
+				ProcedureStatement (x, obj);
+				Generator.Make_function_result_item (x);
+				end
 			else
-				begin Generator.Make_item (x, obj); selector (x); end;
+				begin Generator.Make_item (x, obj); end;
+			selector (x);
 			end
 		else if sym = Scanner.sym_number then
 			begin
@@ -899,6 +964,10 @@ implementation
 					end
 				else
 					begin Scanner.Mark ('Function result type missing?'); end;
+				end
+			else
+				begin
+				proc^.typ := nil;
 				end;
 			
 			local_block_size := 0; proc^.dsc := top_scope^.next;
@@ -950,63 +1019,6 @@ implementation
 				Scanner.Mark ('No procedure identifier after END');
 			end;
 		end; (* ProcedureDecl *)
-		
-	procedure StandFunc (var x : Generator.Item; fctno : Int64);
-		begin
-		if sym = Scanner.sym_lparen then
-			begin
-			Scanner.Get (sym); expression (x);
-			if fctno = 2 then (* ORD *)
-				Generator.SFunc_ORD (x)
-			else if fctno = 3 then (* ODD *)
-				Generator.SFunc_ODD (x)
-			else if fctno = 4 then (* TOINT8 *)
-				Generator.SFunc_TOINT8 (x)
-			else if fctno = 5 then (* TOINT16 *)
-				Generator.SFunc_TOINT16 (x)
-			else if fctno = 6 then (* TOINT32 *)
-				Generator.SFunc_TOINT32 (x)
-			else if fctno = 7 then (* LEN *)
-				Generator.SFunc_LEN (x);
-			if sym = Scanner.sym_rparen then Scanner.Get (sym)
-			else Scanner.Mark ('No closing )');
-			end
-		else
-			begin
-			Scanner.Mark ('Paramaters missing?');
-			Generator.Make_clean_const (x, Generator.int_type, 0);
-			end;
-		end;
-		
-	procedure StandFuncStatement (var x : Generator.Item);
-		var
-			y : Generator.Item;
-		begin
-		if sym = Scanner.sym_lparen then
-			begin
-			Scanner.Get (sym); expression (x);
-			if sym = Scanner.sym_comma then
-				begin
-				Scanner.Get (sym); expression (y);
-				if x.a = 0 then (* GET *)
-					Generator.SFunc_GET (x, y)
-				else if x.a = 1 then (* PUT *)
-					Generator.SFunc_PUT (x, y);
-				end
-			else
-				begin
-				Scanner.Mark ('Comma expected');
-				Generator.Make_clean_const (x, Generator.int_type, 0);
-				end;
-			if sym = Scanner.sym_rparen then Scanner.Get (sym)
-			else Scanner.Mark ('No closing )');
-			end
-		else
-			begin
-			Scanner.Mark ('Paramaters missing?');
-			Generator.Make_clean_const (x, Generator.int_type, 0);
-			end;
-		end;
 		
 	procedure Module;
 		var
