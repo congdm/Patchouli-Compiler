@@ -11,11 +11,11 @@ const
 	sym_equal = 9; sym_not_equal = 10; sym_less = 11; sym_greater_equal = 12; sym_less_equal = 13; sym_greater = 14;
 	sym_in = 15;
 	sym_period = 18; sym_comma = 19; sym_colon = 20; sym_upto = 21; sym_rparen = 22; sym_rbrak = 23; sym_rbrace = 24;
-	sym_of = 25; sym_then = 26; sym_do = 27;
+	sym_of = 25; sym_then = 26; sym_do = 27; sym_to = 28;
 	sym_lparen = 29; sym_lbrak = 30; sym_lbrace = 31; sym_not = 32; sym_becomes = 33; sym_number = 34; sym_ident = 37;
 	sym_semicolon = 38; sym_end = 40; sym_else = 41; sym_elsif = 42; sym_until = 43;
 	sym_if = 44; sym_while = 46; sym_repeat = 47;
-	sym_array = 54; sym_record = 55;
+	sym_array = 54; sym_record = 55; sym_pointer = 56;
 	sym_const = 57; sym_type = 58; sym_var = 59; sym_procedure = 60; sym_begin = 61; sym_return = 63; 
 	sym_module = 64;
 	sym_eof = 65;
@@ -124,6 +124,10 @@ procedure Get_word (var sym : Integer);
 		sym := sym_return
 	else if s = 'IN' then
 		sym := sym_in
+	else if s = 'POINTER' then
+		sym := sym_pointer
+	else if s = 'TO' then
+		sym := sym_to
 	else
 		begin
 		sym := sym_ident;

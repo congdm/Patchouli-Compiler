@@ -8,10 +8,10 @@ interface
 	
 	const
 		class_head = 0; class_var = 1; class_par = 2; class_const = 3; class_field = 4; class_typ = 5;
-		class_proc = 6; class_sproc = 7; class_func = 8;
+		class_proc = 6; class_sproc = 7; class_func = 8; class_ind = 9;
 		mode_reg = 10; mode_regI = 11; mode_cond = 12;
 		type_boolean = 0; type_integer = 1; type_array = 2; type_record = 3; type_set = 4;
-		type_dynArray = 5;
+		type_dynArray = 5; type_pointer = 10;
 
 	type
 		Type_ = ^Type_desc;
@@ -22,6 +22,7 @@ interface
 			fields : Object_;
 			base : Type_;
 			size, len : Int64;
+			link : Type_;
 			end;
 		
 		Obj_desc = record
@@ -39,6 +40,7 @@ interface
 			typ : Type_;
 			a, b, c, r : Int64;
 			read_only : Boolean;
+			type_tag_addr : Int64;
 			end;
 			
 	var
@@ -80,8 +82,8 @@ interface
 	procedure Enter (parblksize, locblksize : Int64);
 	procedure Return (parblksize : Int64);
 	procedure Set_Function_result (var x : Item);
-	procedure Parameter (var x : Item; cls : Integer);
-	procedure Dyn_array_Param (var x : Item; fp : Object_);
+	procedure Parameter (var x : Item; fp : Object_);
+	procedure Dyn_array_Param (var x : Item; fp : Object_; formal_typ : Type_; dim : Integer);
 	procedure Call (var x : Item);
 	
 	procedure SFunc_ORD (var x : Item);
@@ -109,7 +111,7 @@ implementation
 		(* RAX, RBX, RCX, RDX, RSI, RDI, RBP, RSP is reserved for special purposes *)
 		
 		reg_R8 = 0; reg_R9 = 1; reg_R10 = 2; reg_R11 = 3;
-		reg_R12 = 4; reg_R13 = 5; reg_R14 = 6; reg_R15 = 7; 
+		reg_R12 = 4; reg_R13 = 5; reg_R14 = 6; reg_R15 = 7;
 		reg_RBX = 8; reg_RBP = 9; reg_RSP = 10; reg_RAX = 11; reg_RDX = 12;
 		reg_RCX = 13; reg_RSI = 14; reg_RDI = 15;
 		
@@ -136,8 +138,8 @@ implementation
 		op_MOVSX = 26; op_MOVSXD = 27; op_CQO = 28;
 		
 		op_JE = 30; op_JNE = 31; op_JMP = 42; vop_NJMP = 43;
-		op_JL = 32; op_JGE = 33; op_JG = 34; op_JLE = 35; 
-		op_JB = 36; op_JAE = 37; op_JA = 38; op_JBE = 39; 
+		op_JL = 32; op_JGE = 33; op_JG = 34; op_JLE = 35;
+		op_JB = 36; op_JAE = 37; op_JA = 38; op_JBE = 39;
 		op_JC = 40; op_JNC = 41; op_JO = 44; op_JNO = 45;
 		
 		op_LEAVE = 60; op_RET = 61; op_CALL = 62;
@@ -311,7 +313,7 @@ implementation
 
 	function Is_huge_const (x : Int64) : Boolean;
 		begin
-		if (x >= $80000000) or (x < -$80000000) then Is_huge_const := True 
+		if (x >= $80000000) or (x < -$80000000) then Is_huge_const := True
 		else Is_huge_const := False;
 		end;
 		
@@ -410,7 +412,7 @@ implementation
 		else Result := False;
 		end;
 		
-	procedure Clear_reg (reg : Int64); 
+	procedure Clear_reg (reg : Int64);
 		begin
 		Put_op_reg_reg (op_XOR, Reg32 (reg), Reg32 (reg))
 		end;
@@ -500,7 +502,10 @@ implementation
 			else if x.mode = mode_regI then
 				begin Put_op_mem_imm (op_MOV, x, y.a); Dec (cur_reg); end
 			else
+				begin
 				Scanner.Mark ('Invalid assignment');
+				if x.mode = mode_reg then Dec (cur_reg);
+				end;
 			end
 		else
 			begin
@@ -511,7 +516,10 @@ implementation
 			else if x.mode = mode_regI then
 				begin Put_op_mem_reg (op_MOV, x, y.r + reg_off); Dec (cur_reg); end
 			else
+				begin
 				Scanner.Mark ('Invalid assignment');
+				if x.mode = mode_reg then Dec (cur_reg);
+				end;
 			Dec (cur_reg);
 			end;
 		end;
@@ -656,8 +664,8 @@ implementation
 		(* ADD, SUB, IMUL,... can not work directly with huge const (64 bits) *)
 		if (x.mode = class_const) or (x.mode = class_var) or (x.mode = mode_regI) or (x.mode = class_par) then
 			begin
-			y.read_only := x.read_only; 
-			t := y; y := x; x := t; 
+			y.read_only := x.read_only;
+			t := y; y := x; x := t;
 			end;
 			
 		load (x);
@@ -698,7 +706,7 @@ implementation
 		if (y.mode = class_const) and Is_huge_const (y.a) then load (y)
 		else if y.mode = class_par then Ref_to_regI (y);
 		
-		if ((x.mode = class_var) or (x.mode = mode_regI)) 
+		if ((x.mode = class_var) or (x.mode = mode_regI))
 				and ((y.mode = class_var) or (y.mode = mode_regI)) then
 			load (x);
 		
@@ -782,7 +790,7 @@ implementation
 				x.a := line_num - 1;
 				end;
 			if x.b <> 0 then
-				begin 
+				begin
 				lb := 'LINE_' + IntToStr (line_num);
 				Fix_link (x.b, lb); Emit_label (lb); x.b := 0;
 				end;
@@ -796,7 +804,7 @@ implementation
 				x.b := line_num - 1;
 				end;
 			if x.a <> 0 then
-				begin 
+				begin
 				lb := 'LINE_' + IntToStr (line_num);
 				Fix_link (x.a, lb); Emit_label (lb); x.a := 0;
 				end;
@@ -1123,17 +1131,29 @@ implementation
 	procedure Dyn_array_Index (var x, y : Item);
 		var
 			elem_size, scale : Integer;
+			len : Item;
+			base_tp : Type_;
 		begin
 		load (y);
+		if x.type_tag_addr = 0 then x.type_tag_addr := x.a + 8;
+		len.mode := class_var; len.typ := int_type;
+		len.a := x.type_tag_addr; len.r := reg_RBP;
+		
 		if range_check_flag then
 			begin
-			x.a := x.a + 8;
-			Put_op_reg_mem (op_CMP, y.r, x);
+			Put_op_reg_mem (op_CMP, y.r, len);
 			Put_op_sym (op_JAE, 'RANGE_CHECK_TRAP');
-			x.a := x.a - 8;
 			end;
 			
-		elem_size := x.typ^.base^.size;
+		base_tp := x.typ^.base;
+		while (base_tp^.form = type_array) and (base_tp^.len = 0) do
+			begin
+			len.a := len.a + 8;
+			Put_op_reg_mem (op_IMUL, y.r, len);
+			base_tp := base_tp^.base;
+			end;
+			
+		elem_size := base_tp^.size;
 		if (elem_size = 1) or (elem_size = 2) or (elem_size = 4) or (elem_size = 8) then
 			begin scale := elem_size end
 		else
@@ -1141,15 +1161,20 @@ implementation
 			Put_op_reg_reg_imm (op_IMUL, y.r, y.r, elem_size);
 			scale := 1;
 			end;
-			
-		Ref_to_regI (x);	(* x (open array) is always in reference form *)
-		Put_op_reg_sym (op_LEA, y.r, Mem_op2 (x.r, y.r, scale, x.a));
-		x.r := y.r; x.a := 0;
-		Dec (cur_reg);
+		
+		if x.mode = class_par then Ref_to_regI (x);
+		if x.r < y.r then
+			Put_op_reg_sym (op_LEA, x.r, Mem_op2 (x.r, y.r, scale, x.a))
+		else
+			begin
+			Put_op_reg_sym (op_LEA, y.r, Mem_op2 (x.r, y.r, scale, x.a));
+			x.r := y.r;
+			end;
+		Dec (cur_reg); x.a := 0;
 		end;
 	
 	procedure Field (var x : Item; y : Object_);
-		begin 
+		begin
 		if x.mode = class_par then Ref_to_regI (x);
 		x.a := x.a + y^.val; x.typ := y^.typ;
 		end;
@@ -1258,7 +1283,7 @@ implementation
 			x.a := line_num - 1;
 			end;
 		if x.b <> 0 then
-			begin 
+			begin
 			lb := 'LINE_' + IntToStr (line_num);
 			Fix_link (x.b, lb); Emit_label (lb); x.b := 0;
 			end;
@@ -1295,31 +1320,25 @@ implementation
 		if Use_register (x) then Dec (cur_reg);
 		end;
 		
-	procedure Parameter (var x : Item; cls : Integer);
+	procedure Parameter (var x : Item; fp : Object_);
 		begin
-		if cls = class_par then
+		if fp^.class_ = class_par then
 			begin
-			if not x.read_only then
-				begin
-				if x.mode = class_par then
-					Put_op_mem (op_PUSH, x)
-				else
-					begin
-					Load_adr (x);
-					Put_op_reg (op_PUSH, cur_reg - 1);
-					Dec (cur_reg);
-					end;
-				end
+			if x.read_only and not fp^.read_only then
+				Scanner.Mark ('Can not pass read-only var as var parameter')
+			else if x.mode = class_par then
+				Put_op_mem (op_PUSH, x)
 			else
 				begin
-				Scanner.Mark ('Can not pass read-only var as var parameter');
+				Load_adr (x);
+				Put_op_reg (op_PUSH, x.r);
+				Dec (cur_reg);
 				end;
 			end
 		else
 			begin
 			if x.mode = class_par then Ref_to_regI (x)
 			else if (x.mode = class_const) and Is_huge_const (x.a) then load (x);
-			
 			if ((x.mode = class_var) or (x.mode = mode_regI)) and (x.typ^.size = 1) then
 				load (x);
 			
@@ -1334,39 +1353,46 @@ implementation
 			end;
 		end;
 		
-	procedure Dyn_array_Param (var x : Item; fp : Object_);
+	procedure Dyn_array_Param (var x : Item; fp : Object_; formal_typ : Type_; dim : Integer);
+		var
+			y, len : Item; base_tp : Type_;
 		begin
-		if x.typ^.form = type_array then
+		y.a := x.a;
+		y.typ := x.typ^.base;
+		base_tp := formal_typ^.base;
+		
+		if base_tp^.form = type_array then (* Multi-dimension array case *)
 			begin
-			if x.typ^.base = fp^.typ^.base then
-				begin
-				Put_op_imm (op_PUSH, x.typ^.len);
-				if x.mode = class_par then
-					Put_op_mem (op_PUSH, x)
-				else
-					begin
-					Load_adr (x);
-					Put_op_reg (op_PUSH, x.r);
-					Dec (cur_reg);
-					end;
-				end
+			if y.typ^.form = type_array then
+				Dyn_array_Param (y, fp, base_tp, dim + 1)
 			else
-				Scanner.Mark ('Array base type incompatible');
+				Scanner.Mark ('Array''s dimension not matching');
 			end
-		else if x.typ^.form = type_dynArray then
+		else if base_tp <> y.typ then
+			Scanner.Mark ('Array''s base type incompatible');
+		
+		if x.typ^.len = 0 then (* x is open array too *)
 			begin
-			if x.typ^.base = fp^.typ^.base then
-				begin
-				x.a := x.a + 8;
-				Put_op_mem (op_PUSH, x);
-				x.a := x.a - 8;
-				Put_op_mem (op_PUSH, x);
-				end
-			else
-				Scanner.Mark ('Array base type incompatible');
+			len.mode := class_var; len.typ := int_type;
+			len.r := reg_RBP; len.a := x.a + 8 * dim;
+			Put_op_mem (op_PUSH, len);
 			end
 		else
-			Scanner.Mark ('Array type expected');
+			Put_op_imm (op_PUSH, x.typ^.len);
+		
+		if dim = 1 then
+			begin
+			if x.read_only and not fp^.read_only then
+				Scanner.Mark ('Can not pass read-only var as var parameter')
+			else if x.mode = class_par then
+				Put_op_mem (op_PUSH, x)
+			else
+				begin
+				Load_adr (x);
+				Put_op_reg (op_PUSH, x.r);
+				Dec (cur_reg);
+				end;
+			end;
 		end;
 		
 	procedure Call (var x : Item);
@@ -1566,6 +1592,7 @@ implementation
 		begin
 		x.mode := y^.class_; x.typ := y^.typ; x.lev := y^.lev; x.a := y^.val; x.b := 0;
 		x.read_only := y^.read_only;
+		x.type_tag_addr := 0;
 		if y^.lev = 0 then begin end
 		else if y^.lev = cur_lev then x.r := reg_RBP
 		else begin Scanner.Mark ('Level!?'); x.r := 0; end;
