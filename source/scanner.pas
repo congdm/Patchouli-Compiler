@@ -9,7 +9,7 @@ const
 	sym_null = 0;
 	sym_times = 1; sym_slash = 2; sym_div = 3; sym_mod = 4; sym_and = 5; sym_plus = 6; sym_minus = 7; sym_or = 8;
 	sym_equal = 9; sym_not_equal = 10; sym_less = 11; sym_greater_equal = 12; sym_less_equal = 13; sym_greater = 14;
-	sym_in = 15;
+	sym_in = 15; sym_arrow = 16;
 	sym_period = 18; sym_comma = 19; sym_colon = 20; sym_upto = 21; sym_rparen = 22; sym_rbrak = 23; sym_rbrace = 24;
 	sym_of = 25; sym_then = 26; sym_do = 27; sym_to = 28;
 	sym_lparen = 29; sym_lbrak = 30; sym_lbrace = 31; sym_not = 32; sym_becomes = 33; sym_number = 34; sym_ident = 37;
@@ -28,6 +28,7 @@ var
 procedure Init (var t : Textfile_type; pos : Integer);
 procedure Get (var sym : Integer);
 procedure Mark (msg : String);
+procedure Go_back_one_symbol;
 
 implementation
 
@@ -39,6 +40,7 @@ var
 	ch : Char;
 	eof_flag : Boolean;
 	line_num : Integer;
+	prev_sym_pos : Integer;
 
 procedure Init (var t : Textfile_type; pos : Integer);
 	begin
@@ -46,6 +48,7 @@ procedure Init (var t : Textfile_type; pos : Integer);
 	Seek (textfile, pos);
 	ch := #0; line_num := 1;
 	eof_flag := False;
+	prev_sym_pos := 0;
 	end;
 	
 procedure Read_char;
@@ -183,6 +186,8 @@ procedure Get (var sym : Integer);
 	
 	if eof_flag then
 		begin sym := sym_eof; exit; end;
+		
+	prev_sym_pos := Filepos (textfile) - 1;
 	
 	// Detect symbol
 	if ((ch >= 'A') and (ch <= 'Z')) or ((ch >= 'a') and (ch <= 'z')) or (ch = '_') then
@@ -214,6 +219,7 @@ procedure Get (var sym : Integer);
 				if ch = '.' then begin sym := sym_upto; Read_char; end
 				else sym := sym_period;
 				end;
+		'^' : begin sym := sym_arrow; Read_char; end;
 		',' : begin sym := sym_comma; Read_char; end;
 		':' : begin 
 				Read_char; 
@@ -234,6 +240,11 @@ procedure Get (var sym : Integer);
 	procedure Mark (msg : String);
 		begin
 		Writeln (IntToStr (line_num) + ': ' + msg);
+		end;
+		
+	procedure Go_back_one_symbol;
+		begin
+		Seek (textfile, prev_sym_pos);
 		end;
 
 end.

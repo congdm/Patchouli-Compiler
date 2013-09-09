@@ -207,43 +207,36 @@ implementation
 			tp : Generator.Type_;
 			x : Generator.Item;
 			
-		procedure Array_type (var typ : Generator.Type_; name : AnsiString);
-			var
-				x : Generator.Item;
-				tp : Generator.Type_;
+		(* Dynamic array type is just a big pointer to an array *)
+		(* Syntax: ARRAY OF type *)
+		(* Only support 1-dimension dynamic array *)
+		procedure DynArrayType (var typ : Generator.Type_; name : AnsiString);
 			begin
+			New (typ);
+			typ^.form := Generator.type_dynArray;
+			typ^.len := 0;
+			typ^.size := 3 * Word_size; (* places for address and array desc *)
+			
 			Scanner.Get (sym);
-			if sym = Scanner.sym_of then
+			if sym = Scanner.sym_array then
 				begin
-				Scanner.Get (sym);
-				if sym = Scanner.sym_array then
-					Scanner.Mark ('Multi-dimension dynamic array is not supported')
-				else
-					begin
-					Type_ (tp, name);
-					if (tp^.form = Generator.type_dynArray) or (tp^.form = Generator.type_array) then
-					Type_ (tp, name); New (typ);
-					typ^.form := Generator.type_dynArray;
-					typ^.base := tp;
-					typ^.len := 0;
-					typ^.size := Word_size * 2;
-					end;
+				Scanner.Mark ('Dynamic array of array type is not supported');
+				typ^.base := Generator.int_type;
 				end
 			else
 				begin
-				expression (x);
-				if (x.mode <> Generator.class_const) or (x.a <= 0) then
-					begin Scanner.Mark ('Invalid array size'); x.a := 1; end;
-				if sym = Scanner.sym_of then Scanner.Get (sym) else Mark ('No OF in array declaration');
-				Type_ (tp, name);	New (typ);
-				typ^.form := Generator.type_array;
-				typ^.base := tp;
-				typ^.len := x.a;
-				typ^.size := typ^.len * tp^.size;
-				end;
+				Type_ (typ^.base, name);
+				if typ^.base^.form = Generator.type_record then
+					typ^.size := typ^.size + Word_size (* place for type tag *)
+				else if typ^.base^.form = Generator.type_array then
+					begin
+					Scanner.Mark ('Dynamic array of array type is not supported');
+					typ^.base := Generator.int_type;
+					end;
+				end
 			end;
 			
-		begin (* procedure Type_ *)
+		begin
 		typ := Generator.int_type;
 		if (sym <> Scanner.sym_ident) and (sym < Scanner.sym_array) then
 			begin
@@ -260,15 +253,21 @@ implementation
 			
 		else if sym = Scanner.sym_array then
 			begin
-			Scanner.Get (sym); expression (x);
-			if (x.mode <> Generator.class_const) or (x.a <= 0) then
-				begin Scanner.Mark ('Invalid array size'); x.a := 1; end;
-			if sym = Scanner.sym_of then Scanner.Get (sym) else Mark ('No OF in array declaration');
-			Type_ (tp, name);	New (typ);
-			typ^.form := Generator.type_array;
-			typ^.base := tp;
-			typ^.len := x.a;
-			typ^.size := typ^.len * tp^.size;
+			Scanner.Get (sym);
+			if sym = Scanner.sym_of then
+				DynArrayType (typ, name)
+			else
+				begin
+				expression (x);
+				if (x.mode <> Generator.class_const) or (x.a <= 0) then
+					begin Scanner.Mark ('Invalid array size'); x.a := 1; end;
+				if sym = Scanner.sym_of then Scanner.Get (sym) else Mark ('No OF in array declaration');
+				Type_ (tp, name);	New (typ);
+				typ^.form := Generator.type_array;
+				typ^.base := tp;
+				typ^.len := x.a;
+				typ^.size := typ^.len * tp^.size
+				end
 			end
 			
 		else if sym = Scanner.sym_record then
@@ -368,6 +367,7 @@ implementation
 							begin obj^.val := var_base; var_base := var_base + obj^.typ^.size; end
 						else
 							begin var_base := var_base - obj^.typ^.size; obj^.val := var_base; end;
+						if obj^.lev = 0 then Generator.Global_var_decl (obj);
 						obj := obj^.next;
 						end;
 					if sym = Scanner.sym_semicolon then Scanner.Get (sym) else Scanner.Mark ('No ; after variable declaration');
@@ -386,26 +386,40 @@ implementation
 			y : Generator.Item;
 			obj : Generator.Object_;
 		begin
-		while (sym = Scanner.sym_lbrak) or (sym = Scanner.sym_period) do
+		while (sym = Scanner.sym_lbrak) or (sym = Scanner.sym_period) or (sym = Scanner.sym_arrow) do
 			begin
-			if sym = Scanner.sym_lbrak then
+			if sym = Scanner.sym_arrow then
+				begin
+				Scanner.Get (sym);
+				if x.typ^.form = Generator.type_pointer then
+					begin
+					Generator.Deref (x);
+					x.typ := x.typ^.base
+					end
+				else
+					Scanner.Mark ('Not a pointer variable');
+				end
+			else if sym = Scanner.sym_lbrak then
 				begin
 				Scanner.Get (sym); expression (y); Check_int (y);
 				if x.typ^.form = Generator.type_array then
 					begin
 					if x.typ^.len = 0 then (* Open array case *)
-						Generator.Dyn_array_Index (x, y)
+						Generator.Open_array_Index (x, y)
 					else
 						Generator.Index (x, y);
 					x.typ := x.typ^.base;
 					end
+				else if x.typ^.form = Generator.type_dynArray then
+					begin
+					Generator.Dyn_array_Index (x, y);
+					x.typ := x.typ^.base
+					end
 				else
 					begin Scanner.Mark ('Not an array type') end;
 					
-				if sym = Scanner.sym_rbrak then
-					begin Scanner.Get (sym) end
-				else
-					begin Scanner.Mark ('Missing ]') end;
+				if sym = Scanner.sym_rbrak then Scanner.Get (sym)
+				else Scanner.Mark ('Missing ]')
 				end
 			else (* RECORD case *)
 				begin
@@ -418,13 +432,13 @@ implementation
 						if obj <> guard then
 							begin Field (x, obj); x.typ := obj^.typ; end
 						else
-							begin Scanner.Mark ('Undefined field'); end;
+							begin Scanner.Mark ('Undefined field'); end
 						end
 					else
 						begin Scanner.Mark ('Not a record type') end;
 					end
 				else
-					begin Scanner.Mark ('No indentifier after record selector') end;
+					begin Scanner.Mark ('No identifier after record selector') end;
 				end;
 			end;
 		end;
@@ -435,6 +449,7 @@ implementation
 			par : Generator.Object_;
 		begin
 		par := obj^.dsc;
+		Generator.Save_registers;
 		if sym = Scanner.sym_lparen then
 			begin
 			Scanner.Get (sym);
@@ -446,9 +461,15 @@ implementation
 					expression (y);
 					if par^.is_param then
 						begin
-						if (par^.typ^.form = Generator.type_array) and (par^.typ^.len = 0)
-						and (y.typ^.form = Generator.type_array) then
-							Generator.Dyn_array_Param (y, par, par^.typ, 1)
+						if (par^.typ^.form = Generator.type_array) and (par^.typ^.len = 0) then
+							begin
+							if y.typ^.form = Generator.type_array then
+								Generator.Open_array_Param1 (y, par, par^.typ, 1)
+							else if y.typ^.form = Generator.type_dynArray then
+								Generator.Open_array_Param2 (y, par)
+							else
+								Scanner.Mark ('Incompatible param types');
+							end
 						else if y.typ = par^.typ then
 							Generator.Parameter (y, par)
 						else
@@ -470,6 +491,7 @@ implementation
 			Generator.Call (x);
 			if par^.is_param then Scanner.Mark ('Too few parameters');
 			end;
+		Generator.Restore_registers;
 		end;
 		
 	procedure AssignmentStatement (var x : Generator.Item);
@@ -512,7 +534,6 @@ implementation
 			else
 				begin
 				Scanner.Mark ('Comma expected');
-				Generator.Make_clean_const (x, Generator.int_type, 0);
 				end;
 			if sym = Scanner.sym_rparen then Scanner.Get (sym)
 			else Scanner.Mark ('No closing )');
@@ -520,7 +541,6 @@ implementation
 		else
 			begin
 			Scanner.Mark ('Paramaters missing?');
-			Generator.Make_clean_const (x, Generator.int_type, 0);
 			end;
 		end;
 		
@@ -865,10 +885,11 @@ implementation
 			op := sym; Scanner.Get (sym);
 			Check_operator (x, op);
 			
+			if x.typ = Generator.bool_type then Generator.Finish_cond (x);			
 			SimpleExpression (y);
 			
 			if (x.typ = Generator.set_type) and (x.typ = y.typ)
-					and ((op = Scanner.sym_greater_equal) or (op = Scanner.sym_less_equal)) then
+			and ((op = Scanner.sym_greater_equal) or (op = Scanner.sym_less_equal)) then
 				begin
 				Generator.Inclusion_test (op, x, y);
 				end
@@ -1045,7 +1066,11 @@ implementation
 			Declarations (local_block_size, False);
 			local_block_size := -local_block_size;
 			
-			(* Nesting procedures not implemented yet *)
+			while sym = Scanner.sym_procedure do
+				begin
+				ProcedureDecl;
+				if sym = Scanner.sym_semicolon then Scanner.Get (sym) else Scanner.Mark ('No semicolon');
+				end;
 			
 			proc^.val := Generator.line_num;
 			Generator.Emit_label (proc^.name + '_');

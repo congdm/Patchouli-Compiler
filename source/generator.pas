@@ -12,6 +12,15 @@ interface
 		mode_reg = 10; mode_regI = 11; mode_cond = 12;
 		type_boolean = 0; type_integer = 1; type_array = 2; type_record = 3; type_set = 4;
 		type_dynArray = 5; type_pointer = 10;
+		
+		MAX_INT = 9223372036854775807;
+		MIN_INT = -9223372036854775808;
+		
+		Type_tag_offset = -16;
+		
+		Array_desc_Signature = 0;
+		Array_desc_Length = 8;
+		Array_desc_Base = 16;
 
 	type
 		Type_ = ^Type_desc;
@@ -22,7 +31,6 @@ interface
 			fields : Object_;
 			base : Type_;
 			size, len : Int64;
-			link : Type_;
 			end;
 		
 		Obj_desc = record
@@ -40,7 +48,6 @@ interface
 			typ : Type_;
 			a, b, c, r : Int64;
 			read_only : Boolean;
-			type_tag_addr : Int64;
 			end;
 			
 	var
@@ -52,6 +59,8 @@ interface
 		
 	procedure Write_asm_output_to_file (var f : Text);
 	procedure Emit_blank_line;
+	
+	procedure Global_var_decl (var obj : Object_);
 	
 	procedure Make_item (var x : Item; y : Object_);
 	procedure Make_const (var x : Item; typ : Type_; val : Int64);
@@ -68,7 +77,9 @@ interface
 	
 	procedure Index (var x, y : Item);
 	procedure Dyn_array_Index (var x, y : Item);
+	procedure Open_array_Index (var x, y : Item);
 	procedure Field (var x : Item; y : Object_);
+	procedure Deref (var x : Item);
 	
 	procedure Relation (op : Integer; var x, y : Item);
 	procedure Inclusion_test (op : Integer; var x, y : Item);
@@ -77,14 +88,18 @@ interface
 	procedure Emit_label (lb : AnsiString);
 	procedure Jump (lb : AnsiString);
 	procedure Fix_link (L0 : Int64; lb : AnsiString);
+	procedure Finish_cond (var x : Item);
 	
 	procedure Inc_level (i : Integer);
 	procedure Enter (parblksize, locblksize : Int64);
 	procedure Return (parblksize : Int64);
 	procedure Set_Function_result (var x : Item);
 	procedure Parameter (var x : Item; fp : Object_);
-	procedure Dyn_array_Param (var x : Item; fp : Object_; formal_typ : Type_; dim : Integer);
+	procedure Open_array_Param1 (var x : Item; fp : Object_; formal_typ : Type_; dim : Integer);
+	procedure Open_array_Param2 (var x : Item; fp : Object_);
 	procedure Call (var x : Item);
+	procedure Save_registers;
+	procedure Restore_registers;
 	
 	procedure SFunc_ORD (var x : Item);
 	procedure SFunc_ODD (var x : Item);
@@ -145,16 +160,26 @@ implementation
 		op_LEAVE = 60; op_RET = 61; op_CALL = 62;
 		
 	type
-		Asm_line = record
-			lb, inst, o1, o2, o3, comment : AnsiString;
+		Code_line = record
+			inst : Integer;
+			lb, o1, o2, o3, comment : AnsiString;
+			end;
+			
+		Data_line = record
+			lb : AnsiString;
+			data_size : Byte;
 			end;
 		
 	var
-		cur_reg : Int64;
-		asm_output : Array of Asm_line;
+		reg_stack : Set of 0..31;
+		data_line_num : Integer;
+		code_output : Array of Code_line;
+		data_output : Array of Data_line;
+		
 		reg_table : Array [0..128] of AnsiString;
 		rel_table : Array [0..31] of Int64;
 		op_table : Array [0..255] of AnsiString;
+		
 		
 (* --------------------------------------------------------------------------------------- *)
 (* --------------------------------------------------------------------------------------- *)
@@ -162,41 +187,65 @@ implementation
 	procedure Write_asm_output_to_file (var f : Text);
 		var
 			i : Integer;
-			line : Asm_line;
+			line : Code_line;
+			dline : Data_line;
 		begin
-		for i := 1 to Length (asm_output) - 1 do
+		for i := 1 to Length (code_output) - 1 do
 			begin
-			line := asm_output [i];
+			line := code_output [i];
 			if line.lb <> '' then Write (f, line.lb + ':');
-			if line.inst <> '' then Write (f, #9 + line.inst);
+			if line.inst >= 0 then Write (f, #9 + op_table [line.inst]);
 			if line.o1 <> '' then Write (f, ' ' + line.o1);
 			if line.o2 <> '' then Write (f, ', ' + line.o2);
 			if line.o3 <> '' then Write (f, ', ' + line.o3);
 			if line.comment <> '' then Write (f, '; ' + line.comment);
 			Writeln (f);
 			end;
+			
+		Writeln (f, '; GLOBAL VARIABLES DECLARATION');
+		Writeln (f, 'Global:');
+		for i := 1 to Length (data_output) - 1 do
+			begin
+			dline := data_output [i];
+			Writeln (f, dline.lb + #9'db ' + IntToStr (dline.data_size) + ' dup 0');
+			end;
 		end;
 		
-	procedure Write_line (lb, inst, o1, o2, o3, comment : AnsiString);
+	procedure Write_line (lb : AnsiString; inst : Integer; o1, o2, o3, comment : AnsiString);
 		begin
-		SetLength (asm_output, line_num + 1);
-		asm_output [line_num].lb := lb;
-		asm_output [line_num].inst := inst;
-		asm_output [line_num].o1 := o1;
-		asm_output [line_num].o2 := o2;
-		asm_output [line_num].o3 := o3;
-		asm_output [line_num].comment := comment;
+		SetLength (code_output, line_num + 1);
+		code_output [line_num].lb := lb;
+		code_output [line_num].inst := inst;
+		code_output [line_num].o1 := o1;
+		code_output [line_num].o2 := o2;
+		code_output [line_num].o3 := o3;
+		code_output [line_num].comment := comment;
 		line_num := line_num + 1;
 		end;
 		
-	procedure Write_op (inst, o1, o2, o3 : AnsiString);
+	procedure Write_op (inst : Integer; o1, o2, o3 : AnsiString);
 		begin
 		Write_line ('', inst, o1, o2, o3, '');
 		end;
 		
 	procedure Emit_blank_line;
 		begin
-		Write_line ('', '', '', '', '', '');
+		Write_line ('', -1, '', '', '', '');
+		end;
+		
+(* --------------------------------------------------------------------------------------- *)
+(* --------------------------------------------------------------------------------------- *)
+
+	procedure Global_var_decl (var obj : Object_);
+		var
+			i : Integer;
+		begin
+		i := data_line_num; Inc (data_line_num);
+		SetLength (data_output, data_line_num);
+		
+		data_output [i].lb := obj^.name + '_';
+		data_output [i].data_size := obj^.typ^.size;
+		obj^.val := i;
 		end;
 		
 (* --------------------------------------------------------------------------------------- *)
@@ -206,12 +255,13 @@ implementation
 		var
 			mem_prefix : AnsiString;
 		begin
-		if x.typ^.size = 8 then mem_prefix := 'qword '
-		else if x.typ^.size = 4 then mem_prefix := 'dword '
+		if x.typ^.size = 4 then mem_prefix := 'dword '
 		else if x.typ^.size = 2 then mem_prefix := 'word '
-		else if x.typ^.size = 1 then mem_prefix := 'byte ';
+		else if x.typ^.size = 1 then mem_prefix := 'byte '
+		else mem_prefix := 'qword ';
+		
 		if (x.lev = 0) and (x.mode = class_var) then
-			Result := mem_prefix + '[Global + ' + IntToStr (x.a) + ']'
+			Result := mem_prefix + '[' + data_output [x.r].lb + ' + ' + IntToStr (x.a) + ']'
 		else
 			Result := mem_prefix + '[' + reg_table [x.r] + ' + ' + IntToStr (x.a) + ']';
 		end;
@@ -240,72 +290,72 @@ implementation
 		
 	procedure Put_op_reg (op, reg : Int64);
 		begin
-		Write_op (op_table [op], reg_table [reg], '', '');
+		Write_op (op, reg_table [reg], '', '');
 		end;
 		
 	procedure Put_op_reg_reg (op, dest, src : Int64);
 		begin
-		Write_op (op_table [op], reg_table [dest], reg_table [src], '');
+		Write_op (op, reg_table [dest], reg_table [src], '');
 		end;
 		
 	procedure Put_op_reg_imm (op, reg, imm : Int64);
 		begin
-		Write_op (op_table [op], reg_table [reg], IntToStr (imm), '');
+		Write_op (op, reg_table [reg], IntToStr (imm), '');
 		end;
 		
 	procedure Put_op_reg_reg_imm (op, dest, src, imm : Int64);
 		begin
-		Write_op (op_table [op], reg_table [dest], reg_table [src], IntToStr (imm));
+		Write_op (op, reg_table [dest], reg_table [src], IntToStr (imm));
 		end;
 		
 	procedure Put_op_mem (op : Int64; var x : Item);
 		begin
-		Write_op (op_table [op], Mem_op (x), '', '');
+		Write_op (op, Mem_op (x), '', '');
 		end;
 		
 	procedure Put_op_mem_imm (op : Int64; var x : Item; imm : Int64);
 		begin
-		Write_op (op_table [op], Mem_op (x), IntToStr (imm), '');
+		Write_op (op, Mem_op (x), IntToStr (imm), '');
 		end;
 		
 	procedure Put_op_reg_mem (op, dest : Int64; var x : Item);
 		begin
-		Write_op (op_table [op], reg_table [dest], Mem_op (x), '');
+		Write_op (op, reg_table [dest], Mem_op (x), '');
 		end;
 		
 	procedure Put_op_mem_reg (op : Int64; var x : Item; src : Int64);
 		begin
-		Write_op (op_table [op], Mem_op (x), reg_table [src], '');
+		Write_op (op, Mem_op (x), reg_table [src], '');
 		end;
 		
 	procedure Put_op_imm (op : Int64; imm : Int64);
 		begin
-		Write_op (op_table [op], IntToStr (imm), '', '');
+		Write_op (op, IntToStr (imm), '', '');
 		end;
 		
 	procedure Put_op_sym (op : Int64; sym : AnsiString);
 		begin
-		Write_op (op_table [op], sym, '', '');
+		Write_op (op, sym, '', '');
 		end;
 		
 	procedure Put_op_bare (op : Int64);
 		begin
-		Write_op (op_table [op], '', '', '');
+		Write_op (op, '', '', '');
 		end;
 		
 	procedure Put_op_sym_reg (op : Int64; sym : AnsiString; reg : Int64);
 		begin
-		Write_op (op_table [op], sym, reg_table [reg], '');
+		Write_op (op, sym, reg_table [reg], '');
 		end;
 		
 	procedure Put_op_sym_imm (op : Int64; sym : AnsiString; imm : Int64);
 		begin
-		Write_op (op_table [op], sym, IntToStr (imm), '');
+		Write_op (op, sym, IntToStr (imm), '');
 		end;
 		
 	procedure Put_op_reg_sym (op : Int64; reg : Int64; sym : AnsiString);
 		begin
-		Write_op (op_table [op], reg_table [reg], sym, '');
+		Write_op (op, reg_table [reg], sym, '');
 		end;
 		
 (* --------------------------------------------------------------------------------------- *)
@@ -330,11 +380,46 @@ implementation
 		
 	procedure Check_overflow (op : Integer; x, y : Int64);
 		begin
+		if op = Scanner.sym_plus then
+			begin
+			if (x > 0) and (y > MAX_INT - x) then
+				Scanner.Mark ('Const evaluation overflow')
+			else if (x < 0) and (y < MIN_INT - x) then
+				Scanner.Mark ('Const evaluation overflow');
+			end
+		else if op = Scanner.sym_minus then
+			begin
+			if (x >= 0) and (y <= MIN_INT + x) then
+				Scanner.Mark ('Const evaluation overflow')
+			else if (x < 0) and (y > MAX_INT + x + 1) then
+				Scanner.Mark ('Const evaluation overflow');
+			end;
 		end;
 		
-	procedure Inc_reg;
+	function Alloc_reg : Int64;
+		var
+			i : Integer;
 		begin
-		if cur_reg < reg_RBX then Inc (cur_reg) else Scanner.Mark ('Register stack overflow');
+		Result := -1; i := 0;
+		while (i < 8) and (Result < 0) do
+			begin
+			if not (i in reg_stack) then
+				begin
+				reg_stack := reg_stack + [i];
+				Result := i;
+				end;
+			Inc (i)
+			end;
+		if Result < 0 then
+			begin
+			Scanner.Mark ('Register stack overflow');
+			Result := 0;
+			end
+		end;
+		
+	procedure Free_reg (var x : Item);
+		begin
+		reg_stack := reg_stack - [x.r];
 		end;
 		
 	function negate_cond (cond : Int64) : Int64;
@@ -360,11 +445,11 @@ implementation
 			L2 := L0;
 			while true do
 				begin
-				L3 := StrToInt (asm_output [L2].o1);
+				L3 := StrToInt (code_output [L2].o1);
 				if L3 = 0 then break;
 				L2 := L3;
 				end;
-			asm_output [L2].o1 := IntToStr (L1);
+			code_output [L2].o1 := IntToStr (L1);
 			L1 := L0;
 			end;
 		Result := L1;	
@@ -375,8 +460,8 @@ implementation
 		begin
 		while L0 <> 0 do
 			begin
-			L1 := StrToInt (asm_output [L0].o1);
-			asm_output [L0].o1 := lb;
+			L1 := StrToInt (code_output [L0].o1);
+			code_output [L0].o1 := lb;
 			L0 := L1;
 			end;
 		end;
@@ -421,9 +506,18 @@ implementation
 (* --------------------------------------------------------------------------------------- *)
 
 	procedure Ref_to_regI (var x : Item);
+		var
+			reg : Int64;
 		begin
-		Inc_reg; Put_op_reg_mem (op_MOV, cur_reg - 1, x);
-		x.r := cur_reg - 1; x.a := 0; x.mode := mode_regI;
+		if x.mode = mode_regI then
+			Put_op_reg_mem (op_MOV, x.r, x)
+		else
+			begin
+			reg := Alloc_reg;
+			Put_op_reg_mem (op_MOV, reg, x);
+			x.r := reg; x.mode := mode_regI;
+			end;		
+		x.a := 0
 		end;
 		
 	procedure Put_load_mem_op (reg : Int64; var x : Item);
@@ -437,16 +531,28 @@ implementation
 		end;
 
 	procedure load (var x : Item);
+		var
+			reg : Int64;
 		begin
 		if x.mode <> mode_reg then
 			begin
 			if x.mode = class_par then Ref_to_regI (x);
 			if x.mode = class_var then
-				begin Inc_reg; Put_load_mem_op (cur_reg - 1, x); x.r := cur_reg - 1; end
+				begin
+				reg := Alloc_reg;
+				Put_load_mem_op (reg, x);
+				x.r := reg;
+				end
 			else if (x.mode = class_const) and (x.a <> 0) then
-				begin Inc_reg; Put_op_reg_imm (op_MOV, cur_reg - 1, x.a); x.r := cur_reg - 1; end
+				begin
+				x.r := Alloc_reg;
+				Put_op_reg_imm (op_MOV, x.r, x.a);
+				end
 			else if (x.mode = class_const) and (x.a = 0) then
-				begin Inc_reg; Clear_reg (cur_reg - 1); x.r := cur_reg - 1; end
+				begin
+				x.r := Alloc_reg;
+				Clear_reg (x.r)
+				end
 			else if x.mode = mode_regI then
 				begin Put_load_mem_op (x.r, x); end;
 			x.mode := mode_reg;
@@ -479,7 +585,8 @@ implementation
 				Emit_label (lb2); Fix_link (y.b, lb2);
 				Put_op_mem_imm (op_MOV, x, 1);
 				Emit_label (lb1);
-				end
+				end;
+			if Use_register (x) then Free_reg (x)
 			end
 		else
 			Scanner.Mark ('Invalid assignment');
@@ -500,12 +607,9 @@ implementation
 			if x.mode = class_var then
 				Put_op_mem_imm (op_MOV, x, y.a)
 			else if x.mode = mode_regI then
-				begin Put_op_mem_imm (op_MOV, x, y.a); Dec (cur_reg); end
+				begin Put_op_mem_imm (op_MOV, x, y.a); Free_reg (x) end
 			else
-				begin
-				Scanner.Mark ('Invalid assignment');
-				if x.mode = mode_reg then Dec (cur_reg);
-				end;
+				begin Scanner.Mark ('Invalid assignment') end;
 			end
 		else
 			begin
@@ -514,13 +618,10 @@ implementation
 			if x.mode = class_var then
 				Put_op_mem_reg (op_MOV, x, y.r + reg_off)
 			else if x.mode = mode_regI then
-				begin Put_op_mem_reg (op_MOV, x, y.r + reg_off); Dec (cur_reg); end
+				begin Put_op_mem_reg (op_MOV, x, y.r + reg_off); Free_reg (x) end
 			else
-				begin
-				Scanner.Mark ('Invalid assignment');
-				if x.mode = mode_reg then Dec (cur_reg);
-				end;
-			Dec (cur_reg);
+				begin Scanner.Mark ('Invalid assignment') end;
+			Free_reg (y);
 			end;
 		end;
 		
@@ -536,7 +637,7 @@ implementation
 				else if x.mode = class_var then
 					begin Put_op_mem_imm (op_CMP, x, 0); x.c := op_JNE; end
 				else if x.mode = mode_regI then
-					begin	Put_op_mem_imm (op_CMP, x, 0); x.c := op_JNE; Dec (cur_reg) end;
+					begin Put_op_mem_imm (op_CMP, x, 0); x.c := op_JNE; Free_reg (x) end;
 				x.mode := mode_cond; x.a := 0; x.b := 0;
 				end;
 			end
@@ -545,13 +646,23 @@ implementation
 		end;
 		
 	procedure Load_adr (var x : Item);
+		var
+			reg : Int64;
 		begin
 		if x.mode = class_var then
-			begin Inc_reg; Put_op_reg_mem (op_LEA, cur_reg - 1, x); x.r := cur_reg - 1; end
+			begin
+			reg := Alloc_reg;
+			Put_op_reg_mem (op_LEA, reg, x);
+			x.r := reg;
+			end
 		else if x.mode = class_par then
-			begin Inc_reg; Put_op_reg_mem (op_MOV, cur_reg - 1, x); x.r := cur_reg - 1; end
-		else if x.mode = mode_regI then
-			begin Put_op_reg_mem (op_LEA, x.r, x); end
+			begin
+			reg := Alloc_reg;
+			Put_op_reg_mem (op_MOV, reg, x);
+			x.r := reg;
+			end
+		else if (x.mode = mode_regI) and (x.a <> 0) then
+			begin Put_op_reg_mem (op_LEA, x.r, x) end
 		else
 			Scanner.Mark ('Load address error, not a variable?');
 		x.mode := mode_reg;
@@ -598,10 +709,15 @@ implementation
 		else
 			begin
 			i := line_num;
-			load (y);
 			
-			Put_op_reg_reg (op_TEST, y.r, y.r);
-			Put_op_sym (op_JLE, 'NOT_POSITIVE_DIVISOR_TRAP');
+			if y.mode <> class_const then
+				begin
+				load (y);
+				Put_op_reg_reg (op_TEST, y.r, y.r);
+				Put_op_sym (op_JLE, 'NOT_POSITIVE_DIVISOR_TRAP')
+				end
+			else
+				load (y);
 			
 			Load_to_reg (reg_RAX, x);
 			Put_op_bare (op_CQO);
@@ -623,11 +739,17 @@ implementation
 			
 			Emit_label ('END_DIVISION_' + IntToStr (i));
 			if op = vop_div then r := reg_RAX else r := reg_RDX;
-			if (x.mode = mode_reg) or (x.mode = mode_regI) then
-				Dec (cur_reg);
-			x.r := cur_reg - 1; x.mode := mode_reg;
-			Put_op_reg_reg (op_MOV, x.r, r);
-			end;
+			if Use_register (x) then
+				begin
+				Put_op_reg_reg (op_MOV, x.r, r);
+				Free_reg (y)
+				end
+			else
+				begin
+				Put_op_reg_reg (op_MOV, y.r, r);
+				x.r := y.r; x.mode := mode_reg
+				end
+			end
 		end;
 		
 	procedure Put_subtract_op (var x, y : Item);
@@ -642,19 +764,17 @@ implementation
 		if y.mode = mode_reg then
 			begin
 			Put_op_reg_reg (op_SUB, x.r, y.r);
-			if y.r < x.r then begin Put_op_reg_reg (op_MOV, y.r, x.r); x.r := y.r end;
-			Dec (cur_reg);
+			Free_reg (y)
 			end
 		else if y.mode = class_const then
-			begin	Put_op_reg_imm (op_SUB, x.r, y.a) end
+			begin Put_op_reg_imm (op_SUB, x.r, y.a) end
 		else if y.mode = mode_regI then
 			begin
 			Put_op_reg_mem (op_SUB, x.r, y);
-			if y.r < x.r then begin Put_op_reg_reg (op_MOV, y.r, x.r); x.r := y.r end;
-			Dec (cur_reg);
+			Free_reg (y)
 			end
 		else if y.mode = class_var then
-			begin Put_op_reg_mem (op_SUB, x.r, y);	end;
+			begin Put_op_reg_mem (op_SUB, x.r, y); end;
 		end;
 		
 	procedure Put_op (op : Int64; var x, y : Item);
@@ -677,7 +797,7 @@ implementation
 		if y.mode = mode_reg then
 			begin
 			Put_op_reg_reg (op, x.r, y.r);
-			Dec (cur_reg);
+			Free_reg (y)
 			end
 		else if y.mode = class_const then
 			begin
@@ -693,7 +813,7 @@ implementation
 		else if y.mode = mode_regI then
 			begin
 			Put_op_reg_mem (op, x.r, y);
-			Dec (cur_reg);
+			Free_reg (y)
 			end
 		end;
 
@@ -714,41 +834,40 @@ implementation
 		if x.mode = mode_reg then
 			begin
 			if y.typ^.size < 8 then load (y);
-			if y.mode = mode_reg then begin Put_op_reg_reg (op_CMP, x.r, y.r); Dec (cur_reg); end
+			if y.mode = mode_reg then begin Put_op_reg_reg (op_CMP, x.r, y.r); Free_reg (y) end
 			else if y.mode = class_var then begin Put_op_reg_mem (op_CMP, x.r, y); end
-			else if y.mode = mode_regI then begin Put_op_reg_mem (op_CMP, x.r, y); Dec (cur_reg); end
+			else if y.mode = mode_regI then begin Put_op_reg_mem (op_CMP, x.r, y); Free_reg (y) end
 			else if y.mode = class_const then begin Put_op_reg_imm (op_CMP, x.r, y.a); end;
-			Dec (cur_reg);
+			Free_reg (x)
 			end
 		else if (x.mode = class_var) or (x.mode = mode_regI) then
 			begin
 			if y.mode = mode_reg then
 				begin
 				if x.typ^.size < 8 then
-					begin load (x); Put_op_reg_reg (op_CMP, x.r, y.r); Dec (cur_reg); end
+					begin load (x); Put_op_reg_reg (op_CMP, x.r, y.r); end
 				else
-					begin Put_op_mem_reg (op_CMP, x, y.r); end;
-				Dec (cur_reg);
+					Put_op_mem_reg (op_CMP, x, y.r);
+				Free_reg (y)
 				end
-			else if y.mode = class_const then begin Put_op_mem_imm (op_CMP, x, y.a); end;
-			if x.mode = mode_regI then Dec (cur_reg);
+			else if y.mode = class_const then
+				Put_op_mem_imm (op_CMP, x, y.a);			
+			if Use_register (x) then Free_reg (x)
 			end
 		else if x.mode = class_const then
 			begin
 			Result := True;
-			if y.mode = mode_reg then begin Put_op_reg_imm (op_CMP, y.r, x.a); Dec (cur_reg); end
+			if y.mode = mode_reg then begin Put_op_reg_imm (op_CMP, y.r, x.a); Free_reg (y) end
 			else if y.mode = class_var then begin Put_op_mem_imm (op_CMP, y, x.a); end
-			else if y.mode = mode_regI then begin Put_op_mem_imm (op_CMP, y, x.a); Dec (cur_reg); end
+			else if y.mode = mode_regI then begin Put_op_mem_imm (op_CMP, y, x.a); Free_reg (y) end;
 			end
 		end;
 		
 	procedure Put_difference_op (var x, y : Item);
 		begin
-		(* ADD, SUB, IMUL,... can not work directly with huge const (64 bits) *)
 		load (y);
 		Put_op_reg (op_NOT, y.r);
-		Put_op (op_AND, y, x);
-		x := y;
+		Put_op (op_AND, x, y);
 		end;
 		
 	procedure Op1 (op : Integer; var x : Item);
@@ -773,6 +892,12 @@ implementation
 					begin
 					if x.mode <> mode_reg then load (x);
 					Put_op_reg (op_NEG, x.r);
+					if overflow_check_flag then
+						begin
+						Put_op_reg_imm (op_MOV, reg_RAX, MIN_INT);
+						Put_op_reg_reg (op_CMP, reg_RAX, x.r);
+						Put_op_sym (op_JE, 'INTEGER_OVERFLOW_TRAP');
+						end;
 					end;
 				end;
 			end
@@ -842,8 +967,20 @@ implementation
 				if op = Scanner.sym_plus then x.a := x.a + y.a
 				else if op = Scanner.sym_minus then x.a := x.a - y.a
 				else if op = Scanner.sym_times then x.a := x.a * y.a
-				else if op = Scanner.sym_div then x.a := x.a div y.a
-				else if op = Scanner.sym_mod then x.a := x.a mod y.a
+				else if op = Scanner.sym_div then
+					begin
+					if (x.a < 0) and (x.a mod y.a <> 0) then x.a := x.a div y.a - 1
+					else x.a := x.a div y.a
+					end
+				else if op = Scanner.sym_mod then
+					begin
+					if (x.a < 0) then
+						begin
+						x.a := x.a mod y.a;
+						if x.a < 0 then x.a := y.a + x.a
+						end
+					else x.a := x.a mod y.a
+					end
 				else Scanner.Mark ('Wrong operator');
 				end
 			else
@@ -911,24 +1048,22 @@ implementation
 			end
 		else
 			begin
+			Load_to_reg (reg_RCX, y);
 			if x.mode = class_const then
 				begin
-				Load_to_reg (reg_RCX, y);
 				if Use_register (y) then begin x.mode := mode_reg; x.r := y.r; Clear_reg (x.r) end
 				else load (x);
-				y.mode := mode_reg; y.r := reg_RCX;
 				x.a := 0;
 				end;
-			load (y);
-			Put_op_reg_imm (op_CMP, y.r, 63);
+			Put_op_reg_imm (op_CMP, reg_RCX, 63);
 			Put_op_sym (op_JA, lb);
-			Put_op_reg_reg (op_BTS, x.r, Reg32 (y.r));
-			if y.r <> reg_RCX then Dec (cur_reg);
+			Put_op_reg_reg (op_BTS, x.r, reg_RCX);
+			if Use_register (y) and (x.r <> y.r) then Free_reg (y);
 			Emit_label (lb);
 			end;
 		end;
 	
-	(* procedure Set3 may use RAX, RCX, RDX during calculation *)
+	(* procedure Set3 may use RAX, RCX during calculation *)
 	(* Mode of x is only reg or const *)
 	procedure Set3 (var x, y, z : Item);
 		var
@@ -978,8 +1113,8 @@ implementation
 					Put_op_reg_imm (op_SHL, reg_RAX, y.a);
 					end;
 				Put_op_reg_reg (op_OR, x.r, reg_RAX);
-				cur_reg := x.r + 1;
 				Emit_label (lb);
+				if Use_register (z) and (x.r <> z.r) then Free_reg (z)
 				end;
 			end
 			
@@ -1001,34 +1136,22 @@ implementation
 				Put_op_reg_reg (op_SHR, reg_RAX, reg_CL);
 				Put_op_reg_reg (op_SHL, reg_RAX, reg_CL);
 				Put_op_reg_reg (op_OR, x.r, reg_RAX);
-				cur_reg := x.r + 1;
 				Emit_label (lb);
+				if Use_register (y) and (y.r <> x.r) then Free_reg (y)
 				end;
 			end
 			
 		(* Case 4: Both y and z are not consts *) (* FINAL *)
 		else
 			begin
+			Load_to_reg (reg_RCX, z);
 			if x.mode = class_const then
 				begin
-				if Use_register (z) and ((not Use_register (y)) or (y.r > z.r)) then
-					begin
-					Load_to_reg (reg_RCX, z);
-					x.mode := mode_reg; x.r := z.r; Clear_reg (x.r);
-					z.mode := mode_reg; z.r := reg_RCX;
-					end
-				else if Use_register (y) and ((not Use_register (z)) or (z.r > y.r)) then
-					begin
-					Load_to_reg (reg_RDX, y);
-					x.mode := mode_reg; x.r := y.r; Clear_reg (x.r);
-					y.mode := mode_reg; y.r := reg_RDX;
-					end
-				else
-					load (x);
+				if Use_register (z) then begin x.mode := mode_reg; x.r := z.r; Clear_reg (x.r) end
+				else load (x);
 				x.a := 0;
 				end;
 				
-			if (z.mode <> mode_reg) or (z.r <> reg_RCX) then Load_to_reg (reg_RCX, z);
 			load (y);
 			
 			Put_op_reg_imm (op_CMP, reg_RCX, 63);
@@ -1045,8 +1168,10 @@ implementation
 			Put_op_reg_reg (op_SHL, reg_RAX, reg_CL);
 			
 			Put_op_reg_reg (op_OR, x.r, reg_RAX);
-			cur_reg := x.r + 1;
 			Emit_label (lb);
+			
+			if Use_register (z) and (z.r <> x.r) then Free_reg (z);
+			Free_reg (y);
 			end;
 		end;
 		
@@ -1079,7 +1204,11 @@ implementation
 		begin
 		if y.mode = class_const then
 			begin
-			if (y.a < 0) or (y.a >= x.typ^.len) then Scanner.Mark ('Index out of range');
+			if (y.a < 0) or (y.a >= x.typ^.len) then
+				begin
+				Scanner.Mark ('Index out of range');
+				y.a := 0
+				end;
 			x.a := x.a + y.a * x.typ^.base^.size;
 			end
 		else
@@ -1109,68 +1238,139 @@ implementation
 					Put_op_reg_sym (op_LEA, y.r, Mem_op2 (reg_RAX, y.r, scale, 0));
 					end
 				else
-					begin
 					Put_op_reg_sym (op_LEA, y.r, Mem_op2 (x.r, y.r, scale, x.a));
-					end;
-				x.r := y.r; x.mode := mode_regI; x.a := 0;
+				x.mode := mode_regI;
+				x.r := y.r; x.a := 0;
 				end
 			else if x.mode = mode_regI then
 				begin
-				if x.r < y.r then
-					Put_op_reg_sym (op_LEA, x.r, Mem_op2 (x.r, y.r, scale, x.a))
-				else
-					begin
-					Put_op_reg_sym (op_LEA, y.r, Mem_op2 (x.r, y.r, scale, x.a));
-					x.r := y.r;
-					end;
-				x.a := 0; Dec (cur_reg);
+				Put_op_reg_sym (op_LEA, x.r, Mem_op2 (x.r, y.r, scale, x.a));
+				x.a := 0;
+				Free_reg (y)
 				end;
 			end;
+		end;
+		
+	procedure Open_array_Index (var x, y : Item);
+		var
+			elem_size, scale : Integer;
+			len : Item;
+			base_tp : Type_;
+		begin
+		if (y.mode = class_const) and (y.a < 0) then
+			begin
+			Scanner.Mark ('Index out of range');
+			y.a := 0;
+			end;
+		if (y.mode = class_const) and (y.a = 0) then
+			Inc (x.c)
+		else if (y.mode = class_const) and (x.typ^.base^.size <> 0) then
+			begin
+			if range_check_flag then
+				begin
+				len := x; len.r := reg_RBP; len.a := x.b + x.c * 8;
+				len.mode := class_var; len.typ := int_type;
+				Put_op_mem_imm (op_CMP, len, y.a);
+				Put_op_sym (op_JBE, 'RANGE_CHECK_TRAP');
+				end;
+			if x.mode = class_par then Ref_to_regI (x);
+			x.a := x.a + y.a * x.typ^.base^.size;
+			Inc (x.c)
+			end
+		else
+			begin
+			load (y);
+			len := x; len.r := reg_RBP; len.a := x.b + x.c * 8;
+			len.mode := class_var; len.typ := int_type;
+			
+			if range_check_flag then
+				begin
+				Put_op_reg_mem (op_CMP, y.r, len);
+				Put_op_sym (op_JAE, 'RANGE_CHECK_TRAP');
+				end;
+				
+			base_tp := x.typ^.base;
+			while (base_tp^.form = type_array) and (base_tp^.len = 0) do
+				begin
+				len.a := len.a + 8;
+				Put_op_reg_mem (op_IMUL, y.r, len);
+				base_tp := base_tp^.base;
+				end;
+				
+			elem_size := base_tp^.size;
+			if (elem_size = 1) or (elem_size = 2) or (elem_size = 4) or (elem_size = 8) then
+				begin scale := elem_size end
+			else
+				begin
+				Put_op_reg_reg_imm (op_IMUL, y.r, y.r, elem_size);
+				scale := 1;
+				end;
+				
+			if x.mode = class_par then Ref_to_regI (x);
+			Put_op_reg_sym (op_LEA, x.r, Mem_op2 (x.r, y.r, scale, x.a));
+			Free_reg (y);
+			x.a := 0;
+			Inc (x.c)
+			end
 		end;
 		
 	procedure Dyn_array_Index (var x, y : Item);
 		var
 			elem_size, scale : Integer;
 			len : Item;
-			base_tp : Type_;
 		begin
-		load (y);
-		if x.type_tag_addr = 0 then x.type_tag_addr := x.a + 8;
-		len.mode := class_var; len.typ := int_type;
-		len.a := x.type_tag_addr; len.r := reg_RBP;
-		
-		if range_check_flag then
+		if (y.mode = class_const) and (y.a < 0) then
 			begin
-			Put_op_reg_mem (op_CMP, y.r, len);
-			Put_op_sym (op_JAE, 'RANGE_CHECK_TRAP');
+			Scanner.Mark ('Index out of range');
+			y.a := 0
 			end;
-			
-		base_tp := x.typ^.base;
-		while (base_tp^.form = type_array) and (base_tp^.len = 0) do
+		if (y.mode = class_const) and (y.a = 0) then
 			begin
-			len.a := len.a + 8;
-			Put_op_reg_mem (op_IMUL, y.r, len);
-			base_tp := base_tp^.base;
-			end;
-			
-		elem_size := base_tp^.size;
-		if (elem_size = 1) or (elem_size = 2) or (elem_size = 4) or (elem_size = 8) then
-			begin scale := elem_size end
+			load (x);
+			x.a := 0;
+			x.mode := mode_regI
+			end
+		else if y.mode = class_const then
+			begin
+			if x.mode = class_par then Ref_to_regI (x);
+			if range_check_flag then
+				begin
+				len := x; len.a := len.a + 8 + Array_desc_Length;
+				len.typ := int_type;
+				Put_op_mem_imm (op_CMP, len, y.a);
+				Put_op_sym (op_JBE, 'RANGE_CHECK_TRAP');
+				end;
+			load (x);
+			x.a := y.a * x.typ^.base^.size;
+			x.mode := mode_regI
+			end
 		else
 			begin
-			Put_op_reg_reg_imm (op_IMUL, y.r, y.r, elem_size);
-			scale := 1;
+			load (y);
+			if x.mode = class_par then Ref_to_regI (x);
+			if range_check_flag then
+				begin
+				len := x; len.a := len.a + 8 + Array_desc_Length;
+				len.typ := int_type;
+				Put_op_reg_mem (op_CMP, y.r, len);
+				Put_op_sym (op_JAE, 'RANGE_CHECK_TRAP');
+				end;
+			
+			elem_size := x.typ^.base^.size;
+			if (elem_size = 1) or (elem_size = 2) or (elem_size = 4) or (elem_size = 8) then
+				begin scale := elem_size end
+			else
+				begin
+				Put_op_reg_reg_imm (op_IMUL, y.r, y.r, elem_size);
+				scale := 1;
+				end;
+				
+			load (x);
+			Put_op_reg_sym (op_LEA, x.r, Mem_op2 (x.r, y.r, scale, 0));
+			x.a := 0; x.mode := mode_regI;
+			Free_reg (y)
 			end;
-		
-		if x.mode = class_par then Ref_to_regI (x);
-		if x.r < y.r then
-			Put_op_reg_sym (op_LEA, x.r, Mem_op2 (x.r, y.r, scale, x.a))
-		else
-			begin
-			Put_op_reg_sym (op_LEA, y.r, Mem_op2 (x.r, y.r, scale, x.a));
-			x.r := y.r;
-			end;
-		Dec (cur_reg); x.a := 0;
+		x.read_only := False;
 		end;
 	
 	procedure Field (var x : Item; y : Object_);
@@ -1179,11 +1379,17 @@ implementation
 		x.a := x.a + y^.val; x.typ := y^.typ;
 		end;
 		
+	procedure Deref (var x : Item);
+		begin
+		x.read_only := False;
+		end;
+		
 (* --------------------------------------------------------------------------------------- *)
 (* --------------------------------------------------------------------------------------- *)
 		
 	procedure Relation (op : Integer; var x, y : Item);
 		begin
+		if y.mode = mode_cond then Finish_cond (y);
 		if (x.mode = class_const) and (y.mode = class_const) then
 			begin
 			if x.a = y.a       then if op = Scanner.sym_equal         then x.a := 1 else x.a := 0
@@ -1234,7 +1440,7 @@ implementation
 			else Put_op_reg (op_NOT, y.r);
 			Put_op_reg_reg (op_AND, x.r, y.r);
 			x.c := op_JE; x.a := 0; x.b := 0;
-			cur_reg := cur_reg - 2;
+			Free_reg (x); Free_reg (y)
 			end;
 		end;
 		
@@ -1256,7 +1462,7 @@ implementation
 				Put_op_reg_imm (op_BT, y.r, x.a);
 				x.mode := mode_cond;
 				x.a := 0; x.b := 0; x.c := op_JC;
-				Dec (cur_reg);
+				Free_reg (y)
 				end;
 			end
 		else
@@ -1268,7 +1474,7 @@ implementation
 			Put_op_reg_reg (op_BT, y.r, x.r);
 			x.mode := mode_cond;
 			x.b := 0; x.c := op_JC;
-			cur_reg := cur_reg - 2;
+			Free_reg (x); Free_reg (y)
 			end;
 		end;
 		
@@ -1294,6 +1500,39 @@ implementation
 		Put_op_sym (op_JMP, lb);
 		end;
 		
+	procedure Finish_cond (var x : Item);
+		var
+			lb1, lb2 : AnsiString;
+			reg : Int64;
+		begin
+		if x.mode = mode_cond then
+			begin
+			reg := Alloc_reg;
+			lb1 := 'FINISH_COND_' + IntToStr (line_num) + '_END';
+			if (x.a = 0) and (x.b = 0) then
+				Cond_jump (x);
+			if x.a <> 0 then
+				begin
+				Put_op_reg_imm (op_MOV, reg, 1);
+				Put_op_sym (op_JMP, lb1);
+				lb2 := 'LINE_' + IntToStr (line_num);
+				Emit_label (lb2); Fix_link (x.a, lb2);
+				Put_op_reg_imm (op_MOV, reg, 0);
+				Emit_label (lb1);
+				end
+			else if x.b <> 0 then
+				begin
+				Put_op_reg_imm (op_MOV, reg, 0);
+				Put_op_sym (op_JMP, lb1);
+				lb2 := 'LINE_' + IntToStr (line_num);
+				Emit_label (lb2); Fix_link (x.b, lb2);
+				Put_op_reg_imm (op_MOV, reg, 1);
+				Emit_label (lb1);
+				end;
+			x.mode := mode_reg; x.r := reg;	
+			end
+		end;
+		
 (* --------------------------------------------------------------------------------------- *)
 (* --------------------------------------------------------------------------------------- *)
 
@@ -1317,7 +1556,7 @@ implementation
 	procedure Set_Function_result (var x : Item);
 		begin
 		Load_to_reg (reg_RAX, x);
-		if Use_register (x) then Dec (cur_reg);
+		if Use_register (x) then Free_reg (x)
 		end;
 		
 	procedure Parameter (var x : Item; fp : Object_);
@@ -1332,7 +1571,7 @@ implementation
 				begin
 				Load_adr (x);
 				Put_op_reg (op_PUSH, x.r);
-				Dec (cur_reg);
+				Free_reg (x)
 				end;
 			end
 		else
@@ -1343,9 +1582,9 @@ implementation
 				load (x);
 			
 			if x.mode = mode_reg then
-				begin Put_op_reg (op_PUSH, x.r); Dec (cur_reg); end
+				begin Put_op_reg (op_PUSH, x.r); Free_reg (x) end
 			else if x.mode = mode_regI then
-				begin Put_op_mem (op_PUSH, x); Dec (cur_reg); end
+				begin Put_op_mem (op_PUSH, x); Free_reg (x) end
 			else if x.mode = class_var then
 				begin Put_op_mem (op_PUSH, x); end
 			else if x.mode = class_const then
@@ -1353,51 +1592,95 @@ implementation
 			end;
 		end;
 		
-	procedure Dyn_array_Param (var x : Item; fp : Object_; formal_typ : Type_; dim : Integer);
+	procedure Open_array_Param1 (var x : Item; fp : Object_; formal_typ : Type_; dim : Integer);
 		var
-			y, len : Item; base_tp : Type_;
+			y, len : Item;
+			base_tp : Type_;
 		begin
-		y.a := x.a;
+		y := x;
 		y.typ := x.typ^.base;
+		y.c := x.c + 1;
+		
 		base_tp := formal_typ^.base;
 		
 		if base_tp^.form = type_array then (* Multi-dimension array case *)
 			begin
 			if y.typ^.form = type_array then
-				Dyn_array_Param (y, fp, base_tp, dim + 1)
+				Open_array_Param1 (y, fp, base_tp, dim + 1)
 			else
 				Scanner.Mark ('Array''s dimension not matching');
 			end
 		else if base_tp <> y.typ then
 			Scanner.Mark ('Array''s base type incompatible');
 		
-		if x.typ^.len = 0 then (* x is open array too *)
+		if x.typ^.len = 0 then (* x is open array *)
 			begin
+			len := x; len.r := reg_RBP; len.a := x.b + x.c * 8;
 			len.mode := class_var; len.typ := int_type;
-			len.r := reg_RBP; len.a := x.a + 8 * dim;
-			Put_op_mem (op_PUSH, len);
+			Put_op_mem (op_PUSH, len)
 			end
-		else
+		else (* x is static array *)
 			Put_op_imm (op_PUSH, x.typ^.len);
-		
+			
 		if dim = 1 then
 			begin
 			if x.read_only and not fp^.read_only then
-				Scanner.Mark ('Can not pass read-only var as var parameter')
-			else if x.mode = class_par then
+				Scanner.Mark ('Can not pass read-only var as var parameter');
+			if x.mode = class_par then
 				Put_op_mem (op_PUSH, x)
 			else
 				begin
 				Load_adr (x);
 				Put_op_reg (op_PUSH, x.r);
-				Dec (cur_reg);
+				Free_reg (x)
 				end;
 			end;
 		end;
 		
+	procedure Open_array_Param2 (var x : Item; fp : Object_);
+		var
+			len : Item;
+			base_tp : Type_;
+		begin
+		base_tp := fp^.typ^.base;
+		
+		if base_tp^.form = type_array then
+			Scanner.Mark ('Array''s dimension not matching')
+		else if base_tp <> x.typ^.base then
+			Scanner.Mark ('Array''s base type incompatible');
+		
+		if x.mode = class_par then Ref_to_regI (x);
+		len := x; len.a := len.a + 8 + Array_desc_Length;
+		len.typ := int_type;
+		Put_op_mem (op_PUSH, len);
+
+		if x.read_only and not fp^.read_only then
+			Scanner.Mark ('Can not pass read-only var as var parameter');
+			
+		Put_op_mem (op_PUSH, x);
+		if Use_register (x) then Free_reg (x)
+		end;
+		
 	procedure Call (var x : Item);
 		begin
-		Put_op_sym (op_CALL, asm_output [x.a].lb);
+		Put_op_sym (op_CALL, code_output [x.a].lb);
+		end;
+		
+	procedure Save_registers;
+		var
+			i : Integer;
+		begin
+		for i := 0 to 7 do
+			if i in reg_stack then
+				Put_op_reg (op_PUSH, i);
+		end;
+		
+	procedure Restore_registers;
+		var i : Integer;
+		begin
+		for i := 7 downto 0 do
+			if i in reg_stack then
+				Put_op_reg (op_POP, i);
 		end;
 		
 (* --------------------------------------------------------------------------------------- *)
@@ -1406,36 +1689,37 @@ implementation
 	procedure SFunc_ORD (var x : Item);
 		var
 			lb1, lb2 : AnsiString;
+			reg : Int64;
 		begin
 		if x.mode = mode_cond then
 			begin
 			lb1 := 'END_SFUNC_ORD_' + IntToStr (line_num);
-			Inc_reg;
+			reg := Alloc_reg;
 			if (x.a = 0) and (x.b = 0) then Cond_jump (x);
 			if x.a <> 0 then
 				begin
-				Put_op_reg_imm (op_MOV, cur_reg - 1, 1);
+				Put_op_reg_imm (op_MOV, reg, 1);
 				Put_op_sym (op_JMP, lb1);
 				lb2 := 'LINE_' + IntToStr (line_num);
 				Emit_label (lb2); Fix_link (x.a, lb2);
-				Put_op_reg_imm (op_MOV, cur_reg - 1, 0);
+				Put_op_reg_imm (op_MOV, reg, 0);
 				Emit_label (lb1);
 				end
 			else if x.b <> 0 then
 				begin
-				Put_op_reg_imm (op_MOV, cur_reg - 1, 0);
+				Put_op_reg_imm (op_MOV, reg, 0);
 				Put_op_sym (op_JMP, lb1);
 				lb2 := 'LINE_' + IntToStr (line_num);
 				Emit_label (lb2); Fix_link (x.b, lb2);
-				Put_op_reg_imm (op_MOV, cur_reg - 1, 1);
+				Put_op_reg_imm (op_MOV, reg, 1);
 				Emit_label (lb1);
 				end;
-			x.mode := mode_reg; x.r := cur_reg - 1;
+			x.mode := mode_reg; x.r := reg;
 			end
 		else if (x.mode = class_const) and ((x.typ^.form = type_boolean) or (x.typ^.form = type_set)) then
 			begin (* do nothing *) end
 		else if (x.typ^.form = type_boolean) or (x.typ^.form = type_set) then
-			begin load (x); end
+			begin load (x) end
 		else
 			begin
 			Scanner.Mark ('Function ORD input type must be BOOLEAN or SET');
@@ -1452,12 +1736,13 @@ implementation
 			Make_clean_const (x, bool_type, 0);
 			end
 		else if x.mode = class_const then
-			begin	x.typ := bool_type; x.a := abs (x.a mod 2); end
+			begin x.typ := bool_type; x.a := abs (x.a mod 2); end
 		else
 			begin
 			load (x);
-			Put_op_reg_imm (op_SHR, cur_reg - 1, 1);
+			Put_op_reg_imm (op_SHR, x.r, 1);
 			x.mode := mode_cond; x.a := 0; x.b := 0; x.c := op_JC;
+			Free_reg (x)
 			end;
 		end;
 		
@@ -1481,8 +1766,9 @@ implementation
 			load (x); x.mode := mode_regI; x.a := 0;
 			load (x);
 			Put_op_mem_reg (op_MOV, y, x.r);
-			if Use_register (y) then cur_reg := cur_reg - 2 else Dec (cur_reg);
 			end;
+		if Use_register (x) then Free_reg (x);
+		if Use_register (y) then Free_reg (y);
 		end;
 	
 	procedure SFunc_PUT (var x, y : Item);
@@ -1500,8 +1786,9 @@ implementation
 			load (y);
 			load (x); x.mode := mode_regI; x.a := 0; x.typ := y.typ;
 			Put_op_mem_reg (op_MOV, x, y.r);
-			cur_reg := cur_reg - 2;
 			end;
+		if Use_register (x) then Free_reg (x);
+		if Use_register (y) then Free_reg (y);
 		end;
 		
 	procedure SFunc_TOINT8 (var x : Item);
@@ -1512,7 +1799,7 @@ implementation
 			end
 		else
 			begin
-			if x.mode <> mode_reg then load (x);
+			load (x);
 			if overflow_check_flag then
 				begin
 				Put_op_reg_imm (op_CMP, x.r, -128);
@@ -1562,21 +1849,34 @@ implementation
 		end;
 		
 	procedure SFunc_LEN (var x : Item);
+		var
+			reg : Int64;
 		begin
 		if x.typ^.form = type_array then
 			begin
-			Make_clean_const (x, int_type, x.typ^.len);
+			if x.typ^.len = 0 then (* Open array *)
+				begin
+				if Use_register (x) then reg := x.r
+				else reg := Alloc_reg;
+				x.r := reg_RBP; x.a := x.b + x.c * 8;
+				x.mode := class_var; x.typ := int_type;
+				Put_op_reg_mem (op_MOV, reg, x);
+				x.r := reg; x.mode := mode_reg
+				end
+			else (* Static array *)
+				Make_clean_const (x, int_type, x.typ^.len)
 			end
-		else if x.typ^.form = type_dynArray then
+		else if x.typ^.form = type_dynArray then (* Dynamic array *)
 			begin
-			(* Open array is always in class_par mode *)
-			x.a := x.a + 8; x.mode := class_var;
-			load (x);
+			if x.mode = class_par then Ref_to_regI (x);
+			x.a := x.a + 8 + Array_desc_Length;
 			x.typ := int_type;
+			load (x)
 			end
 		else
 			begin
 			Scanner.Mark ('Function LEN input must be an ARRAY');
+			Make_clean_const (x, int_type, 0)
 			end;
 		end;
 
@@ -1585,17 +1885,26 @@ implementation
 
 	procedure Emit_label (lb : AnsiString);
 		begin
-		Write_line (lb, '', '', '', '', '');
+		Write_line (lb, -1, '', '', '', '');
 		end;
 
 	procedure Make_item (var x : Item; y : Object_);
 		begin
-		x.mode := y^.class_; x.typ := y^.typ; x.lev := y^.lev; x.a := y^.val; x.b := 0;
+		x.mode := y^.class_; x.typ := y^.typ; x.lev := y^.lev;
+		x.a := y^.val; x.b := 0; x.c := 0;
 		x.read_only := y^.read_only;
-		x.type_tag_addr := 0;
-		if y^.lev = 0 then begin end
-		else if y^.lev = cur_lev then x.r := reg_RBP
-		else begin Scanner.Mark ('Level!?'); x.r := 0; end;
+		
+		if y^.lev = 0 then
+			begin
+			if y^.class_ = class_var then begin x.r := x.a; x.a := 0; end
+			end
+		else if y^.lev = cur_lev then 
+			x.r := reg_RBP
+		else
+			begin Scanner.Mark ('Level!?'); x.r := 0; end;
+			
+		if (x.mode = class_par) and (x.typ^.form = type_array) and (x.typ^.len = 0) then
+			begin x.b := x.a; x.c := 1 end
 		end;
 		
 	procedure Make_const (var x : Item; typ : Type_; val : Int64);
@@ -1605,15 +1914,14 @@ implementation
 		
 	procedure Make_clean_const (var x : Item; typ : Type_; val : Int64);
 		begin
-		if (x.mode = mode_reg) or (x.mode = mode_regI) then Dec (cur_reg);
+		if Use_register (x) then Free_reg (x);
 		x.mode := class_const; x.typ := typ; x.a := val;
 		end;
 		
 	procedure Make_function_result_item (var x : Item);
 		begin
-		Inc_reg;
+		if not Use_register (x) then x.r := Alloc_reg;
 		x.mode := mode_reg;
-		x.r := cur_reg - 1;
 		Put_op_reg_reg (op_MOV, x.r, reg_RAX);
 		end;
 		
@@ -1637,14 +1945,15 @@ implementation
 		Emit_label ('INTEGER_OVERFLOW_TRAP');
 		Emit_blank_line;
 		Emit_label ('NOT_POSITIVE_DIVISOR_TRAP');
+		Emit_blank_line;
 		end;
 		
 	procedure Check_reg_stack;
 		begin
-		if cur_reg <> 0 then
+		if reg_stack <> [] then
 			begin
 			Scanner.Mark ('Reg stack error');
-			cur_reg := 0;
+			reg_stack := [];
 			end;
 		end;
 		
@@ -1783,8 +2092,9 @@ implementation
 initialization
 	cur_lev := 0;
 	line_num := 1;
+	data_line_num := 1;
 	range_check_flag := True;
-	overflow_check_flag := False;
+	overflow_check_flag := True;
 
 	New (bool_type);  bool_type^.form  := type_boolean;  bool_type^.size  := 1;
 	New (int_type);   int_type^.form   := type_integer;  int_type^.size   := 8;
@@ -1796,5 +2106,5 @@ initialization
 	Init_mnemonic_table;
 	Init_relation_table;
 	
-	cur_reg := 0;
+	reg_stack := [];
 end.
