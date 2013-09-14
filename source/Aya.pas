@@ -6,7 +6,8 @@ var
 	srcfilename : AnsiString;
 	
 procedure Change_file_ext;
-	var i : Integer;
+	var
+		i : Integer;
 	begin
 	for i := Length (srcfilename) downto 1 do
 		begin if srcfilename [i] = '.' then break; end;

@@ -9,10 +9,11 @@ const
 	sym_null = 0;
 	sym_times = 1; sym_slash = 2; sym_div = 3; sym_mod = 4; sym_and = 5; sym_plus = 6; sym_minus = 7; sym_or = 8;
 	sym_equal = 9; sym_not_equal = 10; sym_less = 11; sym_greater_equal = 12; sym_less_equal = 13; sym_greater = 14;
-	sym_in = 15; sym_arrow = 16;
+	sym_in = 15; sym_is = 16; sym_arrow = 17;
 	sym_period = 18; sym_comma = 19; sym_colon = 20; sym_upto = 21; sym_rparen = 22; sym_rbrak = 23; sym_rbrace = 24;
 	sym_of = 25; sym_then = 26; sym_do = 27; sym_to = 28;
-	sym_lparen = 29; sym_lbrak = 30; sym_lbrace = 31; sym_not = 32; sym_becomes = 33; sym_number = 34; sym_ident = 37;
+	sym_lparen = 29; sym_lbrak = 30; sym_lbrace = 31; sym_not = 32; sym_becomes = 33; sym_number = 34;
+	sym_nil = 35; sym_ident = 37;
 	sym_semicolon = 38; sym_end = 40; sym_else = 41; sym_elsif = 42; sym_until = 43;
 	sym_if = 44; sym_while = 46; sym_repeat = 47;
 	sym_array = 54; sym_record = 55; sym_pointer = 56;
@@ -131,6 +132,10 @@ procedure Get_word (var sym : Integer);
 		sym := sym_pointer
 	else if s = 'TO' then
 		sym := sym_to
+	else if s = 'NIL' then
+		sym := sym_nil
+	else if s = 'IS' then
+		sym := sym_is
 	else
 		begin
 		sym := sym_ident;

@@ -15,9 +15,18 @@ interface
 implementation
 	uses
 		Sysutils;
+		
+	type
+		Undef_pointer = ^Undef_pointer_desc;
+		Undef_pointer_desc = Record
+			typ : Generator.Type_;
+			base_type_name : AnsiString;
+			next : Undef_pointer;
+			end;
 	
 	var
 		top_scope, guard, universe : Generator.Object_;
+		undef_ptr_list : Undef_pointer;
 
 	procedure New_obj (var obj : Generator.Object_; class_ : Integer);
 		var
@@ -37,7 +46,7 @@ implementation
 			x^.next := new_; obj := new_;
 			end
 		else
-			begin	obj := x^.next; Scanner.Mark ('Duplicated identifier declaration'); end;
+			begin obj := x^.next; Scanner.Mark ('Duplicated identifier declaration'); end;
 		end;
 		
 	procedure Open_scope;
@@ -92,6 +101,22 @@ implementation
 			end;
 		end;
 		
+	procedure find2 (var obj : Generator.Object_);
+		var
+			s, x : Generator.Object_;
+		begin
+		s := top_scope; guard^.name := Scanner.id;
+		while true do
+			begin
+			x := s^.next;
+			while x^.name <> Scanner.id do
+         	x := x^.next;
+			if x <> guard then begin obj := x; break end;
+			if s = universe then begin obj := x; break end
+			else s := s^.dsc;
+			end;
+		end;
+		
 	procedure Check_int (var x : Generator.Item);
 		begin
 		if x.typ^.form <> Generator.type_integer then
@@ -125,8 +150,9 @@ implementation
 			end
 		else if (op = Scanner.sym_equal) or (op = Scanner.sym_not_equal) then
 			begin
-			if (form <> Generator.type_integer) and (form <> Generator.type_boolean) and (form <> Generator.type_set) then
-				Scanner.Mark ('=, # only compatible with INTEGER, BOOLEAN or SET types');
+			if (form <> Generator.type_integer) and (form <> Generator.type_boolean)
+			and (form <> Generator.type_set) and (form <> Generator.type_pointer) then
+				Scanner.Mark ('=, # only compatible with INTEGER, BOOLEAN, SET or POINTER types');
 			end
 		else if (op = Scanner.sym_greater) or (op = Scanner.sym_less) then
 			begin
@@ -167,11 +193,50 @@ implementation
 			Result := False;
 		end;
 		
-	procedure Find_field (var obj : Generator.Object_; list : Generator.Object_);
+	procedure Find_field (var obj : Generator.Object_; typ : Generator.Type_);
+		var
+			list : Generator.Object_;
 		begin
 		guard^.name := Scanner.id;
-		while list^.name <> Scanner.id do list := list^.next;
-		obj := list;
+		while typ <> nil do
+			begin
+			list := typ^.fields;
+			while list^.name <> Scanner.id do list := list^.next;
+			obj := list;
+			if obj <> guard then break;
+			typ := typ^.base
+			end
+		end;
+		
+	procedure Fix_undef_ptr (obj : Generator.Object_);
+		var
+			undef : Undef_pointer;
+		begin
+		undef := undef_ptr_list;
+		while undef <> nil do
+			begin
+			if (undef^.typ^.base = Generator.int_type) and (obj^.name = undef^.base_type_name) then
+				begin
+				if obj^.typ^.form = Generator.type_record then
+					undef^.typ^.base := obj^.typ
+				else
+					begin
+					undef^.typ := Generator.dummy_record_type;
+					Scanner.Mark (obj^.name + ' must be a RECORD type')
+					end
+				end;
+			undef := undef^.next
+			end
+		end;
+		
+	function Is_base_type (typ1, typ2 : Generator.Type_) : Boolean;
+		begin
+		Result := False;
+		while typ2 <> nil do
+			begin
+			if typ2 = typ1 then Result := True;
+			typ2 := typ2^.base
+			end
 		end;
 
 (* ------------------------------------------------------------------------------------------ *)		
@@ -201,16 +266,17 @@ implementation
 			end;
 		end;
 		
-	procedure Type_ (var typ : Generator.Type_; name : AnsiString);
+	procedure Type_ (var typ : Generator.Type_; name, name2 : AnsiString);
 		var
 			obj, first : Generator.Object_;
 			tp : Generator.Type_;
 			x : Generator.Item;
+			undef : Undef_pointer;
 			
 		(* Dynamic array type is just a big pointer to an array *)
 		(* Syntax: ARRAY OF type *)
 		(* Only support 1-dimension dynamic array *)
-		procedure DynArrayType (var typ : Generator.Type_; name : AnsiString);
+		procedure DynArrayType (var typ : Generator.Type_; name, name2 : AnsiString);
 			begin
 			New (typ);
 			typ^.form := Generator.type_dynArray;
@@ -225,7 +291,7 @@ implementation
 				end
 			else
 				begin
-				Type_ (typ^.base, name);
+				Type_ (typ^.base, name, '');
 				if typ^.base^.form = Generator.type_record then
 					typ^.size := typ^.size + Word_size (* place for type tag *)
 				else if typ^.base^.form = Generator.type_array then
@@ -236,7 +302,7 @@ implementation
 				end
 			end;
 			
-		begin
+		begin (* Procedure Type_ *)
 		typ := Generator.int_type;
 		if (sym <> Scanner.sym_ident) and (sym < Scanner.sym_array) then
 			begin
@@ -248,21 +314,21 @@ implementation
 			begin
 			find (obj); Scanner.Get (sym);
 			if obj^.name = name then Scanner.Mark ('Recursive type definition')
-			else if obj^.class_ = class_typ then typ := obj^.typ else Scanner.Mark ('Type not found');
+			else if obj^.class_ = Generator.class_typ then typ := obj^.typ else Scanner.Mark ('Type not found');
 			end
 			
 		else if sym = Scanner.sym_array then
 			begin
 			Scanner.Get (sym);
 			if sym = Scanner.sym_of then
-				DynArrayType (typ, name)
+				DynArrayType (typ, name, '')
 			else
 				begin
 				expression (x);
 				if (x.mode <> Generator.class_const) or (x.a <= 0) then
 					begin Scanner.Mark ('Invalid array size'); x.a := 1; end;
 				if sym = Scanner.sym_of then Scanner.Get (sym) else Mark ('No OF in array declaration');
-				Type_ (tp, name);	New (typ);
+				Type_ (tp, name, '');	New (typ);
 				typ^.form := Generator.type_array;
 				typ^.base := tp;
 				typ^.len := x.a;
@@ -274,14 +340,29 @@ implementation
 			begin
 			Scanner.Get (sym); New (typ);
 			typ^.form := Generator.type_record;
-			typ^.size := 0;
+			typ^.size := 0; typ^.base := nil;
+			if sym = Scanner.sym_lparen then
+				begin
+				Scanner.Get (sym);
+				if sym = Scanner.sym_ident then begin find (obj); Scanner.Get (sym) end
+				else Scanner.Mark ('No base type of RECORD or not an identifier');
+				if (obj.class_ = Generator.class_typ)
+				and (obj^.typ^.form = Generator.type_record) and (typ <> obj^.typ) then
+					begin
+					typ^.base := obj^.typ;
+					typ^.size := obj^.typ^.size
+					end;
+				if sym = Scanner.sym_rparen then Scanner.Get (sym)
+				else Scanner.Mark ('No closing )')
+				end;
 			Open_scope;
 			while true do
 				begin
 				if sym = Scanner.sym_ident then
 					begin
 					IdentList (Generator.class_field, first);
-					Type_ (tp, name);
+					if sym = Scanner.sym_pointer then Type_ (tp, '', '')
+					else Type_ (tp, name, '');
 					obj := first;
 					while obj <> guard do
 						begin
@@ -295,6 +376,7 @@ implementation
 				else break;
 				end;
 			typ^.fields := top_scope^.next; Close_scope;
+			Generator.Emit_type_tag (name2, typ);
 			if sym = Scanner.sym_end then Scanner.Get (sym) else Scanner.Mark ('No END after record type declaration');
 			end
 			
@@ -302,18 +384,50 @@ implementation
 			begin
 			Scanner.Get (sym);
 			if sym = Scanner.sym_to then Scanner.Get (sym) else Scanner.Mark ('No TO in pointer type declaration');
-			(*if sym*)
+			New (typ); typ^.form := Generator.type_pointer; typ^.size := Word_size;
+			if sym = Scanner.sym_ident then
+				begin
+				find2 (obj); Scanner.Get (sym);
+				if obj^.name = name then Scanner.Mark ('Recursive type definition')
+				else if obj = guard then
+					begin
+					New (undef);
+					undef^.typ := typ;
+					undef^.base_type_name := obj^.name;
+					undef^.next := undef_ptr_list;
+					undef_ptr_list := undef;
+					typ^.base := Generator.int_type
+					end
+				else if (obj^.class_ = Generator.class_typ)
+				and (obj^.typ^.form = Generator.type_record) then
+					typ^.base := obj^.typ
+				else
+					begin
+					Scanner.Mark ('RECORD type expected');
+					typ^.base := Generator.dummy_record_type
+					end
+				end
+			else if sym = Scanner.sym_record then
+				Type_ (typ^.base, '', name2)
+			else
+				begin
+				Scanner.Mark ('RECORD type expected');
+				typ^.base := Generator.dummy_record_type
+				end
 			end
 			
 		else
 			begin Scanner.Mark ('No type identifier'); end;
-		end;
+
+		end; (* Procedure Type_ *)
 		
-	procedure Declarations (var var_base : Int64; is_grow_up : Boolean);
+	procedure Declarations (var var_base : Int64; global : Boolean);
 		var
 			obj, first : Generator.Object_;
 			tp : Generator.Type_;
 			x : Generator.Item;
+			undef : Undef_pointer;
+			
 		begin
 		while true do
 			begin
@@ -345,9 +459,10 @@ implementation
 					New_obj (obj, Generator.class_typ);
 					Scanner.Get (sym);
 					if sym = Scanner.sym_equal then Scanner.Get (sym) else Scanner.Mark ('No = in type declaration');
-					Type_ (obj^.typ, obj^.name);
+					Type_ (obj^.typ, obj^.name, obj^.name);
 					if sym = Scanner.sym_semicolon then Scanner.Get (sym) else Scanner.Mark ('No ; after type declaration');
-					end;
+					if undef_ptr_list <> nil then Fix_undef_ptr (obj)
+					end
 				end;
 				
 			if sym = Scanner.sym_var then
@@ -356,18 +471,19 @@ implementation
 				while sym = Scanner.sym_ident do
 					begin
 					IdentList (Generator.class_var, first);
-					Type_ (tp, '');
+					Type_ (tp, '', '');
 					obj := first;
 					while obj <> guard do
 						begin
 						obj^.typ := tp;
 						obj^.lev := Generator.cur_lev;
 						obj^.is_param := False;
-						if is_grow_up then
-							begin obj^.val := var_base; var_base := var_base + obj^.typ^.size; end
-						else
-							begin var_base := var_base - obj^.typ^.size; obj^.val := var_base; end;
-						if obj^.lev = 0 then Generator.Global_var_decl (obj);
+						if not global then
+							begin
+							var_base := var_base - obj^.typ^.size;
+							obj^.val := var_base;
+							end;
+						if global then Generator.Global_var_decl (obj);
 						obj := obj^.next;
 						end;
 					if sym = Scanner.sym_semicolon then Scanner.Get (sym) else Scanner.Mark ('No ; after variable declaration');
@@ -377,18 +493,80 @@ implementation
 			if (sym >= Scanner.sym_const) and (sym <= Scanner.sym_var) then
 				Scanner.Mark ('Bad declaration sequence')
 			else break;
-			
 			end;
-		end;
+			
+		(* Check for remaining undef pointer types *)
+		while undef_ptr_list <> nil do
+			begin
+			if undef_ptr_list^.typ^.base = Generator.int_type then
+				Scanner.Mark ('Base type ' + undef_ptr_list^.base_type_name + ' is not defined');
+			undef := undef_ptr_list;
+			undef_ptr_list := undef^.next;
+			Dispose (undef)
+			end
+		end; (* Procedure Declarations *)
 
    procedure selector (var x : Generator.Item);
 		var
 			y : Generator.Item;
 			obj : Generator.Object_;
-		begin
-		while (sym = Scanner.sym_lbrak) or (sym = Scanner.sym_period) or (sym = Scanner.sym_arrow) do
+			
+		procedure Type_guard (var x : Generator.Item);
+			var
+				obj : Generator.Object_;
 			begin
-			if sym = Scanner.sym_arrow then
+			Scanner.Get (sym);
+			if sym = Scanner.sym_ident then
+				begin
+				if x.typ^.form = Generator.type_pointer then
+					begin
+					find (obj);
+					if (obj^.class_ = Generator.class_typ)
+					and (obj^.typ^.form = Generator.type_pointer) then
+						begin
+						if Is_base_type (x.typ^.base, obj^.typ^.base) then
+							begin
+							Generator.Type_guard (x, obj^.typ);
+							x.typ := obj^.typ
+							end
+						else Scanner.Mark ('Type guard only applicable with an extension type of the declared type')
+						end
+					else Scanner.Mark ('Expect a pointer type identifier in type guard')
+					end
+				else if (x.typ^.form = Generator.type_record)
+				and (x.mode = Generator.class_par) and not x.read_only then
+					begin
+					find (obj);
+					if (obj^.class_ = Generator.class_typ)
+					and (obj^.typ^.form = Generator.type_record) then
+						begin
+						if Is_base_type (x.typ, obj^.typ) then
+							begin
+							Generator.Type_guard (x, obj^.typ);
+							x.typ := obj^.typ
+							end
+						else Scanner.Mark ('Type guard only applicable with an extension type of the declared type')
+						end
+					else Scanner.Mark ('Expect a record type identifier in type guard')
+					end
+				else Scanner.Mark ('Type guard only applicable with pointers or var parameters of record type');
+				Scanner.Get (sym)
+				end
+			else
+				Scanner.Mark ('Expect an identifier in type guard');
+			if sym = Scanner.sym_rparen then Scanner.Get (sym)
+			else Scanner.Mark ('Missing )')
+			end;
+			
+		begin (* Procedure selector *)
+		while (sym = Scanner.sym_lbrak) or (sym = Scanner.sym_period)
+		or (sym = Scanner.sym_arrow) or (sym = Scanner.sym_lparen) do
+			begin
+			if sym = Scanner.sym_lparen then (* Type guard *)
+				begin
+				Type_guard (x)
+				end
+			else if sym = Scanner.sym_arrow then (* POINTER dereference *)
 				begin
 				Scanner.Get (sym);
 				if x.typ^.form = Generator.type_pointer then
@@ -399,7 +577,7 @@ implementation
 				else
 					Scanner.Mark ('Not a pointer variable');
 				end
-			else if sym = Scanner.sym_lbrak then
+			else if sym = Scanner.sym_lbrak then (* ARRAY index selector *)
 				begin
 				Scanner.Get (sym); expression (y); Check_int (y);
 				if x.typ^.form = Generator.type_array then
@@ -421,24 +599,30 @@ implementation
 				if sym = Scanner.sym_rbrak then Scanner.Get (sym)
 				else Scanner.Mark ('Missing ]')
 				end
-			else (* RECORD case *)
+			else (* RECORD field selector *)
 				begin
 				Scanner.Get (sym);
 				if sym = Scanner.sym_ident then
 					begin
 					if x.typ^.form = Generator.type_record then
 						begin
-						Find_field (obj, x.typ^.fields); Scanner.Get (sym);
-						if obj <> guard then
-							begin Field (x, obj); x.typ := obj^.typ; end
-						else
-							begin Scanner.Mark ('Undefined field'); end
+						Find_field (obj, x.typ); Scanner.Get (sym);
+						if obj <> guard then begin Field (x, obj); x.typ := obj^.typ; end
+						else Scanner.Mark ('Undefined field')
 						end
-					else
-						begin Scanner.Mark ('Not a record type') end;
+					else if x.typ^.form = Generator.type_pointer then
+						begin
+						Generator.Deref (x); x.typ := x.typ^.base;
+						if x.typ <> Generator.dummy_record_type then
+							begin
+							Find_field (obj, x.typ); Scanner.Get (sym);
+							if obj <> guard then begin Generator.Field (x, obj); x.typ := obj^.typ; end
+							else Scanner.Mark ('Undefined field')
+							end
+						end
+					else Scanner.Mark ('Not a record type');
 					end
-				else
-					begin Scanner.Mark ('No identifier after record selector') end;
+				else Scanner.Mark ('No identifier after record selector');
 				end;
 			end;
 		end;
@@ -456,6 +640,7 @@ implementation
 			if sym = Scanner.sym_rparen then
 				Scanner.Get (sym)
 			else
+				begin
 				while true do
 					begin
 					expression (y);
@@ -470,7 +655,17 @@ implementation
 							else
 								Scanner.Mark ('Incompatible param types');
 							end
-						else if y.typ = par^.typ then
+						else if par^.typ^.form = Generator.type_record then
+							begin
+							if (y.typ^.form = Generator.type_record) and Is_base_type (par^.typ, y.typ) then
+								Generator.Record_variable_parameter (y)
+							else
+								Scanner.Mark ('Incompatible param types');
+							end
+						else if (par^.typ^.form = Generator.type_pointer)
+						and (y.typ^.form = Generator.type_pointer)
+						and Is_base_type (par^.typ^.base, y.typ^.base)
+						or (y.typ = par^.typ) then
 							Generator.Parameter (y, par)
 						else
 							Scanner.Mark ('Incompatible param types');
@@ -483,6 +678,7 @@ implementation
 					else if sym >= Scanner.sym_semicolon then begin Scanner.Mark ('No closing )'); break; end
 					else Scanner.Mark ('No ) or ,');
 					end;
+				end
 			end;
 		if obj^.val <= 0 then
 			Scanner.Mark ('Forward call unsupported')
@@ -499,16 +695,41 @@ implementation
 			y : Generator.Item;
 		begin
 		Scanner.Get (sym); expression (y);
-		if (x.typ^.form = Generator.type_integer) and (x.typ^.form = y.typ^.form) then
+		if (x.typ^.form = Generator.type_integer) and (y.typ^.form = Generator.type_integer) then
 			begin
 			if x.typ <> Generator.Get_result_int_type (x, y) then
 				Scanner.Mark ('Can not store bigger int into smaller int type');
 			Generator.Store (x, y)
 			end
-		else if (x.typ^.form = Generator.type_boolean) and (x.typ^.form = y.typ^.form) then
+		else if (x.typ = Generator.bool_type) and (y.typ = Generator.bool_type) then
 			begin Generator.Store (x, y) end
-		else if (x.typ^.form = Generator.type_set) and (x.typ^.form = y.typ^.form) then
+		else if (x.typ = Generator.set_type) and (y.typ = Generator.set_type) then
 			begin Generator.Store (x, y) end
+		else if (x.typ^.form = Generator.type_dynArray) and (x.typ = y.typ) then
+			begin Generator.Copy (x, y, x.typ^.size) end
+		else if (x.typ^.form = Generator.type_array) and (y.typ^.form = Generator.type_array)
+		and (x.typ^.base = y.typ^.base) and (y.typ^.len > 0) and (x.typ^.len > 0) then
+			begin
+			if x.typ^.len < y.typ^.len then Scanner.Mark ('Destination array is shorter than source array');
+			Generator.Copy (x, y, y.typ^.len * y.typ^.base^.size)
+			end
+		else if (x.typ^.form = Generator.type_array) and (y.typ^.form = Generator.type_array)
+		and (x.typ^.base = y.typ^.base) and (x.typ^.base^.size > 0) then
+			begin
+			Generator.Copy2 (x, y)
+			end
+		else if (x.typ^.form = Generator.type_pointer) and (y.typ^.form = Generator.type_pointer) then
+			begin
+			if (y.mode = Generator.class_const) or Is_base_type (x.typ^.base, y.typ^.base) then
+				Generator.Store (x, y)
+			else Scanner.Mark ('Pointer base types incompatible')			
+			end
+		else if (x.typ^.form = Generator.type_record) and (y.typ^.form = Generator.type_record) then
+			begin
+			if Is_base_type (x.typ, y.typ) then
+				Generator.Copy (x, y, x.typ^.size)
+			else Scanner.Mark ('Record base types incompatible')
+			end
 		else
 			begin
 			Scanner.Mark ('Incompatible types');
@@ -801,6 +1022,11 @@ implementation
 				begin Generator.Make_item (x, obj); end;
 			selector (x);
 			end
+		else if sym = Scanner.sym_nil then
+			begin
+			Generator.Make_const (x, Generator.nil_type, 0);
+			Scanner.Get (sym);
+			end
 		else if sym = Scanner.sym_number then
 			begin
 			Generator.Make_const (x, Generator.int_type, Scanner.value);
@@ -877,8 +1103,47 @@ implementation
 	procedure expression (var x : Generator.Item);
 		var
 			op : Integer;
-			y : Item;
-		begin
+			y : Generator.Item;
+			
+		procedure Type_test (var x : Generator.Item);
+			var
+				obj : Generator.Object_;
+			begin
+			Scanner.Get (sym);
+			if sym = Scanner.sym_ident then
+				begin
+				if x.typ^.form = Generator.type_pointer then
+					begin
+					find (obj); Scanner.Get (sym);
+					if (obj^.class_ = Generator.class_typ)
+					and (obj^.typ^.form = Generator.type_pointer) then
+						begin
+						if Is_base_type (x.typ^.base, obj^.typ^.base) then
+							Generator.Type_test (x, obj^.typ)
+						else Scanner.Mark ('Type test only applicable with an extension type of the declared type')
+						end
+					else Scanner.Mark ('Expecting a pointer type identifier in type test')
+					end
+				else if (x.typ^.form = Generator.type_record)
+				and (x.mode = Generator.class_par) and not x.read_only then
+					begin
+					find (obj); Scanner.Get (sym);
+					if (obj^.class_ = Generator.class_typ)
+					and (obj^.typ^.form = Generator.type_record) then
+						begin
+						if Is_base_type (x.typ, obj^.typ) then
+							Generator.Type_test (x, obj^.typ)
+						else Scanner.Mark ('Type test only applicable with an extension type of the declared type')
+						end
+					else Scanner.Mark ('Expecting a record type identifier in type test')
+					end
+				else Scanner.Mark ('Type test only applicable with pointer variables or variable parameters of record type')
+				end
+			else Scanner.Mark ('Type identifier expected in type test');
+			x.typ := Generator.bool_type;
+			end;
+			
+		begin (* Procedure expression *)
 		SimpleExpression (x);
 		if (sym >= Scanner.sym_equal) and (sym <= Scanner.sym_greater) then
 			begin
@@ -909,6 +1174,10 @@ implementation
 			else
 				Scanner.Mark ('Incompatible types');
 			x.typ := Generator.bool_type;
+			end
+		else if sym = Scanner.sym_is then
+			begin
+			Type_test (x)
 			end;
 		end;
 		
@@ -986,10 +1255,12 @@ implementation
 				end;
 			
 			cls := first^.class_; read_only := first^.read_only;
-			para_size := Word_size;
-			
 			if (tp^.form = Generator.type_array) and (tp^.len = 0) then
-				para_size := tp^.size;
+				para_size := tp^.size
+			else if (tp^.form = Generator.type_record) and (cls = Generator.class_par) then
+				para_size := Word_size * 2
+			else
+				para_size := Word_size;
 
 			if (cls = Generator.class_var) and Is_structured_type (tp) then
 				begin	
@@ -1154,8 +1425,9 @@ implementation
 		end;
 		
 initialization
-	New (guard); guard^.class_ := Generator.class_var; guard^.typ := Generator.int_type; guard^.val := 0;
-   guard^.is_param := False;
+	New (guard); guard^.class_ := Generator.class_var;
+	guard^.typ := Generator.int_type; guard^.val := 0;
+	guard^.is_param := False; undef_ptr_list := nil;
 	top_scope := nil; Open_scope;
 	
 	enter (Generator.class_typ, 1, 'BOOLEAN', Generator.bool_type);
