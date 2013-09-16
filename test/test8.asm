@@ -27,8 +27,10 @@ Proc2_:
 	JNE ELSIF_29
 	JMP IF_25_END
 ELSIF_29:
-	CMP byte [rbp + 16], 0
-	JE IF_25_END
+	MOV r8, qword [rbp + 16]
+	LEA rax, qword [TYPE_TAG.Node2Desc_3 + 0]
+	CMP rax, qword [r8 + -16]
+	JNE IF_25_END
 IF_25_END:
 	LEAVE
 	RET 24

@@ -6,10 +6,10 @@ interface
 	
 	const
 		class_head = 0; class_var = 1; class_par = 2; class_const = 3; class_field = 4; class_typ = 5;
-		class_proc = 6; class_sproc = 7; class_func = 8; class_ind = 9;
+		class_proc = 6; class_sproc = 7;
 		mode_reg = 10; mode_regI = 11; mode_cond = 12;
 		type_boolean = 0; type_integer = 1; type_array = 2; type_record = 3; type_set = 4;
-		type_dynArray = 5; type_pointer = 10;
+		type_dynArray = 9; type_pointer = 10; type_proc = 11;
 		
 		MAX_INT = 9223372036854775807;
 		MIN_INT = -9223372036854775808;
@@ -68,6 +68,7 @@ interface
 	procedure Store (var x, y : Item);
 	procedure Copy (var x, y : Item; count : Int64);
 	procedure Copy2 (var x, y : Item);
+	procedure Store_proc_addr (var x, y : Item);
 	
 	procedure Op1 (op : Integer; var x : Item);
 	procedure Op2 (op : Integer; var x, y : Item);
@@ -98,6 +99,7 @@ interface
 	procedure Enter (parblksize, locblksize : Int64);
 	procedure Return (parblksize : Int64);
 	procedure Call (var x : Item);
+	procedure Indirect_call (var x : Item);
 	procedure Set_Function_result (var x : Item);
 	procedure Save_registers;
 	procedure Restore_registers;
@@ -105,6 +107,7 @@ interface
 	procedure Open_array_Param1 (var x : Item; fp : Object_; formal_typ : Type_; dim : Integer);
 	procedure Open_array_Param2 (var x : Item; fp : Object_);
 	procedure Record_variable_parameter (var x : Item);
+	procedure Procedure_Param (var x : Item);
 	
 	procedure SFunc_ORD (var x : Item);
 	procedure SFunc_ODD (var x : Item);
@@ -613,8 +616,7 @@ implementation
 				Put_op_mem_imm (op_MOV, x, y.a)
 			else if x.mode = mode_regI then
 				begin Put_op_mem_imm (op_MOV, x, y.a); Free_reg (x) end
-			else
-				begin Scanner.Mark ('Invalid assignment') end;
+			else Scanner.Mark ('Invalid assignment');
 			end
 		else
 			begin
@@ -624,8 +626,7 @@ implementation
 				Put_op_mem_reg (op_MOV, x, y.r + reg_off)
 			else if x.mode = mode_regI then
 				begin Put_op_mem_reg (op_MOV, x, y.r + reg_off); Free_reg (x) end
-			else
-				begin Scanner.Mark ('Invalid assignment') end;
+			else Scanner.Mark ('Invalid assignment');
 			Free_reg (y);
 			end;
 		end;
@@ -646,8 +647,7 @@ implementation
 				x.mode := mode_cond; x.a := 0; x.b := 0;
 				end;
 			end
-		else
-			Scanner.Mark ('Boolean type?');
+		else Scanner.Mark ('Boolean type?');
 		end;
 		
 	procedure Load_adr (var x : Item);
@@ -772,6 +772,13 @@ implementation
 			if Use_register (x) then Free_reg (x);
 			if Use_register (y) then Free_reg (y)
 			end
+		end;
+		
+	procedure Store_proc_addr (var x, y : Item);
+		begin
+		Put_op_reg_sym (op_LEA, reg_RAX, '[' + code_output [y.a].lb + ']');
+		Put_op_mem_reg (op_MOV, x, reg_RAX);
+		if Use_register (x) then Free_reg (x)
 		end;
 		
 (* --------------------------------------------------------------------------------------- *)
@@ -1829,9 +1836,22 @@ implementation
 			end
 		end;
 		
+	(* Procedure Procedure_Param will use RAX *)
+	procedure Procedure_Param (var x : Item);
+		begin
+		Put_op_reg_sym (op_LEA, reg_RAX, '[' + code_output [x.a].lb + ']');
+		Put_op_reg (op_PUSH, reg_RAX)
+		end;
+		
 	procedure Call (var x : Item);
 		begin
 		Put_op_sym (op_CALL, code_output [x.a].lb);
+		end;
+		
+	procedure Indirect_call (var x : Item);
+		begin
+		Put_op_mem (op_CALL, x);
+		if Use_register (x) then Free_reg (x)
 		end;
 		
 	procedure Save_registers;
@@ -2058,26 +2078,19 @@ implementation
 
 	procedure Make_item (var x : Item; y : Object_);
 		begin
-		if (y^.class_ = class_var) or (y^.class_ = class_const) or (y^.class_ = class_par) then
+		x.mode := y^.class_; x.typ := y^.typ; x.lev := y^.lev;
+		x.a := y^.val; x.b := 0; x.c := 0;
+		x.read_only := y^.read_only;
+		
+		if y^.lev = 0 then
 			begin
-			x.mode := y^.class_; x.typ := y^.typ; x.lev := y^.lev;
-			x.a := y^.val; x.b := 0; x.c := 0;
-			x.read_only := y^.read_only;
-			
-			if y^.lev = 0 then
-				begin
-				if y^.class_ = class_var then begin x.r := x.a; x.a := 0; end
-				end
-			else if y^.lev = cur_lev then 
-				x.r := reg_RBP
-			else
-				begin Scanner.Mark ('Level!?'); x.r := 0; end;
-				
-			if (x.mode = class_par) and (x.typ^.form = type_array) and (x.typ^.len = 0) then
-				begin x.b := x.a; x.c := 1 end
+			if y^.class_ = class_var then begin x.r := x.a; x.a := 0; end
 			end
-		else
-			Scanner.Mark ('Expected a variable, parameter or const')
+		else if y^.lev = cur_lev then x.r := reg_RBP
+		else begin Scanner.Mark ('Level!?'); x.r := 0; end;
+			
+		if (x.mode = class_par) and (x.typ^.form = type_array) and (x.typ^.len = 0) then
+			begin x.b := x.a; x.c := 1 end
 		end;
 		
 	procedure Make_const (var x : Item; typ : Type_; val : Int64);

@@ -38,7 +38,7 @@ BEGIN
 	a (Node2Desc).val2 := 0;
 	b (Node2).val2 := 1;
 	IF a IS Node2Desc THEN
-	ELSIF b IS Node2Desc THEN
+	ELSIF b IS Node2 THEN
 	END
 END Proc2;
 
