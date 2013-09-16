@@ -28,11 +28,14 @@ When doing calculation with small integer types, all intermediate values are in 
 so there is no code size benefit from using small integer types over standard INTEGER.
 There are 3 standard functions for convert larger integer to smaller integer: TOINT8, TOINT16 and TOINT32.
 
-### Function procedure
+### Dynamic array type
 
-Function procedure is not able to return structured (ARRAY, RECORD) value, because return value
-is store in RAX register.
+Syntax: TYPE x = ARRAY OF NonArrayType;
 
-### Open array
-
-At the present, only 1-dimension open arrays are supported.
+Dynamic array is just a pointer with an array descriptor attach to it. A normal pointer's size is 8 bytes
+ but the size of a variable of dynamic array type can be 24 or 32 bytes. Dynamic array is restricted to
+1-dimension only. Different from ARM Oberon-07, where dynamic array is allocated on stack, dynamic array
+here is allocated on heap. Therefore, a dynamic array type can be contained in a record type,
+or be an element type of an array type, or be passed to another procedure as an open array or a dynamic array.
+However, array assignment will not work with dynamic array and assignment of dynamic array variables is treated
+as pointer assignment.
