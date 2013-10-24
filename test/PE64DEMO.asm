@@ -10,13 +10,13 @@ start:
 	sub	rsp,8*5 	; reserve stack for API use and make stack dqword aligned
 	lea	rbx, [Global]
 
-	mov	ecx, -11
+	mov		ecx, -11
 	call	[GetStdHandle]
-	mov	[Console_handle], rax
+	mov		[Console_handle], rax
 
 	call	MAIN
 
-	mov	ecx,eax
+	mov		ecx, eax
 	call	[ExitProcess]
 
 WriteChar_:

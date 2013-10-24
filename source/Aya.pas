@@ -1,21 +1,18 @@
 program Aya;
-uses Scanner, Parser, Generator;
+uses Scanner, Win64;
 var
-	t : Textfile_type;
-	output : Text;
+	t : Scanner.Textfile_type;
 	srcfilename : AnsiString;
 	
-procedure Change_file_ext;
+procedure Remove_file_ext;
 	var
 		i : Integer;
 	begin
 	for i := Length (srcfilename) downto 1 do
 		begin if srcfilename [i] = '.' then break; end;
-	if srcfilename [i] <> '.' then i := Length (srcfilename);
-	SetLength (srcfilename, i + 3);
-	srcfilename [i + 1] := 'a';
-	srcfilename [i + 2] := 's';
-	srcfilename [i + 3] := 'm';
+	if srcfilename [i] <> '.' then i := Length (srcfilename)
+	else Dec (i);
+	SetLength (srcfilename, i);
 	end;
 	
 begin
@@ -28,15 +25,10 @@ else
 
 Assign (t, srcfilename);
 Reset (t);
-Change_file_ext;
-Assign (output, srcfilename);
-Rewrite (output);
+Remove_file_ext;
 
 Scanner.Init (t, 0);
-Scanner.Get (Parser.sym);
-Parser.Module;
-Generator.Write_asm_output_to_file (output);
+Win64.Compile (srcfilename);
 
 Close (t);
-Close (output);
 end.
