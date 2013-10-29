@@ -29,34 +29,62 @@ start:
 	POP  RBX
 	RET
 
-section '.data' data readable writeable
+section '.bss' data readable writeable
 ; TYPE DESCRIPTORS SECTION
-TYPE_DESC.NodeDesc_1	db 32 dup 0
-; GLOBAL VARIABLES DECLARATION
+TYPE1	rb 0 dup ?
+; GLOBAL VARIABLES SECTION
 Global:
-i_	rb 8 dup 0
-n_	rb 8 dup 0
+i_	rb 8 dup ?
+n_	rb 8 dup ?
 
 section '.OBERON' data readable writeable
-	db	'Const	max	100000	Int	'
-	db	'Type	MyInt	Int	'
-	db	'Type	Node	Pointer	-1	'
-	db	'Type	NodeDesc	Record	17	NoBase	'
-	db	'Field	val	1	Int	'
-	db	'Field	next	9	0	'
-	db	'EndRecord	'
-	db	'Type	TwoDim	Array	10	-1	'
-	db	'Type	0	Array	10	Int32	'
-	db	'Var	i	Int	'
-	db	'Var	n	0	'
+	db	0
+	dd	3
+	db	'max'
+	dq	100000
+	dd	-2
+	db	7
+	dd	5
+	db	'MyInt'
+	dd	-2
+	db	1
+	dd	4
+	db	'Node'
+	db	12
+	dd	-1
+	db	1
+	dd	8
+	db	'NodeDesc'
+	db	11
+	dq	17
+	dd	-8
+	db	4
+	dd	3
+	db	'val'
+	dq	1
+	dd	-2
+	db	4
+	dd	4
+	db	'next'
+	dq	9
+	dd	0
+	db	9
+	db	1
+	dd	6
+	db	'TwoDim'
+	db	10
+	dq	10
+	dd	-1
+	db	1
+	dd	0
+	db	10
+	dq	10
+	dd	-5
+	db	2	dd	1
+	db	'i'
+	dd	-2
+	db	2	dd	1
+	db	'n'
+	dd	0
+	db	9
 
-section '.idata' import data readable writeable
-
-section '.edata' export data readable writeable
-	dd	0, 0, 0, RVA DLL_NAME, 1, 3, 0, RVA EXPORT_TABLE, 0, 0
-EXPORT_TABLE:
-	dd	RVA TYPE_DESC.NodeDesc_1
-	dd	RVA i_
-	dd	RVA n_
-DLL_NAME:
-	db	'TEST10.DLL', 0

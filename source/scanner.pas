@@ -24,7 +24,7 @@ const
 var
 	value : Int64;
 	id : String;
-	error : Boolean;
+	error : Integer;
 	
 procedure Init (var t : Textfile_type; pos : Integer);
 procedure Get (var sym : Integer);
@@ -50,6 +50,7 @@ procedure Init (var t : Textfile_type; pos : Integer);
 	ch := #0; line_num := 1;
 	eof_flag := False;
 	prev_sym_pos := 0;
+	error := 0;
 	end;
 	
 procedure Read_char;
@@ -245,6 +246,7 @@ procedure Get (var sym : Integer);
 	procedure Mark (msg : String);
 		begin
 		Writeln (IntToStr (line_num) + ': ' + msg);
+		Inc (error)
 		end;
 		
 	procedure Go_back_one_symbol;

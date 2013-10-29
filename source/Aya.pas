@@ -25,10 +25,9 @@ else
 
 Assign (t, srcfilename);
 Reset (t);
-Remove_file_ext;
 
 Scanner.Init (t, 0);
-Win64.Compile (srcfilename);
+Win64.Compile;
 
 Close (t);
 end.

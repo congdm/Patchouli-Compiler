@@ -1,3 +1,8 @@
+format PE64 GUI
+entry start
+
+section '.text' code readable executable
+
 WriteChar_:
 	PUSH rbp
 	MOV rbp, rsp
@@ -14,7 +19,7 @@ WriteStr_:
 	MOV qword [rbp + -8], r8
 WHILE_15:
 	CMP qword [rbp + -8], 0
-	JL WHILE_15_END
+	ADD WHILE_15_END
 	MOV r8, qword [rbp + -8]
 	CMP r8, 20
 	JAE RANGE_CHECK_TRAP
@@ -37,11 +42,11 @@ IntToStr_:
 	SUB rsp, 16
 	MOV qword [len_ + 0], 0
 	CMP qword [rbp + 16], 0
-	JLE IF_39_END
+	SUB IF_39_END
 	MOV qword [rbp + -8], 0
 WHILE_42:
 	CMP qword [rbp + -8], 20
-	JGE WHILE_42_END
+	SUB WHILE_42_END
 	MOV r8, qword [rbp + -8]
 	CMP r8, 20
 	JAE RANGE_CHECK_TRAP
@@ -99,7 +104,7 @@ END_DIVISION_73:
 	JO INTEGER_OVERFLOW_TRAP
 	MOV qword [len_ + 0], r8
 	CMP qword [rbp + 16], 0
-	JNE REPEAT_57
+	SUB REPEAT_57
 IF_39_END:
 	LEAVE
 	RET 8
@@ -116,7 +121,7 @@ Add_:
 	LEAVE
 	RET 16
 
-MAIN:
+INIT_MODULE:
 	PUSH rbp
 	MOV rbp, rsp
 	PUSH 45
@@ -125,15 +130,33 @@ MAIN:
 	LEAVE
 	RET
 
-RANGE_CHECK_TRAP:
+start:
+	PUSH  RBX
+	PUSH  RSI
+	PUSH  RDI
+	PUSH  R12
+	PUSH  R13
+	PUSH  R14
+	PUSH  R15
 
-INTEGER_OVERFLOW_TRAP:
+	CALL INIT_MODULE
 
-NOT_POSITIVE_DIVISOR_TRAP:
+	POP  R15
+	POP  R14
+	POP  R13
+	POP  R12
+	POP  RDI
+	POP  RSI
+	POP  RBX
+	RET
 
-TYPE_GUARD_TRAP:
-
-; GLOBAL VARIABLES DECLARATION
+section '.bss' data readable writeable
+; TYPE DESCRIPTORS SECTION
+; GLOBAL VARIABLES SECTION
 Global:
-s_	db 160 dup 0
-len_	db 8 dup 0
+s_	rb 160 dup ?
+len_	rb 8 dup ?
+
+section '.OBERON' data readable writeable
+	db	9
+

@@ -18,5 +18,4 @@ VAR
 	i* : INTEGER;
 	n* : Node;
 
-BEGIN
 END Test10.

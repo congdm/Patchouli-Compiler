@@ -69,7 +69,6 @@ interface
 	var
 		reg_stack : Set of 0..31;
 		reg_stack_size : Integer;
-		reg_order : Array [0..31] of Integer;
 		stack : Integer;
 
 		Enter : Procedure (parblksize, locblksize : Base.MachineInteger);
@@ -300,10 +299,10 @@ implementation
 		Result := -1; i := 0;
 		while (i < reg_stack_size) and (Result < 0) do
 			begin
-			if not (reg_order [i] in reg_stack) then
+			if not (i in reg_stack) then
 				begin
-				reg_stack := reg_stack + [reg_order [i]];
-				Result := reg_order [i];
+				reg_stack := reg_stack + [i];
+				Result := i;
 				end;
 			Inc (i)
 			end;
@@ -2075,16 +2074,16 @@ implementation
 
 	procedure Generate_type_tag;
 		var
-			lb : Base.Label_line_ptr;
+			p : Integer;
 			typ : Base.Type_;
 			base_tag : Item;
 			obj : Base.Object_;
 		begin
-		lb := tag_list;
-		while lb <> nil do
+		p := tag_list;
+		while p <> 0 do
 			begin
-			typ := lb.typ;
-			Put_op_reg_sym (op_LEA, reg_RDI, 'qword [' + lb.lb + ']');
+			typ := labels [p].typ;
+			Put_op_reg_sym (op_LEA, reg_RDI, 'qword [' + labels [p].lb + ']');
 			Put_op_reg_imm (op_MOV, reg_RAX, Record_signature);
 			Put_op_sym_reg (op_MOV, 'qword [rdi]', reg_RAX);
 			Put_op_reg_imm (op_MOV, reg_RCX, typ.len);
@@ -2111,7 +2110,7 @@ implementation
 				Put_op_reg_imm (op_ADD, reg_RSI, 8);
 				Put_op_reg_imm (op_ADD, reg_RDI, 8);
 				Put_op_reg_imm (op_MOV, reg_RCX, typ.base.num_of_pointers);
-				Put_op_reg_imm (op_REP_MOVSQ);
+				//Put_op_reg_imm (op_REP_MOVSQ);
 				end;
 			if typ.num_of_pointers > typ.base.num_of_pointers then
 				begin
@@ -2258,17 +2257,15 @@ implementation
 		end;
 
 	procedure Init_reg_stack;
-		var
-			i : Integer;
 		begin
 		reg_stack := [];
 		reg_stack_size := 8;
-		for i := 0 to 7 do reg_order [i] := i;
 		end;
 
 initialization
 	Init_mnemonic_table;
 	Init_relation_table;
+	Init_reg_stack;
 
 	Enter := _Enter;
 	Return := _Return;

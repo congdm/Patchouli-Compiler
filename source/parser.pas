@@ -19,7 +19,7 @@ implementation
 	type
 		Undef_pointer = ^Undef_pointer_desc;
 		Undef_pointer_desc = Record
-			typ : Base.Type_;
+			types : Array of Base.Type_;
 			base_type_name : AnsiString;
 			next : Undef_pointer;
 			end;
@@ -32,12 +32,12 @@ implementation
 		if (x.mode = Base.class_typ) or (x.mode = Base.class_proc)
 		or (x.mode = Base.class_sproc) or (x.typ.form = Base.type_proc) then
 			begin
-			Scanner.Mark ('Expecting an integer but found type or procedure');
+			Scanner.Mark ('Error: Expecting an integer but found type or procedure');
 			Generator.Make_clean_const (x, Base.int_type, 0)
 			end
 		else if x.typ.form <> Base.type_integer then
 			begin
-			Scanner.Mark ('Not an integer');
+			Scanner.Mark ('Error: Not an integer');
 			Generator.Make_clean_const (x, Base.int_type, 0)
 			end
 		end;
@@ -47,12 +47,12 @@ implementation
 		if (x.mode = Base.class_typ) or (x.mode = Base.class_proc)
 		or (x.mode = Base.class_sproc) or (x.typ.form = Base.type_proc) then
 			begin
-			Scanner.Mark ('Expecting a set but found type or procedure');
+			Scanner.Mark ('Error: Expecting a set but found type or procedure');
 			Generator.Make_clean_const (x, Base.set_type, 0)
 			end
 		else if x.typ.form <> Base.type_set then
 			begin
-			Scanner.Mark ('Not a set');
+			Scanner.Mark ('Error: Not a set');
 			Generator.Make_clean_const (x, Base.set_type, 0)
 			end
 		end;
@@ -62,12 +62,12 @@ implementation
 		if (x.mode = Base.class_typ) or (x.mode = Base.class_proc)
 		or (x.mode = Base.class_sproc) or (x.typ.form = Base.type_proc) then
 			begin
-			Scanner.Mark ('Expecting a boolean value but found type or procedure');
+			Scanner.Mark ('Error: Expecting a boolean value but found type or procedure');
 			Generator.Make_clean_const (x, Base.bool_type, 0)
 			end
 		else if x.typ.form <> Base.type_boolean then
 			begin
-			Scanner.Mark ('Not a boolean value');
+			Scanner.Mark ('Error: Not a boolean value');
 			Generator.Make_clean_const (x, Base.bool_type, 0)
 			end
 		end;
@@ -79,7 +79,7 @@ implementation
 		if (x.mode = Base.class_typ) or (x.mode = Base.class_proc)
 		or (x.mode = Base.class_sproc) or (x.typ^.form = Base.type_proc) then
 			begin
-			Scanner.Mark ('Error, there is no operator for type or procedure');
+			Scanner.Mark ('Error: There is no operator for type or procedure');
 			Generator.Make_clean_const (x, Base.int_type, 0)
 			end;
 		form := x.typ.form;
@@ -87,7 +87,7 @@ implementation
 			begin
 			if (form <> Base.type_integer) and (form <> Base.type_set) then
 				begin
-				Scanner.Mark ('+, -, * only compatible with INTEGER or SET types');
+				Scanner.Mark ('Error: +, -, * only compatible with INTEGER or SET types');
 				Generator.Make_clean_const (x, Base.int_type, 0)
 				end
 			end
@@ -95,7 +95,7 @@ implementation
 			begin
 			if form <> Base.type_integer then
 				begin
-				Scanner.Mark ('DIV, MOD only compatible with INTEGER types');
+				Scanner.Mark ('Error: DIV, MOD only compatible with INTEGER types');
 				Generator.Make_clean_const (x, Base.int_type, 0)
 				end
 			end
@@ -103,7 +103,7 @@ implementation
 			begin
 			if form <> Base.type_set then
 				begin
-				Scanner.Mark ('/ only compatible with SET type');
+				Scanner.Mark ('Error: / only compatible with SET type');
 				Generator.Make_clean_const (x, Base.set_type, 0)
 				end
 			end
@@ -111,7 +111,7 @@ implementation
 			begin
 			if form <> Base.type_boolean then
 				begin
-				Scanner.Mark ('&, OR, ~ only compatible with BOOLEAN type');
+				Scanner.Mark ('Error: &, OR, ~ only compatible with BOOLEAN type');
 				Generator.Make_clean_const (x, Base.bool_type, 0)
 				end
 			end
@@ -120,7 +120,7 @@ implementation
 			if (form <> Base.type_integer) and (form <> Base.type_boolean)
 			and (form <> Base.type_set) and (form <> Base.type_pointer) then
 				begin
-				Scanner.Mark ('=, # only compatible with INTEGER, BOOLEAN, SET or POINTER types');
+				Scanner.Mark ('Error: =, # only compatible with INTEGER, BOOLEAN, SET or POINTER types');
 				Generator.Make_clean_const (x, Base.int_type, 0)
 				end
 			end
@@ -128,7 +128,7 @@ implementation
 			begin
 			if form <> Base.type_integer then
 				begin
-				Scanner.Mark ('>, < only compatible with INTEGER types');
+				Scanner.Mark ('Error: >, < only compatible with INTEGER types');
 				Generator.Make_clean_const (x, Base.int_type, 0)
 				end
 			end
@@ -136,7 +136,7 @@ implementation
 			begin
 			if (form <> Base.type_integer) and (form <> Base.type_set) then
 				begin
-				Scanner.Mark ('>=, <= only compatible with INTEGER or SET types');
+				Scanner.Mark ('Error: >=, <= only compatible with INTEGER or SET types');
 				Generator.Make_clean_const (x, Base.int_type, 0)
 				end
 			end;
@@ -165,7 +165,7 @@ implementation
 					undef.typ.base := obj.typ
 				else
 					begin
-					Scanner.Mark (obj.name + ' must be a RECORD type')
+					Scanner.Mark ('Error: ' + obj.name + ' must be a RECORD type')
 					end
 				end;
 			undef := undef.next
@@ -261,6 +261,19 @@ implementation
 			end
 		end;
 
+	procedure find_undef (var undef : Undef_pointer; name : AnsiString);
+		var
+			found : Boolean;
+		begin
+		undef := undef_ptr_list;
+		found := False;
+		while (undef <> nil) and not found do
+			begin
+			if undef.base_type_name = name then found := True
+			else undef := undef.next
+			end
+		end;
+
 (* ------------------------------------------------------------------------------------------ *)
 // Begin parser procedures part
 
@@ -275,7 +288,7 @@ implementation
 			begin
 			if sym < Scanner.sym_ident then
 				begin
-				Scanner.Mark ('Identifier expected');
+				Scanner.Mark ('Error: Identifier expected');
 				repeat Scanner.Get (sym) until sym >= Scanner.sym_ident;
 				end;
 			if sym = Scanner.sym_ident then
@@ -287,20 +300,20 @@ implementation
 					Scanner.Get (sym);
 					if Scanner.id <> modid then
 						Base.Import_module (modul_name, Scanner.id)
-					else Scanner.Mark ('Self importing is forbidden');
+					else Scanner.Mark ('Error: Self importing is forbidden');
 					Scanner.Get (sym)
 					end
 				else if modul_name <> modid then
 					Base.Import_module (modul_name, modul_name)
-				else Scanner.Mark ('Self importing is forbidden');
+				else Scanner.Mark ('Error: Self importing is forbidden');
 				
 				if sym = Scanner.sym_comma then Scanner.Get (sym)
 				else if sym = Scanner.sym_semicolon then break
-				else begin Scanner.Mark ('Semicolon or comma expected'); break end
+				else begin Scanner.Mark ('Error: Semicolon or comma expected'); break end
 				end
 			else	
 				begin
-				Scanner.Mark ('Identifier expected');
+				Scanner.Mark ('Error: Identifier expected');
 				break
 				end
 			end
@@ -316,7 +329,7 @@ implementation
 			if sym = Scanner.sym_times then
 				begin
 				if Base.cur_lev = 0 then first.flag := first.flag + [Base.exported]
-				else Scanner.Mark ('Not able to export a non-global identifier');
+				else Scanner.Mark ('Error: Not able to export a non-global identifier');
 				Scanner.Get (sym)
 				end;
 			while sym = Scanner.sym_comma do
@@ -328,22 +341,22 @@ implementation
 					if sym = Scanner.sym_times then
 						begin
 						if Base.cur_lev = 0 then obj.flag := obj.flag + [Base.exported]
-						else Scanner.Mark ('Not able to export a non-global identifier');
+						else Scanner.Mark ('Error: Not able to export a non-global identifier');
 						Scanner.Get (sym)
 						end;
 					end
-				else Scanner.Mark ('No identifier after ,');
+				else Scanner.Mark ('Error: No identifier after ,');
 				end;
 			if sym = Scanner.sym_colon then Scanner.Get (sym)
-			else Scanner.Mark ('No : after identifier list');
+			else Scanner.Mark ('Error: No : after identifier list');
 			end;
 		end;
 
-	procedure FormalParameters (var proc : Base.Object_; var para_block_size : Base.MachineInteger);
+	procedure FormalParameters (proc : Base.Object_; var para_block_size : Base.MachineInteger);
 		var
 			obj : Base.Object_;
 
-		procedure OpenArray (var tp : Base.Type_);
+		procedure OpenArray (var tp : Base.Type_; exported : Boolean);
 			var
 				t : Base.Type_;
 				obj : Base.Object_;
@@ -372,8 +385,13 @@ implementation
 			if sym = Scanner.sym_ident then
 				begin
 				Base.find (obj); Scanner.Get (sym);
-				if obj.class_ = Base.class_typ then t.base := obj.typ
-				else begin Scanner.Mark ('Type not found'); t.base := Base.int_type; end;
+				if obj.class_ = Base.class_typ then
+					t.base := obj.typ
+				else
+					begin
+					Scanner.Mark ('Type not found');
+					t.base := Base.int_type;
+					end;
 				end
 			else
 				begin
@@ -382,7 +400,7 @@ implementation
 				end;
 			end;
 
-		procedure FPSection (var para_block_size : Base.MachineInteger);
+		procedure FPSection (var para_block_size : Base.MachineInteger; proc : Base.Object_);
 			var
 				obj, first : Base.Object_;
 				tp : Base.Type_;
@@ -404,11 +422,18 @@ implementation
 				else begin Scanner.Mark ('Type not found'); tp := Base.int_type; end;
 				end
 			else if sym = Scanner.sym_array then
-				OpenArray (tp)
+				OpenArray (tp, Base.exported in proc.flag)
 			else
 				begin
 				Scanner.Mark ('Identifiers list without type');
 				tp := Base.int_type;
+				end;
+
+			if (Base.exported in proc.flag)
+			and (tp.flag * [Base.exported, Base.predefined, Base.imported] = []) then
+				begin
+				Scanner.Mark ('Error: Not able to export procedure with non-public parameter type');
+				proc.flag := proc.flag - [Base.exported]
 				end;
 
 			cls := first.class_; read_only := False;
@@ -444,48 +469,58 @@ implementation
 			Scanner.Get (sym)
 		else
 			begin
-			FPSection (para_block_size);
+			FPSection (para_block_size, proc);
 			while sym = Scanner.sym_semicolon do
 				begin
 				Scanner.Get (sym);
-				FPSection (para_block_size);
+				FPSection (para_block_size, proc);
 				end;
 			if sym = Scanner.sym_rparen then Scanner.Get (sym)
-			else Scanner.Mark ('No closing )');
+			else Scanner.Mark ('Error: No closing )');
 			end;
 		if sym = Scanner.sym_colon then
 			begin
+			proc.typ := Base.int_type;
 			Scanner.Get (sym);
 			if sym = Scanner.sym_ident then
 				begin
 				Base.find (obj); Scanner.Get (sym);
 				if obj.class_ = Base.class_typ then
-					proc.typ := obj.typ
-				else
 					begin
-					Scanner.Mark ('Type not found');
-					proc.typ := Base.int_type;
-					end;
+					if (obj.typ.form = Base.type_array)	or (obj.typ.form = Base.type_record) then
+						Scanner.Mark ('Error: Function result type must be scalar type')
+					else proc.typ := obj.typ;
+					
+					if (Base.exported in proc.flag)
+					and (obj.typ.flag * [Base.exported, Base.predefined, Base.imported] = []) then
+						begin
+						Scanner.Mark ('Error: Not able to export function with non-public result type');
+						proc.flag := proc.flag - [Base.exported]
+						end
+					end
+				else Scanner.Mark ('Error: Type not found');
 				end
-			else Scanner.Mark ('Function result type missing?');
+			else Scanner.Mark ('Error: Function result type missing?');
 			end;
 		end;
 
-	procedure Type_ (var typ : Base.Type_; name : AnsiString);
+	procedure Type_ (var typ : Base.Type_; name : AnsiString; exported : Boolean); forward;
 		// The parameter 'name' is for preventing recursive definition
-		var
-			obj : Base.Object_;
 
+	procedure StrucType (var typ : Base.Type_; name : AnsiString; exported : Boolean);
+	
 		(* Dynamic array type is just a big pointer to an array *)
 		(* Syntax: ARRAY OF type *)
 		(* Only support 1-dimension dynamic array *)
-		procedure DynArrayType (var typ : Base.Type_; name : AnsiString);
+		{ Dynamic array temporary not working }
+		
+		{ procedure DynArrayType (var typ : Base.Type_; name : AnsiString);
 			begin
 			Base.New_typ (typ);
 			typ.form := Base.type_dynArray;
 			typ.len := 0;
 			typ.size := 3 * Base.Word_size; (* places for address and array desc *)
-			typ.flag := typ.flag + [Base.has_pointer];
+			typ.num_of_pointers := 1;
 
 			Scanner.Get (sym);
 			if sym = Scanner.sym_array then
@@ -504,48 +539,55 @@ implementation
 					typ.base := Base.int_type;
 					end
 				end
-			end;
+			end; }
 
-		procedure ArrayType (var typ : Base.Type_; name : AnsiString);
+		procedure ArrayType (var typ : Base.Type_; name : AnsiString; exported : Boolean);
 			var
 				tp : Base.Type_;
 				x : Base.Item;
 			begin
 			Scanner.Get (sym);
 			if sym = Scanner.sym_of then
-				DynArrayType (typ, name)
+				Scanner.Mark ('Error: Dynamic array not supported')
+				{ DynArrayType (typ, name) }
 			else
 				begin
+				Base.New_typ (typ);
+				typ.form := Base.type_array;
+				
 				expression (x);
 				if (x.mode <> Base.class_const) or (x.a <= 0)
 				or (x.typ.form <> Base.type_integer) then
 					begin
-					Scanner.Mark ('Invalid array size');
-					x.a := 1;
-					end;
+					Scanner.Mark ('Error: Invalid array size');
+					typ.len := 1
+					end
+				else typ.len := x.a;
+				
 				if sym = Scanner.sym_of then Scanner.Get (sym)
-				else Scanner.Mark ('No OF in array declaration');
-				Type_ (tp, name);
-				Base.New_typ (typ);
-				typ.form := Base.type_array;
+				else Scanner.Mark ('Error: No OF in array declaration');
+				
+				Type_ (tp, name, exported);
+				
 				typ.base := tp;
-				typ.len := x.a;
 				typ.size := typ.len * tp.size;
-				if Base.has_pointer in tp.flag then
-					typ.flag := typ.flag + [Base.has_pointer];
+				typ.num_of_pointers := tp.num_of_pointers * typ.len;
+				if exported and (tp.flag * [Base.exported, Base.predefined, Base.imported] <> []) then
+					typ.flag := typ.flag + [Base.exported]
 				end
 			end;
 
-		procedure RecordType (var typ : Base.Type_; name : AnsiString);
+		procedure RecordType (var typ : Base.Type_; name : AnsiString; exported : Boolean);
 			var
 				tp : Base.Type_;
 				obj, first : Base.Object_;
 			begin
-			Scanner.Get (sym);
 			Base.New_typ (typ);
 			typ.form := Base.type_record;
 			typ.size := 0; typ.base := nil;
-			
+			if exported then typ.flag := typ.flag + [Base.exported];
+
+			Scanner.Get (sym);
 			if sym = Scanner.sym_lparen then
 				begin
 				Scanner.Get (sym);
@@ -554,12 +596,12 @@ implementation
 					Base.find (obj);
 					Scanner.Get (sym)
 					end
-				else Scanner.Mark ('Record type identifier expected');
+				else Scanner.Mark ('Error: Record type identifier expected');
 				
 				if (obj.class_ <> Base.class_typ) or (obj.typ.form <> Base.type_record) then
-					Scanner.Mark ('Record type identifier expected')
+					Scanner.Mark ('Error: Record type identifier expected')
 				else if typ = obj.typ then
-					Scanner.Mark ('Recursive type definition')
+					Scanner.Mark ('Error: Recursive type definition')
 				else
 					begin
 					typ.base := obj.typ;
@@ -567,17 +609,15 @@ implementation
 					end;
 					
 				if sym = Scanner.sym_rparen then Scanner.Get (sym)
-				else Scanner.Mark ('No closing )')
+				else Scanner.Mark ('Error: No closing )')
 				end;
 
-			if typ.base = nil then
-				typ.len := 1
-			else
+			if typ.base <> nil then
 				begin
 				typ.len := typ.base.len + 1;
-				if Base.has_pointer in typ.base.flag then
-					typ.flag := typ.flag + [Base.has_pointer]
-				end;
+				typ.num_of_pointers := typ.base.num_of_pointers;
+				end
+			else typ.len := 1;
 				
 			Base.Open_scope;
 			while true do
@@ -585,12 +625,10 @@ implementation
 				if sym = Scanner.sym_ident then
 					begin
 					IdentList (Base.class_var, first);
-					if sym = Scanner.sym_pointer then Type_ (tp, '')
-					else Type_ (tp, name);
+					if sym = Scanner.sym_pointer then StrucType (tp, '', exported)
+					else Type_ (tp, name, exported);
 					
-					if not (Base.has_pointer in typ.flag)
-					and (Base.has_pointer in tp.flag) then
-						typ.flag := typ.flag + [Base.has_pointer];
+					typ.num_of_pointers := typ.num_of_pointers + tp.num_of_pointers;
 						
 					obj := first;
 					while obj <> Base.guard do
@@ -598,36 +636,54 @@ implementation
 						obj.typ := tp; obj.val := typ.size;
 						typ.size := typ.size + obj.typ.size;
 						obj := obj.next;
+						if Base.exported in obj.flag then
+							begin
+							if not exported then
+								begin
+								obj.flag := obj.flag - [Base.exported];
+								Scanner.Mark ('Error: Not able to export fields of a non-public record')
+								end
+							else if tp.flag * [Base.exported, Base.predefined, Base.imported] = [] then
+								begin
+								obj.flag := obj.flag - [Base.exported];
+								Scanner.Mark ('Error: Not able to export fields with non-public type')
+								end
+							end
 						end;
 					end;
 				if sym = Scanner.sym_semicolon then Scanner.Get (sym)
-				else if sym = Scanner.sym_ident then Scanner.Mark ('No ; after identifier list')
+				else if sym = Scanner.sym_ident then Scanner.Mark ('Error: No ; after identifier list')
 				else break;
 				end;
 			typ.fields := Base.top_scope.next;
 			Base.Close_scope;
 			Base.Add_type_tag (typ);
 			if sym = Scanner.sym_end then Scanner.Get (sym)
-			else Scanner.Mark ('No END after record type declaration');
+			else Scanner.Mark ('Error: No END after record type declaration');
 			end;
 
-		procedure PointerType (var typ : Base.Type_);
+		procedure PointerType (var typ : Base.Type_; name : AnsiString; exported : Boolean);
 			var
 				obj : Base.Object_;
 				undef : Undef_pointer;
 			begin
-			Scanner.Get (sym);
-			if sym = Scanner.sym_to then Scanner.Get (sym)
-			else Scanner.Mark ('No TO in pointer type declaration');
 			Base.New_typ (typ);
 			typ.form := Base.type_pointer; typ.size := Base.Word_size;
-			typ.flag := typ.flag + [Base.has_pointer];
+			typ.num_of_pointers := 1;
+			
+			Scanner.Get (sym);
+			if sym = Scanner.sym_to then Scanner.Get (sym)
+			else Scanner.Mark ('Error: No TO in pointer type declaration');
 			
 			if sym = Scanner.sym_ident then
 				begin
 				Base.find2 (obj); Scanner.Get (sym);
 				if obj.name = name then
-					Scanner.Mark ('Recursive type definition')
+					begin
+					Scanner.Mark ('Error: Recursive type definition');
+					Dispose (typ);
+					typ := Base.int_type
+					end
 				else if obj = Base.guard then
 					begin
 					New (undef);
@@ -635,79 +691,106 @@ implementation
 					undef.base_type_name := obj.name;
 					undef.next := undef_ptr_list;
 					undef_ptr_list := undef;
-					typ.base := Base.int_type
+					typ.base := Base.int_type;
+					if exported then typ.flag := typ.flag + [Base.exported]
 					end
 				else if (obj.class_ = Base.class_typ)
 				and (obj.typ.form = Base.type_record) then
-					typ.base := obj.typ
+					begin
+					typ.base := obj.typ;
+					if exported and (obj.flag * [Base.exported, Base.imported] <> []) then
+						typ.flag := typ.flag + [Base.exported]
+					end
 				else
 					begin
-					Scanner.Mark ('RECORD type expected');
+					Scanner.Mark ('Error: RECORD type expected');
 					Dispose (typ);
 					typ := Base.int_type
 					end
 				end
 			else if sym = Scanner.sym_record then
-				RecordType (typ.base, '')
+				begin
+				RecordType (typ.base, '', exported);
+				if exported then typ.flag := typ.flag + [Base.exported]
+				end
 			else
 				begin
-				Scanner.Mark ('RECORD type expected');
+				Scanner.Mark ('Error: RECORD type expected');
 				Dispose (typ);
 				typ := Base.int_type
 				end
 			end;
 
-		procedure ProcedureType (var typ : Base.Type_);
+		procedure ProcedureType (var typ : Base.Type_; exported : Boolean);
 			var
 				obj : Base.Object_;
 				x : Base.MachineInteger;
 			begin
 			Base.New_typ (typ);
 			typ.form := Base.type_proc;
-			typ.size := 8; typ.base := nil;
+			typ.size := 8; 
 			Base.Open_scope;
 			Scanner.Get (sym);
 			if sym = Scanner.sym_lparen then
 				begin
 				New (obj);
+				if exported then obj.flag := [Base.exported];
 				FormalParameters (obj, x);
 				typ.base := obj.typ;
+				if Base.exported in obj.flag then typ.flag := typ.flag + [Base.exported];
 				Dispose (obj)
+				end
+			else
+				begin
+				typ.base := nil;
+				if exported then typ.flag := typ.flag + [Base.exported]
 				end;
 			typ.fields := top_scope.next;
 			Base.Close_scope;
 			end;
+		
+		begin (* StrucType *)
+		if sym = Scanner.sym_array then
+			ArrayType (typ, name, exported)
+		else if sym = Scanner.sym_record then
+			RecordType (typ, name, exported)
+		else if sym = Scanner.sym_pointer then
+			PointerType (typ, name, exported)
+		else if sym = Scanner.sym_procedure then
+			ProcedureType (typ, exported)
+		else
+			begin
+			Scanner.Mark ('Error: No type defining?');
+			typ := Base.int_type
+			end
+		end;
 
-		begin (* Type_ *)
+	procedure Type_ (var typ : Base.Type_; name : AnsiString; exported : Boolean);
+		var
+			obj : Base.Object_;
+		begin
 		typ := Base.int_type;
 		if (sym <> Scanner.sym_ident) and (sym < Scanner.sym_array) then
 			begin
-			Scanner.Mark ('No type identifier');
+			Scanner.Mark ('Error: No type?');
 			repeat Scanner.Get (sym) until (sym = Scanner.sym_ident) or (sym >= Scanner.sym_array);
 			end;
 		if sym = Scanner.sym_ident then
 			begin
 			Base.find (obj); Scanner.Get (sym);
-			if obj.name = name then
-				Scanner.Mark ('Recursive type definition')
-			else if obj.class_ = Base.class_typ then
+			if obj.class_ = Base.class_typ then
 				begin
 				typ := obj.typ;
-				if not (Base.is_used in typ.flag) and (Base.imported in typ.flag) then
+				if typ.flag * [Base.is_used, Base.imported] = [Base.imported] then
 					Base.Add_imported_type (typ);
 				typ.flag := typ.flag + [Base.is_used];
 				end
-			else Scanner.Mark ('Type not found');
+			else Scanner.Mark ('Error: Type not found');
 			end
-		else if sym = Scanner.sym_array then
-			ArrayType (typ, name)
-		else if sym = Scanner.sym_record then
-			RecordType (typ, name)
-		else if sym = Scanner.sym_pointer then
-			PointerType (typ)
-		else if sym = Scanner.sym_procedure then
-			ProcedureType (typ)
-		else Scanner.Mark ('No type identifier');
+		else
+			begin
+			StrucType (typ, name, exported)
+			end
 		end; (* Type_ *)
 
 	procedure Declarations (var var_base : Base.MachineInteger);
@@ -719,6 +802,7 @@ implementation
 		begin
 		while true do
 			begin
+			(* Const declaration *)
 			if sym = Scanner.sym_const then
 				begin
 				Scanner.Get (sym);
@@ -733,22 +817,22 @@ implementation
 							obj.flag := obj.flag + [Base.exported];
 							Scanner.Get (sym)
 							end
-						else Scanner.Mark ('Not able to export a non-global identifier')
+						else Scanner.Mark ('Error: Not able to export a non-global identifier')
 						end;
 					if sym = Scanner.sym_equal then Scanner.Get (sym)
-					else Scanner.Mark ('No = in const declaration');
+					else Scanner.Mark ('Error: No = in const declaration');
 					expression (x);
 					if x.mode = Base.class_const then
 						begin
 						obj.val := x.a;
 						obj.typ := x.typ;
 						end
-					else Scanner.Mark ('Expression is not const');
+					else Scanner.Mark ('Error: Expression is not const');
 					if sym = Scanner.sym_semicolon then Scanner.Get (sym)
-					else Scanner.Mark ('No ; after const declaration');
+					else Scanner.Mark ('Error: No ; after const declaration');
 					end;
 				end;
-
+			(* Type declaration *)
 			if sym = Scanner.sym_type then
 				begin
 				Scanner.Get (sym);
@@ -756,34 +840,51 @@ implementation
 					begin
 					Base.New_obj (obj, Base.class_typ);
 					Scanner.Get (sym);
+					
 					if sym = Scanner.sym_times then
 						begin
-						if cur_lev = 0 then
-							begin
-							obj.flag := obj.flag + [Base.exported];
-							Scanner.Get (sym)
-							end
-						else Scanner.Mark ('Not able to export a non-global identifier')
+						if cur_lev = 0 then obj.flag := obj.flag + [Base.exported]
+						else Scanner.Mark ('Error: Not able to export a non-global identifier');
+						Scanner.Get (sym)
 						end;
+						
 					if sym = Scanner.sym_equal then Scanner.Get (sym)
-					else Scanner.Mark ('No = in type declaration');
-					
-					Type_ (obj.typ, obj.name);
-					if obj.typ.obj = nil then obj.typ.obj := obj;
+					else Scanner.Mark ('Error: No = in type declaration');
+
+					if sym = Scanner.sym_ident then
+						begin
+						Scanner.Mark ('Error: Alias type is not supported');
+						Scanner.Get (sym);
+						obj.typ := Base.int_type
+						end
+					else
+						begin
+						StrucType (obj.typ, obj.name, Base.exported in obj.flag);
+						if obj.typ <> Base.int_type then
+							begin
+							obj.typ.obj := obj;
+							if (Base.exported in obj.flag)
+							and not (Base.exported in obj.typ.flag) then
+								begin
+								Scanner.Mark ('Error: Defined type was exported but defining type is not public');
+								obj.flag := obj.flag - [Base.exported]
+								end;
+							end
+						end;
 					
 					if sym = Scanner.sym_semicolon then Scanner.Get (sym)
-					else Scanner.Mark ('No ; after type declaration');
+					else Scanner.Mark ('Error: No ; after type declaration');
 					if undef_ptr_list <> nil then Fix_undef_ptr (obj)
 					end
 				end;
-
+			(* Variable declaration *)
 			if sym = Scanner.sym_var then
 				begin
 				Scanner.Get (sym);
 				while sym = Scanner.sym_ident do
 					begin
 					IdentList (Base.class_var, first);
-					Type_ (tp, '');
+					Type_ (tp, '', False);
 					obj := first;
 					while obj <> Base.guard do
 						begin
@@ -791,25 +892,29 @@ implementation
 						if Base.cur_lev > 0 then
 							begin
 							var_base := var_base - obj.typ.size;
-							obj^.val := var_base;
+							obj.val := var_base;
 							end
 						else if Base.cur_lev = 0 then
 							begin
 							Base.Add_global_var (obj);
 							var_base := var_base + obj.typ.size;
 							end;
+						if (Base.exported in obj.flag)
+						and (tp.flag * [Base.exported, Base.predefined, Base.imported] = []) then
+							begin
+							Scanner.Mark ('Error: Not able to export variables with non-public type');
+							obj.flag := obj.flag - [Base.exported]
+							end;
 						obj := obj.next;
 						end;
 					if sym = Scanner.sym_semicolon then Scanner.Get (sym)
-					else Scanner.Mark ('No ; after variable declaration');
+					else Scanner.Mark ('Error: No ; after variable declaration');
 					end;
 				end;
-
 			if (sym >= Scanner.sym_const) and (sym <= Scanner.sym_var) then
-				Scanner.Mark ('Bad declaration sequence')
+				Scanner.Mark ('Error: Bad declaration sequence')
 			else break;
 			end;
-
 		(* Check for remaining undef pointer types *)
 		while undef_ptr_list <> nil do
 			begin
@@ -819,7 +924,7 @@ implementation
 			undef_ptr_list := undef.next;
 			Dispose (undef)
 			end
-		end; (* Declarations *)
+		end;
 
 	procedure ActualParameters (var x : Base.Item; obj : Base.Object_);
 		var
@@ -909,10 +1014,6 @@ implementation
 		else Scanner.Get (sym); (* Empty parameters list *)
 		
 		if Base.is_param in par.flag then Scanner.Mark ('Too few parameters');
-
-		if x.mode = Base.class_proc then Generator.Call (x)
-		else Generator.Indirect_call (x);
-		Generator.Cleanup_after_call (x);
 		end;
 
    procedure selector (var x : Base.Item);
@@ -927,7 +1028,7 @@ implementation
 			Scanner.Get (sym);
 			if sym = Scanner.sym_ident then
 				begin
-				Type_ (typ, '');
+				Type_ (typ, '', False);
 				if x.typ.form = Base.type_pointer then
 					begin
 					if typ.form = Base.type_pointer then
@@ -1326,7 +1427,7 @@ implementation
 							begin
 							Generator.Prepare_to_call (x, nil);
 							ActualParameters (x, nil);
-							Generator.Call (x);
+							Generator.Indirect_call (x);
 							Generator.Cleanup_after_call (x)
 							end
 						else Scanner.Mark ('Error: Function procedure must be called in expression')
@@ -1488,7 +1589,7 @@ implementation
 			and (sym = Scanner.sym_lparen) and (x.typ.base <> nil) then
 				begin
 				Generator.Prepare_to_call (x, nil);
-				Generator.Call (x);
+				Generator.Indirect_call (x);
 				Generator.Cleanup_after_call (x);
 				x.typ := x.typ.base;
 				Generator.Make_function_result_item (x)
@@ -1522,7 +1623,7 @@ implementation
 			end
 		else
 			begin
-			Scanner.Mark ('Invalid factor?');
+			Scanner.Mark ('Error: Invalid factor?');
 			Generator.Make_const (x, Base.int_type, 0);
 			end;
 		end;
@@ -1595,7 +1696,7 @@ implementation
 			Scanner.Get (sym);
 			if sym = Scanner.sym_ident then
 				begin
-				Type_ (typ, '', '');
+				Type_ (typ, '', False);
 				if x.typ.form = Base.type_pointer then
 					begin
 					if typ.form = Base.type_pointer then
@@ -1705,6 +1806,13 @@ implementation
 			proc.val := -1; proc.typ := nil;
 			
 			Scanner.Get (sym);
+			if sym = Scanner.sym_times then
+				begin
+				if proc.lev = 0 then proc.flag := proc.flag + [Base.exported]
+				else Scanner.Mark ('Error: Not able to export a non-global identifier');
+				Scanner.Get (sym)
+				end;
+			
 			Base.Inc_level (1);
 			Base.Open_scope;
 
@@ -1712,7 +1820,8 @@ implementation
 			if para_block_size < 0 then Fix_param_adr (para_block_size);
 
 			local_block_size := 0; proc.dsc := top_scope.next;
-			if sym = Scanner.sym_semicolon then Scanner.Get (sym) else Scanner.Mark ('No semicolon');
+			if sym = Scanner.sym_semicolon then Scanner.Get (sym)
+			else Scanner.Mark ('Error: No semicolon');
 			Declarations (local_block_size);
 			local_block_size := -local_block_size;
 
@@ -1720,7 +1829,7 @@ implementation
 				begin
 				ProcedureDecl;
 				if sym = Scanner.sym_semicolon then Scanner.Get (sym)
-				else Scanner.Mark ('No semicolon');
+				else Scanner.Mark ('Error: No semicolon');
 				end;
 
 			proc.val := Base.code_num;
@@ -1738,13 +1847,13 @@ implementation
 					begin
 					Scanner.Get (sym); expression (x);
 					if x.typ = proc.typ then Generator.Set_function_result (x)
-					else Scanner.Mark ('Incompatible function result type');
+					else Scanner.Mark ('Error: Incompatible function result type');
 					end
-				else Scanner.Mark ('Function procedure without RETURN');
+				else Scanner.Mark ('Error: Function procedure without RETURN');
 				end
 			else if sym = Scanner.sym_return then
 				begin
-				Scanner.Mark ('Normal procedures can not have return value!');
+				Scanner.Mark ('Error: Normal procedures can not have return value!');
 				expression (x);
 				Make_clean_const (x, int_type, 0);
 				end;
@@ -1755,13 +1864,13 @@ implementation
 			Generator.Check_reg_stack;
 
 			if sym = Scanner.sym_end then Scanner.Get (sym)
-			else Scanner.Mark ('No END for PROCEDURE');
+			else Scanner.Mark ('Error: No END for PROCEDURE');
 			if sym = Scanner.sym_ident then
 				begin
-				if Scanner.id <> proc_id then Scanner.Mark ('Wrong procedure identifier');
+				if Scanner.id <> proc_id then Scanner.Mark ('Error: Wrong procedure identifier');
 				Scanner.Get (sym);
 				end
-			else Scanner.Mark ('No procedure identifier after END');
+			else Scanner.Mark ('Error: No procedure identifier after END');
 			end;
 		end; (* ProcedureDecl *)
 

@@ -209,19 +209,7 @@ implementation
 				if obj.class_ = Base.class_proc then
 					Export_proc (obj, f)
 				else if obj.class_ = Base.class_typ then
-					begin
-					if (obj.typ.form = Base.type_integer)
-					or (obj.typ.form = Base.type_boolean)
-					or (obj.typ.form = Base.type_set) then
-						begin
-						Writeln (f, prefix8, aliastype_sym);
-						Writeln (f, prefix32, Length (obj.name));
-						Writeln (f, prefix8, '''', obj.name, '''');
-						Detect_type (obj.typ, f)
-						end
-					else
-						Export_type (obj.typ, f)
-					end
+					Export_type (obj.typ, f)
 				else if obj.class_ = Base.class_const then
 					Export_const (obj, f)
 				else if obj.class_ = Base.class_var then
@@ -684,33 +672,40 @@ implementation
 		begin
 		Scanner.Get (Parser.sym);
 		Parser.Module (modid);
-
-		Assign (f, modid + '.asm');
-		Rewrite (f);
-
-		Writeln (f, 'format PE64 GUI');
-		Writeln (f, 'entry start');
-		Writeln (f);
 		
-		Writeln (f, 'section ''.text'' code readable executable');
-		Writeln (f);		
-		Base.Write_codes_to_file (f);
-		Write_entry_function (f);
+		if error > 0 then
+			begin
+			Writeln ('FAILED: There are errors in source code! Please check your source code again.');
+			end
+		else
+			begin
+			Assign (f, modid + '.asm');
+			Rewrite (f);
 
-		Writeln (f, 'section ''.bss'' data readable writeable');
-		Base.Write_bss_to_file (f);
-		Writeln (f);
+			Writeln (f, 'format PE64 GUI');
+			Writeln (f, 'entry start');
+			Writeln (f);
+			
+			Writeln (f, 'section ''.text'' code readable executable');
+			Writeln (f);		
+			Base.Write_codes_to_file (f);
+			Write_entry_function (f);
 
-		Writeln (f, 'section ''.OBERON'' data readable writeable');
-		Write_symbol_to_file (f);
-		Writeln (f);
+			Writeln (f, 'section ''.bss'' data readable writeable');
+			Base.Write_bss_to_file (f);
+			Writeln (f);
 
-		Write_import_table (f);
-		Writeln (f);
+			Writeln (f, 'section ''.OBERON'' data readable writeable');
+			Write_symbol_to_file (f);
+			Writeln (f);
 
-		Write_export_table (f, modid);
-		
-		Close (f);
+			//Write_import_table (f);
+			//Writeln (f);
+			//Write_export_table (f, modid);
+			
+			Close (f);
+			Writeln (modid, ' module was compiled successfully')
+			end
 		end;
 
 initialization

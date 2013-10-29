@@ -16,7 +16,7 @@ interface
 		type_dynArray = 9; type_pointer = 10; type_proc = 11;
 
 		is_param = 0; exported = 1; imported = 2; is_used = 3; read_only = 4;
-		in_stack = 5;
+		in_stack = 5; predefined = 6;
 
 	type
 		MachineInteger = Int64;
@@ -56,7 +56,7 @@ interface
 		Label_line_ptr = ^Label_line;
 		Label_line = record
 			typ : Type_; obj : Object_;
-			lb : AnsiString; next : Label_line_ptr;
+			lb : AnsiString; next : Integer;
 			data_size : MachineInteger;
 			end;
 
@@ -65,13 +65,13 @@ interface
 		range_check_flag, overflow_check_flag : Boolean;
 		codes : Array of Code_line;
 		labels : Array of Label_line;
-		gdata_list, imported_list, tag_list : Label_line_ptr;
-		gdata_list_tail, imported_list_tail, tag_list_tail : Label_line_ptr;
+		gdata_list, imported_list, tag_list : Integer;
+		gdata_list_tail, imported_list_tail, tag_list_tail : Integer;
 
 		guard, universe, top_scope : Object_;
 		cur_lev : Integer;
-		int_type, bool_type, int8_type, int16_type, int32_type : Type_;
-		set_type, dummy_record_type, nil_type : Type_;
+		int_type, bool_type, int8_type, int16_type, int32_type, set_type : Type_;
+		nil_type : Type_;
 
 		Import_module : Procedure (modul_name, actual_name : AnsiString);
 
@@ -91,8 +91,9 @@ interface
 	procedure Write_bss_to_file (var f : Text);
 
 	procedure New_obj (var obj : Object_; class_ : Integer);
-	procedure New_typ (var typ : Base.Type_);
-	
+	procedure New_typ (var typ : Type_);
+
+	procedure New_predefined_type (var typ : Type_; form : Integer; size : MachineInteger);
 	procedure enter (cl : Integer; n : MachineInteger; name : String; typ : Type_);
 	
 	procedure find (var obj : Object_);
@@ -117,11 +118,11 @@ implementation
 
 		labels [i].lb := obj.imported_module.name + '.' + obj.name;
 		labels [i].obj := obj;
-		labels [i].next := nil;
+		labels [i].next := 0;
 		
-		if imported_list = nil then imported_list := @labels [i]
-		else imported_list_tail.next := @labels [i];
-		imported_list_tail := @labels [i];
+		if imported_list = 0 then imported_list := i
+		else labels [imported_list_tail].next := i;
+		imported_list_tail := i;
 		obj.val := i;
 		end;
 
@@ -136,11 +137,11 @@ implementation
 			labels [i].lb := typ.imported_module.name + '.' + typ.obj.name
 		else labels [i].lb := typ.imported_module.name + '.TYPE' + IntToStr (i);
 		labels [i].typ := typ;
-		labels [i].next := nil;
+		labels [i].next := 0;
 		
-		if imported_list = nil then imported_list := @labels [i]
-		else imported_list_tail.next := @labels [i];
-		imported_list_tail := @labels [i];
+		if imported_list = 0 then imported_list := i
+		else labels [imported_list_tail].next := i;
+		imported_list_tail := i;
 		typ.tag := i;
 		end;
 
@@ -154,11 +155,11 @@ implementation
 		labels [i].lb := obj.name + '_';
 		labels [i].data_size := obj.typ.size;
 		labels [i].obj := obj;
-		labels [i].next := nil;
+		labels [i].next := 0;
 		
-		if gdata_list = nil then gdata_list := @labels [i]
-		else gdata_list_tail.next := @labels [i];
-		gdata_list_tail := @labels [i];
+		if gdata_list = 0 then gdata_list := i
+		else labels [gdata_list_tail].next := i;
+		gdata_list_tail := i;
 		obj.val := i;
 		end;
 
@@ -172,11 +173,11 @@ implementation
 		if typ.obj <> nil then labels [i].lb := typ.obj.name + '_'
 		else labels [i].lb := 'TYPE' + IntToStr (i);
 		labels [i].typ := typ;
-		labels [i].next := nil;
+		labels [i].next := 0;
 		
-		if tag_list = nil then tag_list := @labels [i]
-		else tag_list_tail.next := @labels [i];
-		tag_list_tail := @labels [i];
+		if tag_list = 0 then tag_list := i
+		else labels [tag_list_tail].next := i;
+		tag_list_tail := i;
 		typ.tag := i;
 		end;
 
@@ -215,6 +216,7 @@ implementation
 		typ.import_id := -1;
 		typ.imported_module := nil;
 		typ.flag := [];
+		typ.num_of_pointers := 0
 		end;
 
 	procedure Open_scope;
@@ -244,10 +246,18 @@ implementation
 		New (obj);
 		obj.class_ := cl; obj.val := n; obj.name := name;
 		obj.typ := typ; obj.dsc := nil;
-		obj.flag := [];
+		obj.flag := [predefined];
 		if cl = class_typ then typ.obj := obj;
 		obj.next := top_scope.next;
 		top_scope.next := obj;
+		end;
+
+	procedure New_predefined_type (var typ : Type_; form : Integer; size : MachineInteger);
+		begin
+		New_typ (typ);
+		typ.form := form;
+		typ.size := size;
+		typ.flag := typ.flag + [predefined];
 		end;
 
 	procedure find (var obj : Object_);
@@ -378,23 +388,23 @@ implementation
 
 	procedure Write_bss_to_file (var f : Text);
 		var
-			p : Label_line_ptr;
+			p : Integer;
 		begin
 		Writeln (f, '; TYPE DESCRIPTORS SECTION');
 		p := tag_list;
-		while p <> nil do
+		while p <> 0 do
 			begin
-			Writeln (f, p.lb, #9'rb ' , p.data_size, ' dup ?');
-			p := p.next
+			Writeln (f, labels [p].lb, #9'rb ' , labels [p].data_size, ' dup ?');
+			p := labels [p].next
 			end;
 			
 		Writeln (f, '; GLOBAL VARIABLES SECTION');
 		Writeln (f, 'Global:');
 		p := gdata_list;
-		while p <> nil do
+		while p <> 0 do
 			begin
-			Writeln (f, p.lb, #9'rb ' , p.data_size, ' dup ?');
-			p := p.next
+			Writeln (f, labels [p].lb, #9'rb ' , labels [p].data_size, ' dup ?');
+			p := labels [p].next
 			end
 		end;
 
@@ -402,28 +412,23 @@ implementation
 (* --------------------------------------------------------------------------------------- *)
 
 initialization
-	code_num := 1;
-	label_num := 1;
+	gdata_list := 0; imported_list := 0; tag_list := 0;
+	code_num := 1; label_num := 1;
 	range_check_flag := True;
 	overflow_check_flag := True;
 	cur_lev := 0;
-	
-	New (bool_type);  bool_type.form  := type_boolean;  bool_type.size  := 1;
-	New (int_type);   int_type.form   := type_integer;  int_type.size   := 8;
-	New (int8_type);  int8_type.form  := type_integer;  int8_type.size  := 1;
-	New (int16_type); int16_type.form := type_integer;  int16_type.size := 2;
-	New (int32_type); int32_type.form := type_integer;  int32_type.size := 4;
-	New (set_type);   set_type.form   := type_set;      set_type.size   := 8;
 
-	New (dummy_record_type);
-	dummy_record_type^.form := Base.type_integer;
-	dummy_record_type^.size := 8;
-	dummy_record_type^.base := nil;
+	New_predefined_type (bool_type, type_boolean, 1);
+	New_predefined_type (int_type, type_integer, 8);
+	New_predefined_type (int8_type, type_integer, 1);
+	New_predefined_type (int16_type, type_integer, 2);
+	New_predefined_type (int32_type, type_integer, 4);
+	New_predefined_type (set_type, type_set, 8);
 
 	New (nil_type);
 	nil_type^.form := Base.type_pointer;
 	nil_type^.size := 8;
-	nil_type^.base := dummy_record_type;
+	nil_type^.base := nil;
 
 	New (guard); guard.class_ := class_var;
 	guard.typ := int_type; guard.val := 0;
