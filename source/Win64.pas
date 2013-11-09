@@ -12,9 +12,9 @@ implementation
 
 	const
 		delim = ', '; prefix8 = #9'db'#9; prefix16 = #9'dw'#9; prefix32 = #9'dd'#9; prefix64 = #9'dq'#9;
-		const_sym = 0; type_sym = 1; var_sym = 2; proc_sym = 3;
+		const_sym = 0; type_sym = 1; var_sym = 2; proc_sym = 3; module_sym = 7;
 		field_sym = 4; param_sym = 5; varparam_sym = 6;
-		aliastype_sym = 7; forwardtype_sym = 8; end_sym = 9;
+		end_sym = 9;
 		tint = -2; tint8 = -3; tint16 = -4; tint32 = -5; tbool = -6; tset = -7; notype = -8; forwardtype = -9;
 		array_form = 10; record_form = 11; pointer_form = 12; proc_form = 13; dynArray_form = 14;
 
@@ -34,7 +34,7 @@ implementation
 			end;
 
 	var
-		export_num : Integer;
+		export_num, re_export_num : Integer;
 		export_table : Array of Export_entry;
 
 (* --------------------------------------------------------------------------------------- *)
@@ -58,9 +58,28 @@ implementation
 			else if typ = Base.set_type then Writeln (f, tset)
 			else
 				begin
-				Writeln (f, typ.export_num);
-				if typ.export_num = -1 then Export_type (typ, f);
+				if Base.imported in typ.flag then
+					begin
+					Writeln (f, forwardtype);
+					Writeln (f, prefix32, typ.imported_module.export_num);
+					Writeln (f, prefix32, typ.export_num)
+					end
+				else
+					begin
+					Writeln (f, typ.export_num);
+					if typ.export_num = -1 then Export_type (typ, f)
+					end
 				end;
+			end;
+
+		procedure Re_export_module (obj : Base.Object_; var f : Text);
+			begin
+			// Format: <Module> <nameLen> <name>
+			Writeln (f, prefix8, module_sym);
+			Writeln (f, prefix32, Length (obj.actual_name));
+			Writeln (f, prefix8, '''', obj.actual_name, '''');
+			obj.export_num := re_export_num;
+			Inc (re_export_num);
 			end;
 
 		procedure Export_const (obj : Base.Object_; var f : Text);
@@ -202,6 +221,7 @@ implementation
 		begin (* Generate_export_symbol *)
 		obj := universe.next;
 		export_num := 0;
+		re_export_num := 0;
 		while obj <> guard do
 			begin
 			if Base.exported in obj.flag then
@@ -213,7 +233,9 @@ implementation
 				else if obj.class_ = Base.class_const then
 					Export_const (obj, f)
 				else if obj.class_ = Base.class_var then
-					Export_var (obj, f);
+					Export_var (obj, f)
+				else if obj.class_ = Base.class_module then
+					Re_export_module (obj, f)
 				end;
 			obj := obj.next;
 			end;
@@ -236,14 +258,14 @@ implementation
 				
 		var
 			state : Import_state;
-			old_head : Base.Object_;
-			b : Byte;
+			old_head, other_modul : Base.Object_;
+			b : Byte; i : Integer; s : AnsiString;
 			typ : Base.Type_;
 
 		function New_module (var state : Import_state) : Boolean;
 			var
 				exit_loop : Boolean;
-			begin
+			begin 
 			state.modul := universe;
 			exit_loop := False;
 			repeat
@@ -262,21 +284,17 @@ implementation
 					end
 				else if state.modul.next = Base.guard then
 					exit_loop := True
-				else
-					state.modul := state.modul.next;
+				else state.modul := state.modul.next;
 				until exit_loop;
-
 			if state.modul <> nil then
 				begin
 				New (state.modul.next);
 				state.modul := state.modul.next;
 				state.modul.next := Base.guard;
-
+				state.modul.flag := [];
 				state.modul.class_ := Base.class_module;
 				state.modul.actual_name := state.actual_name;
 				state.modul.name := state.modul_name;
-				SetLength (state.modul.type_list, 1024);
-
 				Result := success;
 				end;
 			end;
@@ -348,7 +366,7 @@ implementation
 
 		procedure Detect_type (var typ : Base.Type_; var state : Import_state);
 			var
-				i : Integer;
+				i, modno : Integer;
 			begin
 			BlockRead (state.f, i, 4);
 			case i of
@@ -359,6 +377,12 @@ implementation
 				tbool: typ := Base.bool_type;
 				tset: typ := Base.bool_type;
 				notype: typ := nil;
+				forwardtype:
+					begin
+					BlockRead (state.f, modno, 4);
+					BlockRead (state.f, i, 4);
+					typ := state.modul.re_export_module_list [modno].type_list [i]
+					end;
 				-1: Import_type (typ, state);
 				else if i >= 0 then typ := state.modul.type_list [i];
 				end;
@@ -528,25 +552,43 @@ implementation
 			
 			if Find_symbols_in_DLL (state) = success then
 				begin
-				New_module (state);
-				state.import_id := 0;
-				Open_import_scope (state, old_head);
-
-				Read (state.f, b);
-				repeat
-					case b of
-						const_sym: begin Seek (state.f, FilePos(state.f) - 1); Import_const (state) end;
-						var_sym: begin Seek (state.f, FilePos(state.f) - 1); Import_var (state) end;
-						proc_sym: begin Seek (state.f, FilePos(state.f) - 1); Import_proc (state) end;
-						type_sym: begin Seek (state.f, FilePos(state.f) - 1); Import_type (typ, state) end;
+				if New_module (state) = success then
+					begin
+					state.import_id := 0;
+					Open_import_scope (state, old_head);
+					Read (state.f, b);
+					while b = module_sym do
+						begin
+						BlockRead (state.f, i, 4);
+						BlockRead (state.f, s, i);
+						Base.find_module (other_modul, s);
+						if other_modul = Base.guard then
+							begin
+							Scanner.Mark ('Error: To import this module, you must import ' + s);
+							Close (state.f);
+							Exit
+							end
+						else
+							begin
+							SetLength (state.modul.re_export_module_list, Length (state.modul.re_export_module_list) + 1);
+							state.modul.re_export_module_list [Length (state.modul.re_export_module_list) - 1] := other_modul;
+							Read (state.f, b)
+							end
 						end;
-					until b = end_sym;
-				
-				state.modul.dsc := state.head.next;
-				Close_import_scope (state, old_head)
+					repeat
+						case b of
+							const_sym: begin Seek (state.f, FilePos(state.f) - 1); Import_const (state) end;
+							var_sym:   begin Seek (state.f, FilePos(state.f) - 1); Import_var (state) end;
+							proc_sym:  begin Seek (state.f, FilePos(state.f) - 1); Import_proc (state) end;
+							type_sym:  begin Seek (state.f, FilePos(state.f) - 1); Import_type (typ, state) end;
+							end;
+						until b = end_sym;
+					state.modul.dsc := state.head.next;
+					Close_import_scope (state, old_head)
+					end
 				end
 			else Scanner.Mark ('Error: Found ' + state.actual_name + '.DLL file but not a Aya Oberon module');
-			Close (state.f)
+			Close (state.f);
 			end
 		else Scanner.Mark ('Error: Module DLL not found');
 		end;

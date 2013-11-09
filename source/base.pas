@@ -34,11 +34,12 @@ interface
 
 		Obj_desc = record
 			flag : Set of 0..31;
-			class_, lev, import_id : Integer;
+			class_, lev, import_id, export_num : Integer;
 			name, actual_name : AnsiString;
 			typ : Type_;
 			next, dsc, imported_module : Object_;
 			type_list : Array of Type_;
+			re_export_module_list : Array of Object_;
 			val : MachineInteger;
 			end;
 
@@ -100,6 +101,7 @@ interface
 	procedure find_proc (var obj : Object_; var x : Item);
 	procedure find2 (var obj : Object_);
 	procedure find_field (var obj : Object_; typ : Type_);
+	procedure find_module (var obj : Object_; actual_name : AnsiString);
 	
 	procedure Open_scope;
 	procedure Close_scope;
@@ -199,6 +201,7 @@ implementation
 			new_.lev := cur_lev;
 			new_.next := guard;
 			new_.flag := [];
+			new_.export_num := -1;
 			x.next := new_; obj := new_;
 			end
 		else
@@ -314,8 +317,7 @@ implementation
 		while true do
 			begin
 			x := s.next;
-			while x.name <> Scanner.id do
-         	x := x.next;
+			while x.name <> Scanner.id do x := x.next;
 			if x <> guard then begin obj := x; break end;
 			if s = universe then begin obj := x; break end
 			else s := s.dsc;
@@ -335,6 +337,16 @@ implementation
 			if obj <> guard then break;
 			typ := typ.base
 			end
+		end;
+
+	procedure find_module (var obj : Object_; actual_name : AnsiString);
+		var
+			s, x : Object_;
+		begin
+		s := universe; guard.name := actual_name;
+		x := s.next;
+		while x.name <> actual_name do x := x.next;
+		obj := x;
 		end;
 
 	procedure Inc_level (i : Integer);

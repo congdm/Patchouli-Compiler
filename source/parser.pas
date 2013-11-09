@@ -19,6 +19,7 @@ implementation
 	type
 		Undef_pointer = ^Undef_pointer_desc;
 		Undef_pointer_desc = Record
+			resolved : Boolean;
 			types : Array of Base.Type_;
 			base_type_name : AnsiString;
 			next : Undef_pointer;
@@ -142,7 +143,7 @@ implementation
 			end;
 		end;
 
-	function Is_structured_type (tp : Base.Type_) : Boolean;
+	function Is_compound_type (tp : Base.Type_) : Boolean;
 		begin
 		if (tp^.form = Base.type_record)
 		or (tp^.form = Base.type_array)
@@ -155,20 +156,31 @@ implementation
 	procedure Fix_undef_ptr (obj : Base.Object_);
 		var
 			undef : Undef_pointer;
+			i : Integer;
 		begin
 		undef := undef_ptr_list;
 		while undef <> nil do
 			begin
-			if (undef.typ.base = Base.int_type) and (obj.name = undef.base_type_name) then
+			if (not undef.resolved) and (obj.name = undef.base_type_name) then
 				begin
 				if obj.typ.form = Base.type_record then
-					undef.typ.base := obj.typ
-				else
 					begin
-					Scanner.Mark ('Error: ' + obj.name + ' must be a RECORD type')
+					for i := 0 to Length (undef.types) - 1 do
+						begin
+						undef.types [i].base := obj.typ;
+						if (Base.exported in undef.types [i].flag)
+						and not (Base.exported in obj.flag) then
+							begin
+							Scanner.Mark ('Error: Pointer type ' + undef.types [i].obj.name + ' is exported but base type ' + obj.name + 'is not');
+							obj.flag := obj.flag + [Base.exported];
+							obj.typ.flag := obj.typ.flag + [Base.exported]
+							end
+						end
 					end
-				end;
-			undef := undef.next
+				else Scanner.Mark ('Error: ' + obj.name + ' must be a RECORD type');
+				undef := nil
+				end
+			else undef := undef.next
 			end
 		end;
 
@@ -364,10 +376,11 @@ implementation
 			Base.New_typ (tp);
 			tp.form := Base.type_array;
 			tp.len := 0; tp.size := Base.Word_size * 2; tp.obj := nil;
+			if exported then tp.flag := tp.flag + [Base.exported];
 
 			Scanner.Get (sym);
 			if sym = Scanner.sym_of then Scanner.Get (sym)
-			else Scanner.Mark ('Missing OF or not an open array');
+			else Scanner.Mark ('Error: Missing OF or not an open array');
 
 			t := tp;
 			while sym = Scanner.sym_array do
@@ -377,27 +390,40 @@ implementation
 				t.form := Base.type_array;
 				t.len := 0; t.size := 0; t.obj := nil;
 				tp.size := tp.size + Base.Word_size;
+				if exported then t.flag := t.flag + [Base.exported];
 				Scanner.Get (sym);
 				if sym = Scanner.sym_of then Scanner.Get (sym)
-				else Scanner.Mark ('Missing OF or not an open array');
+				else Scanner.Mark ('Error: Missing OF or not an open array');
 				end;
 
 			if sym = Scanner.sym_ident then
 				begin
 				Base.find (obj); Scanner.Get (sym);
 				if obj.class_ = Base.class_typ then
-					t.base := obj.typ
+					begin
+					t.base := obj.typ;
+					if exported then
+						begin
+						if Base.imported in obj.typ.flag then
+							obj.typ.imported_module.flag := obj.typ.imported_module.flag + [Base.exported]
+						else if obj.typ.flag * [Base.exported, Base.predefined] = [] then
+							begin
+							Scanner.Mark ('Error: Not able to export procedure with non-public parameter type');
+							proc.flag := proc.flag - [Base.exported]
+							end
+						end
+					end
 				else
 					begin
-					Scanner.Mark ('Type not found');
-					t.base := Base.int_type;
-					end;
+					Scanner.Mark ('Error: Type not found');
+					t.base := Base.int_type
+					end
 				end
 			else
 				begin
 				Scanner.Mark ('No type identifier?');
-				t.base := Base.int_type;
-				end;
+				t.base := Base.int_type
+				end
 			end;
 
 		procedure FPSection (var para_block_size : Base.MachineInteger; proc : Base.Object_);
@@ -419,21 +445,25 @@ implementation
 				begin
 				Base.find (obj); Scanner.Get (sym);
 				if obj.class_ = Base.class_typ then tp := obj.typ
-				else begin Scanner.Mark ('Type not found'); tp := Base.int_type; end;
+				else begin Scanner.Mark ('Error: Type not found'); tp := Base.int_type; end;
 				end
 			else if sym = Scanner.sym_array then
 				OpenArray (tp, Base.exported in proc.flag)
 			else
 				begin
-				Scanner.Mark ('Identifiers list without type');
+				Scanner.Mark ('Error: Identifiers list without type');
 				tp := Base.int_type;
 				end;
 
-			if (Base.exported in proc.flag)
-			and (tp.flag * [Base.exported, Base.predefined, Base.imported] = []) then
+			if Base.exported in proc.flag then
 				begin
-				Scanner.Mark ('Error: Not able to export procedure with non-public parameter type');
-				proc.flag := proc.flag - [Base.exported]
+				if Base.imported in tp.flag then
+					tp.imported_module.flag := tp.imported_module.flag + [Base.exported]
+				else if tp.flag * [Base.exported, Base.predefined] = [] then
+					begin
+					Scanner.Mark ('Error: Not able to export procedure with non-public parameter type');
+					proc.flag := proc.flag - [Base.exported]
+					end
 				end;
 
 			cls := first.class_; read_only := False;
@@ -444,7 +474,7 @@ implementation
 			else
 				para_size := Base.Word_size;
 
-			if (cls = Base.class_var) and Is_structured_type (tp) then
+			if (cls = Base.class_var) and Is_compound_type (tp) then
 				begin
 				cls := Base.class_par;
 				read_only := True;
@@ -487,15 +517,18 @@ implementation
 				Base.find (obj); Scanner.Get (sym);
 				if obj.class_ = Base.class_typ then
 					begin
-					if (obj.typ.form = Base.type_array)	or (obj.typ.form = Base.type_record) then
+					if Is_compound_type (obj.typ) then
 						Scanner.Mark ('Error: Function result type must be scalar type')
 					else proc.typ := obj.typ;
-					
-					if (Base.exported in proc.flag)
-					and (obj.typ.flag * [Base.exported, Base.predefined, Base.imported] = []) then
+					if Base.exported in proc.flag then
 						begin
-						Scanner.Mark ('Error: Not able to export function with non-public result type');
-						proc.flag := proc.flag - [Base.exported]
+						if Base.imported in obj.typ.flag then
+							obj.typ.imported_module.flag := obj.typ.imported_module.flag + [Base.exported]
+						else if obj.typ.flag * [Base.exported, Base.predefined] = [] then
+							begin
+							Scanner.Mark ('Error: Not able to export function with non-public result type');
+							proc.flag := proc.flag - [Base.exported]
+							end
 						end
 					end
 				else Scanner.Mark ('Error: Type not found');
@@ -573,7 +606,11 @@ implementation
 				typ.size := typ.len * tp.size;
 				typ.num_of_pointers := tp.num_of_pointers * typ.len;
 				if exported and (tp.flag * [Base.exported, Base.predefined, Base.imported] <> []) then
-					typ.flag := typ.flag + [Base.exported]
+					begin
+					typ.flag := typ.flag + [Base.exported];
+					if Base.imported in tp.flag then
+						tp.imported_module.flag := tp.imported_module.flag + [Base.exported]
+					end
 				end
 			end;
 
@@ -643,7 +680,9 @@ implementation
 								obj.flag := obj.flag - [Base.exported];
 								Scanner.Mark ('Error: Not able to export fields of a non-public record')
 								end
-							else if tp.flag * [Base.exported, Base.predefined, Base.imported] = [] then
+							else if Base.imported in tp.flag then
+								tp.imported_module.flag := tp.imported_module.flag + [Base.exported]
+							else if tp.flag * [Base.exported, Base.predefined] = [] then
 								begin
 								obj.flag := obj.flag - [Base.exported];
 								Scanner.Mark ('Error: Not able to export fields with non-public type')
@@ -686,20 +725,43 @@ implementation
 					end
 				else if obj = Base.guard then
 					begin
-					New (undef);
-					undef.typ := typ;
-					undef.base_type_name := obj.name;
-					undef.next := undef_ptr_list;
-					undef_ptr_list := undef;
-					typ.base := Base.int_type;
-					if exported then typ.flag := typ.flag + [Base.exported]
+					if name <> '' then
+						begin
+						undef := undef_ptr_list;
+						while undef <> nil do
+							begin
+							if undef.base_type_name = obj.name then
+								begin
+								SetLength (undef.types, Length (undef.types) + 1);
+								undef.types [Length (undef.types) - 1] := typ;
+								break
+								end;
+							undef := undef.next
+							end;
+						if undef = nil then
+							begin
+							New (undef);
+							SetLength (undef.types, 1);
+							undef.types [0] := typ;
+							undef.base_type_name := obj.name;
+							undef.next := undef_ptr_list;
+							undef_ptr_list := undef;
+							typ.base := Base.int_type;
+							if exported then typ.flag := typ.flag + [Base.exported]
+							end
+						end
+					else Scanner.Mark ('Error: Type not found')
 					end
 				else if (obj.class_ = Base.class_typ)
 				and (obj.typ.form = Base.type_record) then
 					begin
 					typ.base := obj.typ;
 					if exported and (obj.flag * [Base.exported, Base.imported] <> []) then
-						typ.flag := typ.flag + [Base.exported]
+						begin
+						typ.flag := typ.flag + [Base.exported];
+						if Base.imported in obj.flag then
+							obj.imported_module.flag := obj.imported_module.flag + [Base.exported]
+						end
 					end
 				else
 					begin
@@ -899,11 +961,20 @@ implementation
 							Base.Add_global_var (obj);
 							var_base := var_base + obj.typ.size;
 							end;
-						if (Base.exported in obj.flag)
-						and (tp.flag * [Base.exported, Base.predefined, Base.imported] = []) then
+						if (Base.exported in obj.flag) then
 							begin
-							Scanner.Mark ('Error: Not able to export variables with non-public type');
-							obj.flag := obj.flag - [Base.exported]
+							if (tp.form = Base.type_array) or (tp.form = Base.type_record) then
+								begin
+								Scanner.Mark ('Error: Not able to export non-scalar variables');
+								obj.flag := obj.flag - [Base.exported]
+								end
+							else if Base.imported in tp.flag then
+								tp.imported_module.flag := tp.imported_module.flag + [Base.exported]
+							else if tp.flag * [Base.exported, Base.predefined] = [] then
+								begin
+								Scanner.Mark ('Error: Not able to export variables with non-public type');
+								obj.flag := obj.flag - [Base.exported]
+								end
 							end;
 						obj := obj.next;
 						end;
@@ -918,8 +989,8 @@ implementation
 		(* Check for remaining undef pointer types *)
 		while undef_ptr_list <> nil do
 			begin
-			if undef_ptr_list.typ.base = Base.int_type then
-				Scanner.Mark ('Base type ' + undef_ptr_list.base_type_name + ' is not defined');
+			if not undef_ptr_list.resolved then
+				Scanner.Mark ('Error: Base type ' + undef_ptr_list.base_type_name + ' is not defined');
 			undef := undef_ptr_list;
 			undef_ptr_list := undef.next;
 			Dispose (undef)
