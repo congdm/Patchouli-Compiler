@@ -6,6 +6,7 @@ interface
 
 	var
 		sym : Integer;
+		Fix_param_adr : Procedure (var para_block_size : Base.MachineInteger);
 
 	procedure Declarations (var var_base : Base.MachineInteger);
 	procedure ProcedureDecl;
@@ -1848,27 +1849,27 @@ implementation
 			end;
 		end;
 
+	procedure _Fix_param_adr (var para_block_size : Base.MachineInteger);
+		var
+			obj : Base.Object_;
+		begin
+		para_block_size := -para_block_size;
+		obj := top_scope^.next;
+		while obj <> Base.guard do
+			begin
+			obj.val := obj.val + para_block_size + 16;
+			obj := obj.next;
+			end
+		end;
+
 	procedure ProcedureDecl;
 		var
 			proc : Base.Object_;
 			proc_id : AnsiString;
 			local_block_size, para_block_size : Base.MachineInteger;
 			x : Base.Item;
-
-		procedure Fix_param_adr (var para_block_size : Base.MachineInteger);
-			var
-				obj : Base.Object_;
-			begin
-			para_block_size := -para_block_size;
-			obj := top_scope^.next;
-			while obj <> Base.guard do
-				begin
-				obj.val := obj.val + para_block_size + 16;
-				obj := obj.next;
-				end
-			end;
-
-		begin (* begin ProcedureDecl *)
+			
+		begin
 		Scanner.Get (sym);
 		if sym = Scanner.sym_ident then
 			begin
@@ -1943,7 +1944,7 @@ implementation
 				end
 			else Scanner.Mark ('Error: No procedure identifier after END');
 			end;
-		end; (* ProcedureDecl *)
+		end;
 
 	procedure Module (var modid : AnsiString);
 		var

@@ -1,2 +1,6 @@
 *.o
 *.ppu
+*.il
+*.lst
+*.pdb
+*.cps

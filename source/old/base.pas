@@ -40,7 +40,7 @@ interface
 			next, dsc, imported_module : Object_;
 			type_list : Array of Type_;
 			re_export_module_list : Array of Object_;
-			val : MachineInteger;
+			val, parblksize : MachineInteger;
 			end;
 
 		Item = record

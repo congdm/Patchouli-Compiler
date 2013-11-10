@@ -750,6 +750,70 @@ implementation
 			end
 		end;
 
+	procedure _Prepare_to_call (var x : Base.Item; obj : Base.Object_);
+		begin
+		x.old_reg_stack := Generator.reg_stack;
+		Generator.Save_registers;
+		reg_stack := [];
+		if obj.parblksize <= 32 then x.b := 32
+		else x.b := obj.parblksize;
+		if (Generator.stack + x.b) mod 16 <> 0 then x.b := x.b + 8;
+		Generator.Inc_stack (-x.b)
+		end;
+
+	function Get_param_reg (x : Base.MachineInteger) : Integer;
+		begin
+		case x of
+			16: Result := Generator.reg_RCX;
+			24: Result := Generator.reg_RDX;
+			32: Result := Generator.reg_R8;
+			40: Result := Generator.reg_R9;
+			else Result := -1
+			end
+		end;
+
+	procedure Push_parameter (x : Base.Item; a : Base.MachineInteger);
+		begin
+		end;
+
+	procedure Normal_parameter (var x : Base.Item; fp : Base.Object_);
+		var
+			reg : Integer;
+		begin
+		if fp.class_ = Base.class_par then
+			begin
+			if (Base.read_only in x.flag) and not (Base.read_only in fp.flag) then
+				Scanner.Mark ('Error: Can not pass read-only var as var parameter')
+			else if x.mode = Base.class_par then
+				begin
+				reg := Get_param_reg (fp.val);
+				if reg = -1 then Push_parameter (x, fp.val)
+				else Generator.Load_to_reg (reg
+				end
+			else
+				begin
+				Load_adr (x);
+				Parameter (x, fp.val);
+				Free_reg (x.r)
+				end;
+			end
+		else
+			begin
+			if x.mode = Base.class_par then Ref_to_regI (x);
+			Parameter (x);
+			if Use_register (x) then Free_reg (x.r)
+			end;
+		if Generator.Use_register (x) then Generator.Free_reg (x.r);
+		end;
+
+	procedure _Cleanup_after_call (var x : Base.Item);
+		begin
+		Generator.Inc_stack (x.b);
+		reg_stack := x.old_reg_stack;
+		Generator.Restore_registers;
+		if Use_register (x) then Free_reg (x.r)
+		end;
+
 initialization
 
 end.

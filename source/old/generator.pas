@@ -62,24 +62,20 @@ interface
 		op_REP_MOVSB = 70; op_REP_MOVSW = 71;
 		op_REP_MOVSD = 72; op_REP_MOVSQ = 73;
 
-		// ----------------------------------------------------------------------
-
-		in_stack = Base.in_stack;
-
 	var
 		reg_stack : Set of 0..31;
 		reg_stack_size : Integer;
-		stack : Integer;
+		stack : Base.MachineInteger;
 
 		Enter : Procedure (parblksize, locblksize : Base.MachineInteger);
 		Return : Procedure (parblksize, locblksize : Base.MachineInteger);
 		Prepare_to_call : Procedure (var x : Base.Item; obj  : Base.Object_);
 		Cleanup_after_call : Procedure (var x : Base.Item);
-		Parameter : Procedure (var x : Base.Item);
+		Parameter : Procedure (var x : Base.Item; a : Base.MachineInteger);
 		Call : Procedure (var x : Base.Item);
 		Indirect_call : Procedure (var x : Base.Item);
 		Set_function_result : Procedure (var x : Base.Item);
-
+	
 	procedure Make_item (var x : Base.Item; y : Base.Object_);
 	procedure Make_const (var x : Base.Item; typ : Base.Type_; val : Base.MachineInteger);
 	procedure Make_clean_const (var x : Base.Item; typ : Base.Type_; val : Base.MachineInteger);
@@ -129,11 +125,17 @@ interface
 	procedure SFunc_TOINT16 (var x : Base.Item);
 	procedure SFunc_TOINT32 (var x : Base.Item);
 	procedure SFunc_LEN (var x : Base.Item);
-
+	
 	function Get_result_int_type (var x, y : Base.Item) : Base.Type_;
 	procedure Check_reg_stack;
 	procedure Begin_Main;
 	procedure End_Main;
+
+	procedure Inc_stack (amount : Integer);
+	procedure Save_registers;
+	procedure Restore_registers;
+	function Use_register (var x : Base.Item) : Boolean;
+	procedure Free_reg (reg : Integer);
 
 implementation
 	uses
@@ -400,19 +402,20 @@ implementation
 
 	procedure Push_reg (reg : Integer);
 		begin
-		Inc (stack);
+		stack := stack - 8;
 		Put_op_reg (op_PUSH, reg);
 		end;
 
 	procedure Pop_reg (reg : Integer);
 		begin
-		Dec (stack);
+		stack := stack + 8;
 		Put_op_reg (op_POP, reg);
 		end;
 
 	procedure Inc_stack (amount : Integer);
 		begin
 		stack := stack + amount;
+		Put_op_reg_imm (op_ADD, reg_RSP, amount)
 		end;
 
 (* --------------------------------------------------------------------------------------- *)
@@ -441,6 +444,21 @@ implementation
 			Put_op_reg_mem (op_MOVSX, reg, x)
 		else
 			Put_op_reg_mem (op_MOV, reg, x);
+		end;
+
+	(* Load_to_reg is different from load that *)
+	(* it does not modify the mode of Item and *)
+	(* does not modify registers stack         *)
+	procedure Load_to_reg (reg : Integer; var x : Base.Item);
+		begin
+		if (x.mode = mode_reg) and (x.r <> reg) then
+			Put_op_reg_reg (op_MOV, reg, x.r)
+		else if (x.mode = Base.class_var) or (x.mode = mode_regI) then
+			Put_load_mem_op (reg, x)
+		else if (x.mode = Base.class_const) and (x.a <> 0) then
+			Put_op_reg_imm (op_MOV, reg, x.a)
+		else if (x.mode = Base.class_const) and (x.a = 0) then
+			Clear_reg (reg)
 		end;
 
 	procedure Cond_to_reg (reg : Integer; var x : Base.Item);
@@ -481,31 +499,19 @@ implementation
 		
 	procedure load (var x : Base.Item);
 		var
-			reg : Base.MachineInteger;
+			reg : Integer;
 		begin
 		if x.mode <> mode_reg then
 			begin
 			if x.mode = Base.class_par then Ref_to_regI (x);
-			if x.mode = Base.class_var then
+			if x.mode = mode_regI then Load_to_reg (x.r, x)
+			else
 				begin
 				reg := Alloc_reg;
-				Put_load_mem_op (reg, x);
+				if x.mode = mode_cond then Cond_to_reg (reg, x)
+				else Load_to_reg (reg, x);
 				x.r := reg;
-				end
-			else if (x.mode = Base.class_const) and (x.a <> 0) then
-				begin
-				x.r := Alloc_reg;
-				Put_op_reg_imm (op_MOV, x.r, x.a);
-				end
-			else if (x.mode = Base.class_const) and (x.a = 0) then
-				begin
-				x.r := Alloc_reg;
-				Clear_reg (x.r)
-				end
-			else if x.mode = mode_regI then
-				begin Put_load_mem_op (x.r, x); end
-			else if x.mode = mode_cond then
-				begin Cond_to_reg2 (x) end;
+				end;
 			x.mode := mode_reg;
 			end;
 		end;
@@ -555,12 +561,12 @@ implementation
 				x.mode := mode_cond; x.a := 0; x.b := 0;
 				end;
 			end
-		else Scanner.Mark ('Boolean type?');
+		else Scanner.Mark ('Error: Expect a BOOLEAN value');
 		end;
 
 	procedure Load_adr (var x : Base.Item);
 		var
-			reg : Base.MachineInteger;
+			reg : Integer;
 		begin
 		if x.mode = Base.class_var then
 			begin
@@ -574,40 +580,17 @@ implementation
 			Put_op_reg_mem (op_MOV, reg, x);
 			x.r := reg;
 			end
-		else if (x.mode = mode_regI) and (x.a <> 0) then
-			begin Put_op_reg_mem (op_LEA, x.r, x) end
-		else
-			Scanner.Mark ('Load address error, not a variable?');
-		x.mode := mode_reg;
-		end;
-
-	(* Load_to_reg is different from load that *)
-	(* it does not modify the mode of Item and *)
-	(* does not use registers stack            *)
-	(* CANNOT LOAD MODE_COND                   *)
-	procedure Load_to_reg (reg : Base.MachineInteger; var x : Base.Item);
-		var
-			y : Base.Item;
-		begin
-		if x.mode = Base.class_par then
+		else if x.mode = mode_regI then
 			begin
-			Put_op_reg_mem (op_MOV, reg, x);
-			y.mode := mode_regI; y.r := reg; y.a := 0; y.typ := x.typ;
-			Put_load_mem_op (reg, y);
+			if x.a <> 0 then Put_op_reg_mem (op_LEA, x.r, x)
 			end
-		else if x.mode = mode_reg then
-			begin Put_op_reg_reg (op_MOV, reg, x.r); end
-		else if (x.mode = Base.class_var) or (x.mode = mode_regI) then
-			begin Put_load_mem_op (reg, x); end
-		else if (x.mode = Base.class_const) and (x.a <> 0) then
-			begin Put_op_reg_imm (op_MOV, reg, x.a); end
-		else if (x.mode = Base.class_const) and (x.a = 0) then
-			begin Clear_reg (reg) end
+		else Scanner.Mark ('Error: Load address error, not a variable?');
+		x.mode := mode_reg;
 		end;
 
 	procedure Push (x : Base.Item);
 		begin
-		Inc (stack);
+		stack := stack - 8;
 		
 		if (x.mode = Base.class_const) and Is_huge_const (x.a)
 		or (x.mode = Base.class_var) or (x.mode = mode_regI) and (x.typ.size = 1) then
@@ -622,7 +605,7 @@ implementation
 		var
 			reg : Integer;
 		begin
-		Dec (stack);
+		stack := stack + 8;
 		
 		if (x.mode = Base.class_var) or (x.mode = mode_regI) and (x.typ.size = 1) then
 			begin
@@ -641,7 +624,7 @@ implementation
 		begin
 		if (x.mode = Base.class_const) or (x.mode = mode_reg)
 		or (y.mode = Base.class_const) or (y.mode = mode_reg) then
-			Scanner.Mark ('Wrong Item mode')
+			Scanner.Mark ('Compiler error: Wrong Item mode')
 		else
 			begin
 			if x.mode = Base.class_par then Put_op_reg_mem (op_MOV, reg_RDI, x)
@@ -683,7 +666,7 @@ implementation
 		begin
 		if (x.mode = Base.class_const) or (x.mode = mode_reg)
 		or (y.mode = Base.class_const) or (y.mode = mode_reg) then
-			Scanner.Mark ('Wrong Item mode')
+			Scanner.Mark ('Compiler error: Wrong Item mode')
 		else
 			begin
 			if y.typ^.len = 0 then
@@ -739,7 +722,7 @@ implementation
 		(* IDIV only accept dividend in RDX:RAX and divisor in reg/mem *)
 		if (y.mode = Base.class_const) and (y.a <= 0) then
 			begin
-			Scanner.Mark ('Divisor must be positive');
+			Scanner.Mark ('Error: Divisor must be positive');
 			end
 		else
 			begin
@@ -770,7 +753,6 @@ implementation
 				Put_op_reg_imm (op_SUB, reg_RAX, 1)
 			else
 				Put_op_reg_reg (op_ADD, reg_RDX, y.r);
-
 
 			Emit_label ('END_DIVISION_' + IntToStr (i));
 			if op = vop_div then r := reg_RAX else r := reg_RDX;
@@ -862,7 +844,7 @@ implementation
 		else if y.mode = Base.class_par then Ref_to_regI (y);
 
 		if ((x.mode = Base.class_var) or (x.mode = mode_regI))
-				and ((y.mode = Base.class_var) or (y.mode = mode_regI)) then
+		and ((y.mode = Base.class_var) or (y.mode = mode_regI)) then
 			load (x);
 
 		Result := False;
@@ -922,7 +904,8 @@ implementation
 				end
 			else (* x.typ is integer *)
 				begin
-				if x.mode = Base.class_const then x.a := -x.a
+				if x.mode = Base.class_const then
+					x.a := -x.a
 				else
 					begin
 					if x.mode <> mode_reg then load (x);
@@ -1651,7 +1634,7 @@ implementation
 			if i in reg_stack then Pop_reg (i)
 		end;
 
-	procedure _Parameter (var x : Base.Item);
+	procedure _Parameter (var x : Base.Item; a : Base.MachineInteger);
 		begin
 		Push (x)
 		end;
@@ -1711,11 +1694,11 @@ implementation
 			if (Base.read_only in x.flag) and not (Base.read_only in fp.flag) then
 				Scanner.Mark ('Can not pass read-only var as var parameter')
 			else if x.mode = Base.class_par then
-				Parameter (x)
+				Parameter (x, fp.val)
 			else
 				begin
 				Load_adr (x);
-				Parameter (x);
+				Parameter (x, fp.val);
 				Free_reg (x.r)
 				end;
 			end
