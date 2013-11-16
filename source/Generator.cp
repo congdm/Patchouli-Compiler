@@ -5,7 +5,7 @@ IMPORT
 
 TYPE
 	Instruction = POINTER TO InstructionDesc;
-	InstructionDesc = ExTENSIBLE RECORD
+	InstructionDesc = EXTENSIBLE RECORD
 		flag : SET;
 		op : INTEGER;
 		END;

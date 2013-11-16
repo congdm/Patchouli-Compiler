@@ -8,6 +8,8 @@ IMPORT
 CONST
 	success* = TRUE; failed* = FALSE;
 
+	Word_size* = 8;
+
 	sym_null* = 0;
 	sym_times* = 1; sym_slash* = 2; sym_div* = 3; sym_mod* = 4;
 	sym_and* = 5; sym_plus* = 6; sym_minus* = 7; sym_or* = 8;
@@ -81,7 +83,7 @@ TYPE
 
 VAR
 	top_scope*, universe*, guard* : Object;
-	cur_lev : INTEGER;
+	cur_lev* : INTEGER;
 	(* predefined type *)
 	int_type*, bool_type*, set_type*, nilrecord_type*, char_type* : Type;
 
@@ -197,7 +199,7 @@ PROCEDURE Find_obj* (VAR obj : Object; name : String; must_be_global : BOOLEAN);
 		WHILE ~ Str_equal2 (obj.name, name) DO
 			obj := obj.next
 			END;
-		IF (obj = Base.guard) & (top_scope # universe) THEN
+		IF (obj = guard) & (top_scope # universe) THEN
 			obj := universe.next;
 			WHILE ~ Str_equal2 (obj.name, name) DO
 				obj := obj.next
@@ -235,5 +237,19 @@ PROCEDURE New_typ* (VAR typ : Type; form : INTEGER);
 	typ.flag := {};
 	typ.form := form
 	END New_typ;
+
+PROCEDURE Is_scalar_type* (typ : Type) : BOOLEAN;
+	VAR
+		result : BOOLEAN;
+	BEGIN
+	IF (typ.form = type_integer) OR (typ.form = type_boolean)
+	OR (typ.form = type_set) OR (typ.form = type_pointer)
+	OR (typ.form = type_procedure) THEN
+		result := TRUE
+	ELSE
+		result := FALSE
+		END;
+	RETURN result
+	END Is_scalar_type;
 
 END Base.
