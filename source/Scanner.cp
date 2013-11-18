@@ -221,33 +221,12 @@ PROCEDURE Get* (VAR sym : INTEGER);
 		END;
 	END Get;
 
-PROCEDURE Int_to_str (i : INTEGER) : Base.String;
-	VAR
-		a : ARRAY 256 OF CHAR;
-		s : Base.String;
-	BEGIN
-	NEW (s);
-	s.len := 0;
-	IF i >= 0 THEN
-		REPEAT
-			a [s.len] := CHR (i MOD 10 + ORD ('0'));
-			INC (s.len);
-			i := i DIV 10;
-			UNTIL i = 0;
-		FOR i := 0 TO s.len - 1 DO
-			s.content [i] := a [s.len - 1 - i]
-			END;
-		END;
-	s.content [s.len] := 0X;
-	RETURN s
-	END Int_to_str;
-
 PROCEDURE Mark* (str : ARRAY OF CHAR);
 	VAR
-		s : Base.String;
+		s : ARRAY 22 OF CHAR;
 	BEGIN
-	s := Int_to_str (char_num);
-	Console.WriteString (s.content);
+	Base.Int_to_string (char_num, s);
+	Console.WriteString (s);
 	Console.WriteString (': ');
 	Console.WriteString (str);
 	Console.WriteLn

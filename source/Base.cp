@@ -9,6 +9,7 @@ CONST
 	success* = TRUE; failed* = FALSE;
 
 	Word_size* = 8;
+	MIN_INT = -2147483648;
 
 	sym_null* = 0;
 	sym_times* = 1; sym_slash* = 2; sym_div* = 3; sym_mod* = 4;
@@ -70,8 +71,8 @@ TYPE
 		class*, lev* : INTEGER;
 		name*, actual_name* : String;
 		type* : Type;
-		next*, dsc* : Object;
-		val* : INTEGER;
+		next*, dsc*, scope* : Object;
+		val*, parblksize* : INTEGER;
 		END;
 
 	Item* = RECORD
@@ -85,7 +86,11 @@ VAR
 	top_scope*, universe*, guard* : Object;
 	cur_lev* : INTEGER;
 	(* predefined type *)
-	int_type*, bool_type*, set_type*, nilrecord_type*, char_type* : Type;
+	int_type*, bool_type*, set_type*, char_type* : Type;
+	nilrecord_type*, nil_type* : Type;
+	
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
 
 PROCEDURE Show_error* (msg : ARRAY OF CHAR);
 	BEGIN
@@ -99,16 +104,26 @@ PROCEDURE Open* (VAR file : FileHandle; filename : ARRAY OF CHAR);
 	IF IO.File.Exists (MKSTR (filename)) THEN
 		file.f := IO.File.OpenRead (MKSTR (filename));
 		file.r := IO.StreamReader.init (file.f);
-		file.w := NIL;
 	ELSE
 		Show_error ('File not existed!');
 		END;
 	END Open;
+	
+PROCEDURE Rewrite* (VAR file : FileHandle; filename : ARRAY OF CHAR);
+	BEGIN
+	file.f := IO.File.Create (MKSTR (filename));
+	file.w := IO.StreamWriter.init (file.f)
+	END Rewrite;
 
 PROCEDURE Close* (VAR file : FileHandle);
 	BEGIN
-	IF file.w # NIL THEN file.w.Flush; END;
-	file.f.Close;
+	IF file.f # NIL THEN
+		IF file.w # NIL THEN file.w.Flush; END;
+		file.f.Close;
+		file.f := NIL;
+		file.w := NIL;
+		file.r := NIL
+		END
 	END Close;
 
 PROCEDURE Read_char* (VAR file : FileHandle; VAR c : CHAR) : BOOLEAN;
@@ -120,6 +135,65 @@ PROCEDURE Read_char* (VAR file : FileHandle; VAR c : CHAR) : BOOLEAN;
 	c := System.Convert.ToChar (i);
 	RETURN success;
 	END Read_char;
+	
+PROCEDURE Write_string* (VAR file : FileHandle; str : ARRAY OF CHAR);
+	BEGIN
+	file.w.Write (MKSTR (str))
+	END Write_string;
+	
+PROCEDURE Write_newline* (VAR file : FileHandle);
+	BEGIN
+	file.w.WriteLine
+	END Write_newline;
+	
+PROCEDURE Int_to_string* (x : INTEGER; VAR str : ARRAY OF CHAR);
+	VAR
+		negative : BOOLEAN;
+		s : ARRAY 20 OF CHAR;
+		i, j : INTEGER;
+	BEGIN
+	IF x = MIN_INT THEN
+		str := '-2147483648'
+	ELSE
+		IF x < 0 THEN
+			negative := TRUE;
+			x := -x
+		ELSE
+			negative := FALSE
+			END;
+		i := 0;
+		REPEAT
+			s [i] := CHR (x MOD 10 + ORD ('0'));
+			INC (i);
+			x := x DIV 10
+			UNTIL x = 0;
+		IF negative THEN
+			str [0] := '-';
+			FOR j := 0 TO i - 1 DO
+				str [j + 1] := s [i - 1 - j]
+				END;
+			str [i + 1] := 0X
+		ELSE
+			FOR j := 0 TO i - 1 DO
+				str [j] := s [i - 1 - j]
+				END;
+			str [i] := 0X
+			END
+		END
+	END Int_to_string;
+	
+PROCEDURE Write_number* (VAR file : FileHandle; x : INTEGER);
+	VAR
+		s : ARRAY 22 OF CHAR;
+	BEGIN
+	Int_to_string (x, s);
+	file.w.Write (MKSTR (s))
+	END Write_number;
+	
+PROCEDURE Write_char* (VAR file : FileHandle; ch : CHAR);
+	BEGIN
+	file.w.Write (ch)
+	END Write_char;
 
 PROCEDURE Str_equal* (s1 : String; s2 : ARRAY OF CHAR) : BOOLEAN;
 	VAR
@@ -168,6 +242,9 @@ PROCEDURE Make_string* (const_str : ARRAY OF CHAR) : String;
 		END;
 	RETURN s
 	END Make_string;
+	
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
 
 PROCEDURE Open_scope* (scope_name : String);
 	VAR
@@ -185,25 +262,34 @@ PROCEDURE Close_scope*;
 	BEGIN
 	top_scope := top_scope.dsc
 	END Close_scope;
+	
+PROCEDURE Inc_level* (x : INTEGER);
+	BEGIN
+	INC (cur_lev, x)
+	END Inc_level;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+	
+PROCEDURE Find_obj_in_scope (VAR obj : Object; name : String; scope : Object);
+	BEGIN
+	guard.name := name;
+	obj := scope.next;
+	WHILE ~ Str_equal2 (obj.name, name) DO
+		obj := obj.next
+		END;
+	END Find_obj_in_scope;
 
 PROCEDURE Find_obj* (VAR obj : Object; name : String; must_be_global : BOOLEAN);
 	BEGIN
-	guard.name := name;
-	IF must_be_global THEN
-		obj := universe.next;
-		WHILE ~ Str_equal2 (obj.name, name) DO
-			obj := obj.next
-			END
+	IF must_be_global OR (top_scope = universe) THEN
+		Find_obj_in_scope (obj, name, universe)
+	ELSIF Str_equal2 (top_scope.name, name) THEN
+		Find_obj_in_scope (obj, name, top_scope.dsc)
 	ELSE
-		obj := top_scope.next;
-		WHILE ~ Str_equal2 (obj.name, name) DO
-			obj := obj.next
-			END;
-		IF (obj = guard) & (top_scope # universe) THEN
-			obj := universe.next;
-			WHILE ~ Str_equal2 (obj.name, name) DO
-				obj := obj.next
-				END
+		Find_obj_in_scope (obj, name, top_scope);
+		IF obj = guard THEN
+			Find_obj_in_scope (obj, name, universe)
 			END
 		END	
 	END Find_obj;
@@ -212,21 +298,23 @@ PROCEDURE New_obj* (VAR obj : Object; name : String; class : INTEGER) : BOOLEAN;
 	VAR
 		result : BOOLEAN;
 	BEGIN
-	guard.name := name;
-	obj := top_scope.next;
-	WHILE ~ Str_equal2 (name, obj.name) DO
-		obj := obj.next
-		END;
-	IF obj = guard THEN
-		NEW (obj);
+	Find_obj (obj, name, FALSE);
+	IF obj # guard THEN
+		result := failed
+	ELSE
+		obj := top_scope;
+		WHILE obj.next # guard DO
+			obj := obj.next
+			END;
+		NEW (obj.next);
+		obj := obj.next;
 		obj.name := name;
 		obj.class := class;
 		obj.next := guard;
 		obj.flag := {};
 		obj.lev := cur_lev;
-		result := TRUE
-	ELSE
-		result := FALSE
+		obj.scope := top_scope;
+		result := success
 		END;
 	RETURN result
 	END New_obj;
@@ -251,5 +339,20 @@ PROCEDURE Is_scalar_type* (typ : Type) : BOOLEAN;
 		END;
 	RETURN result
 	END Is_scalar_type;
+	
+PROCEDURE Is_extension_type* (ext, bas : Type) : BOOLEAN;
+	VAR
+		result : BOOLEAN;
+	BEGIN
+	WHILE (ext # bas) & (ext # NIL) DO
+		ext := ext.base
+		END;
+	IF ext = NIL THEN
+		result := FALSE
+	ELSE
+		result := TRUE
+		END;
+	RETURN result
+	END Is_extension_type;
 
 END Base.
