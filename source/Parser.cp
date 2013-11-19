@@ -32,17 +32,18 @@ PROCEDURE Assignable (dst, src : Base.Item) : BOOLEAN;
 			Scanner.Mark ('Invalid assignment source');
 			result := FALSE
 		ELSIF src.type = dst.type THEN
-			(* Ok, no problem *)
-		ELSIF (src.type = Base.nil_type)
-		& (dst_form # Base.type_pointer)
-		& (dst_form # Base.type_procedure) THEN
-				Scanner.Mark ('NIL is only assignable to pointer or procedure variable');
+			IF (dst_form = Base.type_array) & (dst.type.len = -1) THEN
+				Scanner.Mark ('Assignment source is open array');
 				result := FALSE
 				END
+		ELSIF (src.type = Base.nil_type)
+		& ~ (dst_form IN {Base.type_pointer, Base.type_procedure}) THEN
+			Scanner.Mark ('NIL is only assignable to pointer or procedure variable');
+			result := FALSE
 		ELSIF dst_form # src.type.form THEN
 			Scanner.Mark ('Assignment source and destination are not compatible');
 			result := FALSE
-		ELSIF ((dst_form = Base.type_pointer) OR (dst_form = Base.type_record))
+		ELSIF (dst_form IN {Base.type_pointer, Base.type_record})
 		& ~ Base.Is_extension_type (src, dst) THEN
 			Scanner.Mark ('Assignment source must be a extension of destination');
 			result := FALSE
@@ -91,11 +92,9 @@ PROCEDURE Comparable (x, y : Base.Item) : BOOLEAN;
 	ELSIF x.type = y.type THEN
 		(* Ok, no problem *)
 	ELSIF (x.type = Base.nil_type)
-	& (y.type.form # Base.type_pointer)
-	& (y.type.form # Base.type_procedure)
+	& ~ (y.type.form IN {Base.type_pointer, Base.type_procedure})
 	OR (y.type = Base.nil_type)
-	& (x.type.form # Base.type_pointer)
-	& (x.type.form # Base.type_procedure) THEN
+	& ~ (y.type.form IN {Base.type_pointer, Base.type_procedure}) THEN
 		Scanner.Mark ('NIL is only comparable with pointer, procedure or NIL');
 		result := FALSE
 	ELSIF x.type.form # y.type.form THEN

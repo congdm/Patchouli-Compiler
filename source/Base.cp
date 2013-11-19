@@ -354,5 +354,82 @@ PROCEDURE Is_extension_type* (ext, bas : Type) : BOOLEAN;
 		END;
 	RETURN result
 	END Is_extension_type;
+	
+PROCEDURE Is_variable* (x : Item) : BOOLEAN;
+	VAR
+		result : BOOLEAN;
+	BEGIN
+	IF x.mode IN {mode_regI, class_par, class_var} THEN
+		result := TRUE
+	ELSE
+		result := FALSE
+		END;
+	RETURN result
+	END Is_variable;
+	
+PROCEDURE Has_value* (x : Item) : BOOLEAN;
+	VAR
+		result : BOOLEAN;
+	BEGIN
+	IF Is_variable (x)
+	OR (x.mode IN {class_const, mode_reg, mode_cond, mode_regI}) THEN
+		result := TRUE
+	ELSE
+		result := FALSE
+		END;
+	RETURN result
+	END Has_value;
+	
+PROCEDURE Is_compatible_open_array* (typ1, typ2 : Type) : BOOLEAN;
+	VAR
+		result : BOOLEAN;
+	BEGIN
+	IF typ1.base = typ2.base THEN
+		result := TRUE
+	ELSIF (typ1.base.form = type_array) & (typ2.base.form = type_array)
+	& (typ1.base.len = -1) & (typ2.base.len = -1) THEN
+		result := Is_compatible_open_array (typ1, typ2)
+	ELSE
+		result := FALSE
+		END;
+	RETURN result
+	END Is_compatible_open_array;
+	
+PROCEDURE Is_compatible_proc*
+(par_list1, par_list2 : Object; result_typ1, result_typ2 : Type) : BOOLEAN;
+	VAR
+		result : BOOLEAN;
+		typ1, typ2 : Type;
+	BEGIN
+	IF result_typ1 # result_typ2 THEN
+		result := FALSE
+	ELSE
+		result := TRUE;
+		WHILE (flag_param IN par_list1.flag) & result DO
+			typ1 := par_list1.type;
+			typ2 := par_list2.type;
+			IF ~ (flag_param IN par_list2.flag) 
+			OR (par_list1.class # par_list2.class) 
+			OR (flag_readonly IN par_list1.flag / par_list2.flag) THEN
+				result := FALSE
+			ELSIF (typ1.form = type_array) & (typ2.form = type_array)
+			& (typ1.len = -1) & (typ1.len = -1)
+			& ~ Is_compatible_open_array (typ1, typ2) THEN
+				result := FALSE
+			ELSIF typ1 # typ2 THEN
+				result := FALSE
+			ELSE
+				par_list1 := par_list1.next;
+				par_list2 := par_list2.next
+				END
+			END;
+		IF flag_param IN par_list2.flag THEN
+			result := FALSE
+			END
+		END;
+	RETURN result
+	END Is_compatible_proc;
+	
+PROCEDURE 
 
 END Base.
