@@ -1,7 +1,7 @@
 MODULE AyaCompile;
 
 IMPORT
-	Base, Scanner, CPmain, Console;
+	Base, Scanner, Parser, CPmain, Console;
 	
 VAR
 	in : Base.FileHandle;
@@ -11,12 +11,6 @@ VAR
 BEGIN
 Base.Open (in, 'in.txt');
 Scanner.Init (in);
-Scanner.Get (sym);
-IF sym = Base.sym_module THEN
-	a := 'MODULE'
-ELSIF sym = Base.sym_number THEN
-	Base.Int_to_string (Scanner.val, a);
-	END;
-Console.WriteString (a);
+Parser.Module;
 Base.Close (in)
 END AyaCompile.

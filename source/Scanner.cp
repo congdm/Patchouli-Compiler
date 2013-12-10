@@ -26,6 +26,7 @@ PROCEDURE Read_char;
 	BEGIN
 	IF Base.Read_char (srcfile, ch) = Base.failed THEN
 		eof := TRUE;
+		ch := 0X;
 	ELSE
 		INC (char_num)
 		END;
@@ -146,6 +147,7 @@ PROCEDURE Get_word (VAR sym : INTEGER);
 			IF (i = 5) & Base.Str_equal (id, 'WHILE') THEN
 				sym := Base.sym_while
 				END
+		ELSE (* Do nothing *)
 		END;
 	END Get_word;
 
@@ -167,6 +169,32 @@ PROCEDURE Get_number;
 		val := val * 10 + ORD (s.content [i]) - ORD ('0');
 		END;
 	END Get_number;
+	
+PROCEDURE Get_string;
+	VAR
+		i : INTEGER;
+	BEGIN
+	NEW (id);
+	i := 0;
+	IF ch = "'" THEN
+		Read_char;
+		WHILE (ch # 0X) & (ch # "'") DO
+			id.content [i] := ch;
+			Read_char;
+			INC (i)
+			END
+	ELSE
+		Read_char;
+		WHILE (ch # 0X) & (ch # '"') DO
+			id.content [i] := ch;
+			Read_char;
+			INC (i)
+			END
+		END;
+	Read_char;
+	id.len := i;
+	id.content [i] := 0X
+	END Get_string;
 
 PROCEDURE Get* (VAR sym : INTEGER);
 	BEGIN
@@ -182,6 +210,14 @@ PROCEDURE Get* (VAR sym : INTEGER);
 			sym := Base.sym_number;
 		ELSE
 			CASE ch OF
+				'_', 'A'..'Z', 'a'..'z':
+					Get_word (sym) |
+				'0'..'9':
+					sym := Base.sym_number;
+					Get_number |
+				"'", '"':
+					sym := Base.sym_string;
+					Get_string |
 				'*': sym := Base.sym_times; Read_char; |
 				'/': sym := Base.sym_slash; Read_char; |
 				'+': sym := Base.sym_plus; Read_char; |
