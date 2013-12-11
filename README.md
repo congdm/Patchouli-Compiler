@@ -4,7 +4,7 @@
 
 This compiler is based on the Oberon-0 compiler in Prof. Niklaus Wirth "Compiler Construction" book.
 
-The goal is to implement the complete compiler for Oberon-07 language. Now under recontruction.
+The goal is to implement the complete compiler for Oberon-07 language. Now under reconstruction.
 
 The early versions of this compiler was written in Pascal (Delphi dialect), and the output was intend to run on bare machine without OS. But due to the lacking of runtime system, now I rebuilding the compiler from the scratch again, with the more practical goal that is to produce executables run on Windows x64 platform.
 
