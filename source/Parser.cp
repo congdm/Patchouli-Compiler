@@ -655,10 +655,10 @@ PROCEDURE ActualParameters (VAR x : Base.Item);
 		BEGIN
 		expression (y);
 		CASE Base.Check_parameter (param, y) OF
-			0: Generator.Normal_parameter (y, param.val) |
-			1: Generator.Open_array_parameter (y, param) |
-			2: Generator.Reference_parameter (y, param.val) |
-			3: Generator.Record_variable_parameter (y, param.val) |
+			0: Generator.Normal_parameter (y, proc, param.val) |
+			1: Generator.Open_array_parameter (y, proc, param) |
+			2: Generator.Reference_parameter (y, proc, param.val) |
+			3: Generator.Record_variable_parameter (y, proc, param.val) |
 			9: Generator.String_parameter (y, proc, param) |
 			4: Scanner.Mark ('Formal parameter is variable but actual is read-only') |
 			5: Scanner.Mark ('Formal parameter is variable but actual is not') |
@@ -679,10 +679,8 @@ PROCEDURE ActualParameters (VAR x : Base.Item);
 	IF ~ (Base.flag_param IN param.flag) THEN
 		IF sym = Base.sym_rparen THEN
 			Scanner.Get (sym)
-		ELSIF (sym = Base.sym_ident) OR (sym = Base.sym_number) THEN
-			Scanner.Mark ('This procedure does not need any parameters')
 		ELSE
-			Scanner.Mark ('No closing )')
+			Scanner.Mark ('This procedure does not need any parameters')
 			END
 	ELSE
 		Parameter (x, param);
@@ -705,19 +703,75 @@ PROCEDURE ActualParameters (VAR x : Base.Item);
 		END
 	END ActualParameters;
 	
-PROCEDURE ProperStandProc (VAR x : Base.Item);
+PROCEDURE StandProc (VAR x : Base.Item);
+	VAR
+		i : INTEGER;
+		params : ARRAY 8 OF Base.Item;
 
-	PROCEDURE SProc_LoadLibrary (VAR x : Base.Item);
-		VAR
-			y, z : Base.Item;
+	PROCEDURE SProc_LoadLibrary (n : INTEGER; VAR y, z : Base.Item);
 		BEGIN
+		IF n # 2 THEN
+			Scanner.Mark ('Wrong number of parameters')
+		ELSE
+			IF Base.Is_variable (y) & (y.type = Base.int_type)
+			& Base.Has_value (z) & ((z.type.form = Base.type_string)
+			OR (z.type.form = Base.type_array)
+			& (z.type.base = Base.char_type)) THEN
+				Generator.SProc_LoadLibrary (y, z)
+			ELSE
+				Scanner.Mark ('Invalid or incompatible parameters')
+				END
+			END
 		END SProc_LoadLibrary;
+		
+	PROCEDURE SProc_GetProcAddress (n : INTEGER; VAR p1, p2, p3 : Base.Item);
+		BEGIN
+		IF n # 3 THEN
+			Scanner.Mark ('Wrong number of parameters')
+		ELSE
+			IF Base.Is_variable (p1) & (p1.type.form = Base.type_procedure)
+			& Base.Has_value (p2) & (p2.type.form = Base.type_integer)
+			& Base.Has_value (p3) & ((p3.type.form = Base.type_string)
+			OR (p3.type.form = Base.type_array)
+			& (p3.type.base = Base.char_type)) THEN
+				Generator.SProc_GetProcAddress (p1, p2, p3)
+			ELSE
+				Scanner.Mark ('Invalid or incompatible parameters')
+				END
+			END
+		END SProc_GetProcAddress;
 
-	BEGIN (* ProperStandProc *)
+	BEGIN (* StandProc *)
+	i := 0;
+	IF sym = Base.sym_lparen THEN
+		Scanner.Get (sym);
+		IF sym = Base.sym_rparen THEN
+			Scanner.Get (sym)
+		ELSE
+			expression (params [i]);
+			INC (i);
+			WHILE sym = Base.sym_comma DO
+				Scanner.Get (sym);
+				IF i >= LEN (params) THEN
+					Scanner.Mark ('Too many parameters')
+				ELSE
+					expression (params [i]);
+					INC (i)
+					END
+				END;
+			IF sym = Base.sym_rparen THEN
+				Scanner.Get (sym)
+			ELSE
+				Scanner.Mark ('No closing )')
+				END
+			END
+		END;
+		
 	CASE x.a OF
-		0: SProc_LoadLibrary (x)
+		0: SProc_LoadLibrary (i, params [0], params [1]) |
+		1: SProc_GetProcAddress (i, params [0], params [1], params [2])
 		END
-	END ProperStandProc;
+	END StandProc;
 	
 PROCEDURE selector (VAR x : Base.Item);
 	VAR
@@ -1000,7 +1054,7 @@ PROCEDURE statement;
 			IF x.type # NIL THEN
 				Scanner.Mark ('Function procedure must be called in expression')
 			ELSE
-				ProperStandProc (x)
+				StandProc (x)
 				END
 		ELSIF Base.Has_value (x) & (x.type.form = Base.type_procedure) THEN
 			IF x.type.base # NIL THEN
@@ -1093,7 +1147,7 @@ PROCEDURE Module*;
 		Scanner.Mark ('No ending .')
 		END;
 		
-	Generator.Finish;
+	Generator.Finish (vars_size);
 	END Module;
 
 END Parser.

@@ -74,7 +74,7 @@ VAR
 	
 	pc : INTEGER;
 	str_offset : INTEGER;
-	reg_stack, mem_stack : INTEGER;
+	reg_stack, mem_stack, param_regs_usage : INTEGER;
 	used_regs : SET;
 	stack_frame, stack_frame_size : INTEGER;
 	
@@ -123,7 +123,7 @@ PROCEDURE Write_instruction (VAR inst : Instruction);
 				Write_mem_prefix (op);
 				Base.Write_char (out, '[');
 				Write_scope_name (Base.universe);
-				Base.Write_char (out, '@');
+				Base.Write_string (out, '@@');
 				Base.Write_string (out, op.sym.content);
 				Base.Write_string (out, ' + ');
 				Base.Write_number (out, op.imm);
@@ -286,6 +286,12 @@ PROCEDURE Set_proc_operand (VAR o : Operand; proc : Base.Object);
 	o.obj := proc
 	END Set_proc_operand;
 	
+PROCEDURE Set_sym_operand (VAR o : Operand; sym : Base.String);
+	BEGIN
+	o.form := form_sym;
+	o.sym := sym
+	END Set_sym_operand;
+	
 PROCEDURE Emit_op_bare (op : INTEGER);
 	BEGIN
 	codes [pc].op := op;
@@ -312,6 +318,13 @@ PROCEDURE Emit_op_mem (op : INTEGER; mem : Base.Item);
 	Set_mem_operand (codes [pc].operands [0], mem);
 	Inc_program_counter
 	END Emit_op_mem;
+	
+PROCEDURE Emit_op_sym (op : INTEGER; sym : Base.String);
+	BEGIN
+	codes [pc].op := op;
+	Set_sym_operand (codes [pc].operands [0], sym);
+	Inc_program_counter
+	END Emit_op_sym;
 	
 PROCEDURE Emit_op_reg_reg (op, r1, r2 : INTEGER);
 	BEGIN
@@ -548,21 +561,22 @@ PROCEDURE Store* (VAR x, y : Base.Item);
 				Emit_op_mem_reg (op_MOV, x, Small_reg (y.r, x.type.size))
 				END
 			END;
-		IF Use_register (y) THEN Free_reg END
 	ELSIF x.type.form = Base.type_array THEN
 		Emit_op_reg_mem (op_LEA, -reg_RSI, y);
 		Emit_op_reg_mem (op_LEA, -reg_RDI, x);
+		IF param_regs_usage > 0 THEN Emit_op_reg (op_PUSH, -reg_RCX) END;
 		IF (y.type.form = Base.type_string) & (y.type.len < x.type.len) THEN
 			Emit_op_reg_imm (op_MOV, -reg_RCX, y.type.size)
 		ELSE
 			Emit_op_reg_imm (op_MOV, -reg_RCX, x.type.size);
 			END;
 		Emit_op_bare (op_REP_MOVSB);
-		IF Use_register (y) THEN Free_reg END;
+		IF param_regs_usage > 0 THEN Emit_op_reg (op_POP, -reg_RCX) END;
 		used_regs := used_regs + {reg_RSI, reg_RDI}
 	ELSIF x.type.form = Base.type_record THEN
 		(* Implement later *)
 		END;
+	IF Use_register (y) THEN Free_reg END;
 	IF Use_register (x) THEN Free_reg END
 	END Store;
 	
@@ -839,285 +853,6 @@ PROCEDURE Op2* (op : INTEGER; VAR x, y : Base.Item);
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
-
-PROCEDURE Module_init*;
-	BEGIN
-	END Module_init;
-
-PROCEDURE End_module_init*;
-	BEGIN
-	Write_codes_to_file
-	END End_module_init;
-	
-(* -------------------------------------------------------------------------- *)
-(* -------------------------------------------------------------------------- *)
-	
-PROCEDURE Enter* (proc : Base.Object; locblksize : INTEGER);
-	VAR
-		i, k : INTEGER;
-		par : Base.Item;
-	BEGIN
-	Emit_op_reg (op_PUSH, -reg_RBP); (* Instruction no. 0 *)
-	Emit_op_reg_reg (op_MOV, -reg_RBP, -reg_RSP); (* No. 1 *)
-	Emit_op_reg_imm (op_SUB, -reg_RSP, 0); (* No. 2 *)
-	
-	stack_frame := locblksize;
-	stack_frame_size := locblksize;
-	
-	k := proc.parblksize DIV 8;
-	IF k <= 4 THEN
-		Base.top_scope.parblksize := 32
-	ELSE
-		Base.top_scope.parblksize := proc.parblksize;
-		k := 4;
-		END;
-		
-	par.mode := Base.class_var;
-	par.lev := Base.cur_lev;
-	par.flag := {Base.flag_param};
-	par.a := 0;
-	
-	FOR i := 0 TO 3 DO
-		Emit_op_mem_reg (op_MOV, par, -reg_RCX - i); (* No. 3 to 6 *)
-		IF i >= k THEN codes [pc - 1].flag := {flag_skiped} END;
-		INC (par.a, 8)
-		END;
-	
-	Emit_op_reg (op_PUSH, -reg_R12); (* No. 7 *)
-	Emit_op_reg (op_PUSH, -reg_R13); (* No. 8 *)
-	Emit_op_reg (op_PUSH, -reg_R14); (* No. 9 *)
-	Emit_op_reg (op_PUSH, -reg_R15); (* No. 10 *)
-	Emit_op_reg (op_PUSH, -reg_RSI); (* No. 11 *)
-	Emit_op_reg (op_PUSH, -reg_RDI); (* No. 12 *)
-	
-	reg_stack := 0;
-	mem_stack := 0;
-	used_regs := {}
-	END Enter;
-	
-PROCEDURE Return_value* (VAR x : Base.Item);
-	BEGIN
-	load (x);
-	Emit_op_reg_reg (op_MOV, -reg_RAX, x.r);
-	Free_reg
-	END Return_value;
-	
-PROCEDURE Return* (proc : Base.Object; locblksize : INTEGER);
-	VAR
-		num_of_used_regs : INTEGER;
-	BEGIN
-	num_of_used_regs := 6;
-	IF reg_RDI IN used_regs THEN Emit_op_reg (op_POP, -reg_RDI)
-	ELSE codes [12].flag := {flag_skiped}; DEC (num_of_used_regs) END;
-	IF reg_RSI IN used_regs THEN Emit_op_reg (op_POP, -reg_RSI)
-	ELSE codes [11].flag := {flag_skiped}; DEC (num_of_used_regs) END;
-	IF reg_R15 IN used_regs THEN Emit_op_reg (op_POP, -reg_R15)
-	ELSE codes [10].flag := {flag_skiped}; DEC (num_of_used_regs) END;
-	IF reg_R14 IN used_regs THEN Emit_op_reg (op_POP, -reg_R14)
-	ELSE codes [9].flag := {flag_skiped}; DEC (num_of_used_regs) END;
-	IF reg_R13 IN used_regs THEN Emit_op_reg (op_POP, -reg_R13)
-	ELSE codes [8].flag := {flag_skiped}; DEC (num_of_used_regs) END;
-	IF reg_R12 IN used_regs THEN Emit_op_reg (op_POP, -reg_R12)
-	ELSE codes [7].flag := {flag_skiped}; DEC (num_of_used_regs) END;
-
-	Emit_op_bare (op_LEAVE);
-	Emit_op_bare (op_RET);
-	
-	(* Perform fixup *)
-	IF stack_frame_size = 0 THEN
-		IF num_of_used_regs MOD 2 # 0 THEN
-			codes [2].operands [1].imm := 8
-		ELSE
-			codes [2].flag := {flag_skiped}
-			END
-	ELSE
-		INC (stack_frame_size, num_of_used_regs * 8);
-		IF stack_frame_size MOD 16 # 0 THEN
-			stack_frame_size := (stack_frame_size DIV 16 + 1) * 16
-			END;
-		codes [2].operands [1].imm := stack_frame_size - num_of_used_regs * 8;
-		END;
-	
-	Write_codes_to_file
-	END Return;
-	
-PROCEDURE Need_saving (reg : INTEGER) : BOOLEAN;
-	VAR
-		result : BOOLEAN;
-	BEGIN
-	IF reg < reg_TOP THEN
-		IF Decode_reg (reg_stack) > reg THEN
-			result := TRUE
-		ELSE
-			result := FALSE
-			END
-	ELSIF reg = reg_TOP THEN
-		IF (reg_stack > reg_TOP) & (Decode_reg (reg_stack) = 0) THEN
-			result := TRUE
-		ELSE
-			result := FALSE
-			END
-	ELSE
-		result := FALSE
-		END;
-	RETURN result
-	END Need_saving;
-	
-PROCEDURE Prepare_to_call* (VAR x : Base.Item);
-	VAR
-		i, top : INTEGER;
-	BEGIN
-	IF Need_saving (reg_R10) THEN Push_reg (reg_R10) END;
-	IF Need_saving (reg_R11) THEN Push_reg (reg_R11) END;
-	
-	x.c := 0; (* Use for tracking temporary stack space usage *)
-	IF x.mode = Base.class_proc THEN
-		x.b := x.proc.parblksize (* Use for tracking parameter block size *)
-	ELSE
-		x.b := x.type.len
-		END;
-	IF x.b < 32 THEN x.b := 32 END;
-
-	INC (mem_stack, x.b);
-	IF mem_stack MOD 16 = 8 THEN
-		INC (x.b, 8);
-		INC (mem_stack, 8)
-		END;
-	Emit_op_reg_imm (op_SUB, -reg_RSP, x.b)
-	END Prepare_to_call;
-	
-PROCEDURE Cleanup_after_call* (VAR x : Base.Item);
-	BEGIN
-	Emit_op_reg_imm (op_ADD, -reg_RSP, x.b);
-	DEC (mem_stack, x.b);
-	DEC (stack_frame, x.c);
-	
-	IF Need_saving (reg_R11) THEN Pop_reg (reg_R11) END;
-	IF Need_saving (reg_R10) THEN Pop_reg (reg_R10) END
-	END Cleanup_after_call;
-	
-PROCEDURE Normal_parameter* (VAR x : Base.Item; adr : INTEGER);
-	VAR
-		param_reg : INTEGER;
-		param : Base.Item;
-	BEGIN
-	IF adr < 32 THEN
-		param_reg := reg_RCX + (adr DIV 8);
-		IF x.mode = Base.mode_reg THEN
-			Emit_op_reg_reg (op_MOV, -param_reg, x.r)
-		ELSIF x.mode = Base.class_const THEN
-			Emit_op_reg_imm (op_MOV, -param_reg, x.a)
-		ELSE
-			Emit_op_reg_mem (op_MOV, -param_reg, x)
-			END;
-		IF Use_register (x) THEN Free_reg END
-	ELSE
-		load (x);
-		param.mode := Base.mode_regI;
-		param.r := -reg_RSP;
-		param.a := adr - 32;
-		Emit_op_mem_reg (op_MOV, param, x.r);
-		Free_reg
-		END
-	END Normal_parameter;
-	
-PROCEDURE Reference_parameter* (VAR x : Base.Item; adr : INTEGER);
-	BEGIN
-	IF x.mode = Base.class_ref THEN
-		Normal_parameter (x, adr)
-	ELSE
-		Load_adr (x);
-		Normal_parameter (x, adr);
-		Free_reg
-		END
-	END Reference_parameter;
-	
-PROCEDURE Record_variable_parameter* (VAR x : Base.Item; adr : INTEGER);
-	VAR
-		tag : Base.Item;
-	BEGIN
-	IF (x.mode = Base.class_ref) & ~ (Base.flag_readonly IN x.flag) THEN
-		tag := x;
-		INC (tag.a, 8)
-	ELSE
-		tag.mode := Base.class_var;
-		tag.lev := 0;
-		tag.a := x.type.tag
-		END;
-	Reference_parameter (x, adr);
-	Normal_parameter (x, adr + 8)
-	END Record_variable_parameter;
-	
-PROCEDURE Open_array_parameter* (VAR x : Base.Item; par : Base.Object);
-	VAR
-		len : Base.Item;
-		tp, formal_type : Base.Type;
-		adr : INTEGER;
-	BEGIN
-	adr := par.val;
-	Reference_parameter (x, adr);
-	
-	formal_type := par.type;
-	tp := x.type;
-	WHILE Base.Is_open_array (formal_type) DO
-		INC (adr, 8);
-		IF Base.Is_open_array (tp) THEN
-			len.mode := Base.class_var;
-			len.lev := x.lev;
-			len.a := x.b;
-			INC (x.b, 8)
-		ELSE
-			len.mode := Base.class_const;
-			len.a := tp.len;
-			END;
-		Normal_parameter (len, adr);
-		formal_type := formal_type.base;
-		tp := tp.base
-		END
-	END Open_array_parameter;
-	
-PROCEDURE String_parameter* (VAR x, proc : Base.Item; par : Base.Object);
-	VAR
-		temp_array : Base.Item;
-	BEGIN
-	temp_array.mode := Base.class_var;
-	temp_array.lev := 1;
-	temp_array.type := par.type;
-	temp_array.a := stack_frame;
-	
-	INC (proc.c, temp_array.type.size);
-	INC (stack_frame, proc.c);
-	IF stack_frame > stack_frame_size THEN stack_frame_size := stack_frame END;
-	
-	Store (temp_array, x);
-	Reference_parameter (temp_array, par.val)
-	END String_parameter;
-	
-PROCEDURE Call* (VAR x : Base.Item);
-	BEGIN
-	IF x.mode = Base.class_proc THEN
-		Emit_op_proc (op_CALL, x.proc)
-	ELSE
-		IF x.mode = Base.mode_reg THEN
-			Emit_op_reg (op_CALL, x.r)
-		ELSE
-			Emit_op_mem (op_CALL, x)
-			END;
-		IF Use_register (x) THEN Free_reg END
-		END
-	END Call;
-	
-PROCEDURE Get_return_value* (VAR x : Base.Item);
-	BEGIN
-	IF x.mode # Base.class_proc THEN x.type := x.type.base END;
-	x.mode := Base.mode_reg;
-	x.r := reg_stack;
-	Inc_reg_stack;
-	Emit_op_reg_reg (op_MOV, x.r, -reg_RAX)
-	END Get_return_value;
-	
-(* -------------------------------------------------------------------------- *)
-(* -------------------------------------------------------------------------- *)
 	
 PROCEDURE Field* (VAR x : Base.Item; field : Base.Object);
 	BEGIN
@@ -1231,11 +966,411 @@ PROCEDURE Type_test* (VAR x : Base.Item; typ : Base.Type);
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE Init* (module_name : Base.String);
+PROCEDURE Enter* (proc : Base.Object; locblksize : INTEGER);
+	VAR
+		i, k : INTEGER;
+		par : Base.Item;
 	BEGIN
-	Base.Rewrite (out, module_name.content);
-	modid := module_name;
+	Emit_op_reg (op_PUSH, -reg_RBP); (* Instruction no. 0 *)
+	Emit_op_reg_reg (op_MOV, -reg_RBP, -reg_RSP); (* No. 1 *)
+	Emit_op_reg_imm (op_SUB, -reg_RSP, 0); (* No. 2 *)
 	
+	stack_frame := locblksize;
+	stack_frame_size := locblksize;
+	
+	k := proc.parblksize DIV 8;
+	IF k <= 4 THEN
+		Base.top_scope.parblksize := 32
+	ELSE
+		Base.top_scope.parblksize := proc.parblksize;
+		k := 4;
+		END;
+		
+	par.mode := Base.class_var;
+	par.lev := Base.cur_lev;
+	par.flag := {Base.flag_param};
+	par.a := 0;
+	
+	FOR i := 0 TO 3 DO
+		Emit_op_mem_reg (op_MOV, par, -reg_RCX - i); (* No. 3 to 6 *)
+		IF i >= k THEN codes [pc - 1].flag := {flag_skiped} END;
+		INC (par.a, 8)
+		END;
+	
+	Emit_op_reg (op_PUSH, -reg_R12); (* No. 7 *)
+	Emit_op_reg (op_PUSH, -reg_R13); (* No. 8 *)
+	Emit_op_reg (op_PUSH, -reg_R14); (* No. 9 *)
+	Emit_op_reg (op_PUSH, -reg_R15); (* No. 10 *)
+	Emit_op_reg (op_PUSH, -reg_RSI); (* No. 11 *)
+	Emit_op_reg (op_PUSH, -reg_RDI); (* No. 12 *)
+	
+	reg_stack := 0;
+	mem_stack := 0;
+	used_regs := {}
+	END Enter;
+	
+PROCEDURE Return_value* (VAR x : Base.Item);
+	BEGIN
+	load (x);
+	Emit_op_reg_reg (op_MOV, -reg_RAX, x.r);
+	Free_reg
+	END Return_value;
+	
+PROCEDURE Return* (proc : Base.Object; locblksize : INTEGER);
+	VAR
+		num_of_used_regs : INTEGER;
+	BEGIN
+	num_of_used_regs := 6;
+	IF reg_RDI IN used_regs THEN Emit_op_reg (op_POP, -reg_RDI)
+	ELSE codes [12].flag := {flag_skiped}; DEC (num_of_used_regs) END;
+	IF reg_RSI IN used_regs THEN Emit_op_reg (op_POP, -reg_RSI)
+	ELSE codes [11].flag := {flag_skiped}; DEC (num_of_used_regs) END;
+	IF reg_R15 IN used_regs THEN Emit_op_reg (op_POP, -reg_R15)
+	ELSE codes [10].flag := {flag_skiped}; DEC (num_of_used_regs) END;
+	IF reg_R14 IN used_regs THEN Emit_op_reg (op_POP, -reg_R14)
+	ELSE codes [9].flag := {flag_skiped}; DEC (num_of_used_regs) END;
+	IF reg_R13 IN used_regs THEN Emit_op_reg (op_POP, -reg_R13)
+	ELSE codes [8].flag := {flag_skiped}; DEC (num_of_used_regs) END;
+	IF reg_R12 IN used_regs THEN Emit_op_reg (op_POP, -reg_R12)
+	ELSE codes [7].flag := {flag_skiped}; DEC (num_of_used_regs) END;
+
+	Emit_op_bare (op_LEAVE);
+	Emit_op_bare (op_RET);
+	
+	(* Perform fixup *)
+	IF stack_frame_size = 0 THEN
+		IF num_of_used_regs MOD 2 # 0 THEN
+			codes [2].operands [1].imm := 8
+		ELSE
+			codes [2].flag := {flag_skiped}
+			END
+	ELSE
+		INC (stack_frame_size, num_of_used_regs * 8);
+		IF stack_frame_size MOD 16 # 0 THEN
+			stack_frame_size := (stack_frame_size DIV 16 + 1) * 16
+			END;
+		codes [2].operands [1].imm := stack_frame_size - num_of_used_regs * 8;
+		END;
+	Write_codes_to_file
+	END Return;
+	
+PROCEDURE Need_saving (reg : INTEGER) : BOOLEAN;
+	VAR
+		result : BOOLEAN;
+	BEGIN
+	IF (reg >= 0) & (reg <= reg_TOP) & (reg_stack > reg) THEN
+		result := TRUE
+	ELSE
+		result := FALSE
+		END;
+	RETURN result
+	END Need_saving;
+	
+PROCEDURE Prepare_to_call* (VAR x : Base.Item);
+	VAR
+		i, top : INTEGER;
+	BEGIN
+	IF Need_saving (reg_R10) THEN Push_reg (reg_R10) END;
+	IF Need_saving (reg_R11) THEN Push_reg (reg_R11) END;
+	
+	x.d := param_regs_usage; (* Use for remembering previous param regs usage *)
+	IF param_regs_usage > 0 THEN
+		FOR i := 0 TO param_regs_usage - 1 DO
+			Push_reg (reg_RCX + i)
+			END;
+		param_regs_usage := 0
+		END;
+	
+	x.c := 0; (* Use for tracking temporary stack space usage *)
+	IF x.mode = Base.class_proc THEN
+		x.b := x.proc.parblksize (* Use for tracking parameter block size *)
+	ELSE
+		x.b := x.type.len
+		END;
+	IF x.b < 32 THEN x.b := 32 END;
+
+	INC (mem_stack, x.b);
+	IF mem_stack MOD 16 = 8 THEN
+		INC (x.b, 8);
+		INC (mem_stack, 8)
+		END;
+	Emit_op_reg_imm (op_SUB, -reg_RSP, x.b);
+	x.e := mem_stack (* Store the location of parameter block *)
+	END Prepare_to_call;
+	
+PROCEDURE Cleanup_after_call* (VAR x : Base.Item);
+	VAR
+		i : INTEGER;
+	BEGIN
+	Emit_op_reg_imm (op_ADD, -reg_RSP, x.b);
+	DEC (mem_stack, x.b);
+	DEC (stack_frame, x.c);
+	
+	param_regs_usage := x.d;
+	IF param_regs_usage > 0 THEN
+		FOR i := param_regs_usage - 1 TO 0 BY -1 DO
+			Pop_reg (reg_RCX + i)
+			END
+		END;
+	
+	IF Need_saving (reg_R11) THEN Pop_reg (reg_R11) END;
+	IF Need_saving (reg_R10) THEN Pop_reg (reg_R10) END;
+	IF Use_register (x) THEN Free_reg END
+	END Cleanup_after_call;
+	
+PROCEDURE Normal_parameter* (VAR x, proc : Base.Item; adr : INTEGER);
+	VAR
+		param_reg : INTEGER;
+		param : Base.Item;
+	BEGIN
+	IF adr < 32 THEN
+		param_reg := reg_RCX + (adr DIV 8);
+		CASE x.mode OF
+			Base.mode_reg:
+				Emit_op_reg_reg (op_MOV, -param_reg, x.r);
+				Free_reg |
+			Base.class_const:
+				Emit_op_reg_imm (op_MOV, -param_reg, x.a) |
+			Base.class_ref:
+				Emit_op_reg_mem (op_MOV, -param_reg, x)
+			ELSE
+				IF (x.type = NIL) OR ~ Base.Is_scalar_type (x.type)
+				OR (x.type.size = 8) THEN
+					Emit_op_reg_mem (op_MOV, -param_reg, x)
+				ELSE
+					Emit_op_reg_mem
+					(op_MOV, Small_reg (param_reg, x.type.size), x)
+					END;
+				IF Use_register (x) THEN Free_reg END
+			END;
+		INC (param_regs_usage)
+	ELSE
+		load (x);
+		param.mode := Base.mode_regI;
+		param.r := -reg_RSP;
+		param.a := mem_stack - x.e + adr - 32;
+		Emit_op_mem_reg (op_MOV, param, x.r);
+		Free_reg
+		END
+	END Normal_parameter;
+	
+PROCEDURE Reference_parameter* (VAR x, proc : Base.Item; adr : INTEGER);
+	VAR
+		param_reg : INTEGER;
+	BEGIN
+	IF x.mode = Base.class_ref THEN
+		Normal_parameter (x, proc, adr)
+	ELSIF adr < 32 THEN
+		param_reg := reg_RCX + (adr DIV 8);
+		Emit_op_reg_mem (op_LEA, -param_reg, x);
+		IF Use_register (x) THEN Free_reg END;
+		INC (param_regs_usage)
+	ELSE
+		Load_adr (x);
+		Normal_parameter (x, proc, adr)
+		END
+	END Reference_parameter;
+	
+PROCEDURE Record_variable_parameter* (VAR x, proc : Base.Item; adr : INTEGER);
+	VAR
+		tag : Base.Item;
+	BEGIN
+	IF (x.mode = Base.class_ref) & ~ (Base.flag_readonly IN x.flag) THEN
+		tag := x;
+		INC (tag.a, 8)
+	ELSE
+		tag.mode := Base.class_var;
+		tag.lev := -1;
+		tag.a := x.type.tag
+		END;
+	Reference_parameter (x, proc, adr);
+	Reference_parameter (tag, proc, adr + 8)
+	END Record_variable_parameter;
+	
+PROCEDURE Open_array_parameter* (VAR x, proc : Base.Item; par : Base.Object);
+	VAR
+		len : Base.Item;
+		tp, formal_type : Base.Type;
+		adr : INTEGER;
+	BEGIN
+	adr := par.val;
+	Reference_parameter (x, proc, adr);
+	
+	formal_type := par.type;
+	tp := x.type;
+	WHILE Base.Is_open_array (formal_type) DO
+		INC (adr, 8);
+		IF Base.Is_open_array (tp) THEN
+			len.mode := Base.class_var;
+			len.lev := x.lev;
+			len.a := x.b;
+			INC (x.b, 8)
+		ELSE
+			len.mode := Base.class_const;
+			len.a := tp.len;
+			END;
+		Normal_parameter (len, proc, adr);
+		formal_type := formal_type.base;
+		tp := tp.base
+		END
+	END Open_array_parameter;
+	
+PROCEDURE String_parameter* (VAR x, proc : Base.Item; par : Base.Object);
+	VAR
+		temp_array : Base.Item;
+	BEGIN
+	temp_array.mode := Base.class_var;
+	temp_array.lev := 1;
+	temp_array.type := par.type;
+	temp_array.a := stack_frame;
+	
+	INC (proc.c, temp_array.type.size);
+	INC (stack_frame, proc.c);
+	IF stack_frame > stack_frame_size THEN stack_frame_size := stack_frame END;
+	
+	Store (temp_array, x);
+	Reference_parameter (temp_array, proc, par.val)
+	END String_parameter;
+	
+PROCEDURE Call* (VAR x : Base.Item);
+	BEGIN
+	IF x.mode = Base.class_proc THEN
+		Emit_op_proc (op_CALL, x.proc)
+	ELSE
+		IF x.mode = Base.mode_reg THEN
+			Emit_op_reg (op_CALL, x.r)
+		ELSE
+			Emit_op_mem (op_CALL, x)
+			END;
+		END
+	END Call;
+	
+PROCEDURE Get_return_value* (VAR x : Base.Item);
+	BEGIN
+	IF x.mode # Base.class_proc THEN x.type := x.type.base END;
+	x.mode := Base.mode_reg;
+	x.r := reg_stack;
+	Inc_reg_stack;
+	Emit_op_reg_reg (op_MOV, x.r, -reg_RAX)
+	END Get_return_value;
+	
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+
+PROCEDURE Module_init*;
+	BEGIN
+	Emit_op_reg (op_PUSH, -reg_RBP);
+	Emit_op_reg_reg (op_MOV, -reg_RBP, -reg_RSP);
+	Emit_op_reg_imm (op_SUB, -reg_RSP, 0);
+	
+	stack_frame := 0;
+	stack_frame_size := 0;
+	reg_stack := 0;
+	mem_stack := 0;
+	used_regs := {}
+	END Module_init;
+
+PROCEDURE End_module_init*;
+	BEGIN
+	Emit_op_reg_imm (op_SUB, -reg_RSP, 32);
+	Emit_op_reg_imm (op_MOV, -reg_ECX, 0);
+	Emit_op_sym (op_CALL, Base.Make_string ('[@ExitProcess]'));
+	
+	(* Perform fixup *)
+	IF stack_frame_size = 0 THEN
+		codes [2].flag := {flag_skiped}
+	ELSE
+		IF stack_frame_size MOD 16 # 0 THEN
+			stack_frame_size := (stack_frame_size DIV 16 + 1) * 16
+			END;
+		codes [2].operands [1].imm := stack_frame_size;
+		END;
+	
+	Write_codes_to_file
+	END End_module_init;
+	
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+
+PROCEDURE SProc_LoadLibrary* (VAR x, y : Base.Item);
+	VAR
+		i : INTEGER;
+	BEGIN
+	IF Use_register (x) & (x.r IN {reg_R10, reg_R11}) THEN
+		Push_reg (x.r)
+		END;
+	IF mem_stack MOD 16 # 0 THEN
+		i := 40
+	ELSE
+		i := 32
+		END;
+	Emit_op_reg_imm (op_SUB, -reg_RSP, i);
+	
+	Load_adr (y);
+	Emit_op_reg_reg (op_MOV, -reg_RCX, y.r);
+	Emit_op_sym (op_CALL, Base.Make_string ('[@LoadLibrary]'));
+	
+	Emit_op_reg_imm (op_ADD, -reg_RSP, i);
+	IF Use_register (x) & (x.r IN {reg_R10, reg_R11}) THEN
+		Pop_reg (x.r)
+		END;
+	Emit_op_mem_reg (op_MOV, x, -reg_RAX);
+	
+	Free_reg;
+	IF Use_register (x) THEN Free_reg END
+	END SProc_LoadLibrary;
+	
+PROCEDURE SProc_GetProcAddress* (VAR x, y, z : Base.Item);
+	VAR
+		i : INTEGER;
+	BEGIN
+	IF Use_register (x) & (x.r IN {reg_R10, reg_R11}) THEN
+		Push_reg (x.r)
+		END;
+	IF mem_stack MOD 16 # 0 THEN
+		i := 40
+	ELSE
+		i := 32
+		END;
+	Emit_op_reg_imm (op_SUB, -reg_RSP, i);
+	
+	load (y);
+	Emit_op_reg_reg (op_MOV, -reg_RCX, y.r);
+	Load_adr (z);
+	Emit_op_reg_reg (op_MOV, -reg_RDX, z.r);
+	Emit_op_sym (op_CALL, Base.Make_string ('[@GetProcAddress]'));
+	
+	Emit_op_reg_imm (op_ADD, -reg_RSP, i);
+	IF Use_register (x) & (x.r IN {reg_R10, reg_R11}) THEN
+		Pop_reg (x.r)
+		END;
+	Emit_op_mem_reg (op_MOV, x, -reg_RAX);
+	
+	Free_reg;
+	Free_reg;
+	IF Use_register (x) THEN Free_reg END
+	END SProc_GetProcAddress;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+
+PROCEDURE Init* (module_name : Base.String);
+	VAR
+		i : INTEGER;
+		filename : ARRAY 256 OF CHAR;
+	BEGIN
+	FOR i := 0 TO module_name.len DO
+		filename [i] := module_name.content [i]
+		END;
+	i := module_name.len;
+	filename [i] := '.';
+	filename [i + 1] := 'a';
+	filename [i + 2] := 's';
+	filename [i + 3] := 'm';
+	Base.Rewrite (out, filename);
+	
+	modid := module_name;
+
 	Base.Write_string (out, 'format PE64');
 	Base.Write_newline (out);
 	Base.Write_string (out, 'entry ');
@@ -1248,8 +1383,68 @@ PROCEDURE Init* (module_name : Base.String);
 	Base.Write_newline (out)
 	END Init;
 	
-PROCEDURE Finish*;
+PROCEDURE Finish* (vars_size : INTEGER);
+	VAR
+		i : INTEGER;
 	BEGIN
+	Base.Write_string (out, "section '.data' data readable writable");
+	Base.Write_newline (out);	
+	IF str_offset > 0 THEN
+		Base.Write_string (out, modid.content);
+		Base.Write_string (out, '@@');
+		Base.Write_string (out, sym_stringbase.content);
+		Base.Write_string (out, ' db ');
+		Base.Write_number (out, ORD (strings [0]));
+		i := 1;
+		WHILE i < str_offset DO
+			Base.Write_char (out, ',');
+			Base.Write_number (out, ORD (strings [i]));
+			INC (i)
+			END;
+		Base.Write_newline (out)
+		END;
+	IF vars_size > 0 THEN
+		Base.Write_string (out, modid.content);
+		Base.Write_string (out, '@@');
+		Base.Write_string (out, sym_varbase.content);
+		Base.Write_string (out, ' db ');
+		Base.Write_number (out, vars_size);
+		Base.Write_string (out, ' dup ?');
+		Base.Write_newline (out)
+		END;
+	Base.Write_newline (out);
+	
+	Base.Write_string (out, "section '.idata' import data readable writeable");
+	Base.Write_newline (out);
+	Base.Write_string (out, 'dd 0,0,0,RVA @kernel_name,RVA @kernel_table');
+	Base.Write_newline (out);
+	Base.Write_string (out, 'dd 0,0,0,0,0');
+	Base.Write_newline (out);
+	Base.Write_string (out, '@kernel_table:');
+	Base.Write_newline (out);
+	Base.Write_string (out, '@ExitProcess dq RVA @nameofExitProcess');
+	Base.Write_newline (out);
+	Base.Write_string (out, '@LoadLibrary dq RVA @nameofLoadLibrary');
+	Base.Write_newline (out);
+	Base.Write_string (out, '@GetProcAddress dq RVA @nameofGetProcAddress');
+	Base.Write_newline (out);
+	Base.Write_string (out, 'dq 0');
+	Base.Write_newline (out);
+	Base.Write_string (out, "@kernel_name db 'KERNEL32.DLL',0");
+	Base.Write_newline (out);
+	Base.Write_string (out, '@nameofExitProcess dw 0');
+	Base.Write_newline (out);
+	Base.Write_string (out, "db 'ExitProcess',0");
+	Base.Write_newline (out);
+	Base.Write_string (out, '@nameofLoadLibrary dw 0');
+	Base.Write_newline (out);
+	Base.Write_string (out, "db 'LoadLibraryA',0");
+	Base.Write_newline (out);
+	Base.Write_string (out, '@nameofGetProcAddress dw 0');
+	Base.Write_newline (out);
+	Base.Write_string (out, "db 'GetProcAddress',0");
+	Base.Write_newline (out);
+	
 	Base.Close (out)
 	END Finish;
 	

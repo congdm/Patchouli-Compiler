@@ -1,0 +1,14 @@
+MODULE New;
+
+TYPE
+	StrArr = ARRAY 20 OF CHAR;
+
+VAR
+	MessageBoxA : PROCEDURE (handle : INTEGER; text, caption : StrArr; type : INTEGER);
+	handle : INTEGER;
+	
+BEGIN
+LoadLibrary (handle, 'USER32.DLL');
+GetProcAddress (MessageBoxA, handle, 'MessageBoxA');
+MessageBoxA (0, 'Hello', 'Hello', 0)
+END New.

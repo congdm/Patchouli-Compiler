@@ -80,7 +80,7 @@ TYPE
 		flag* : SET;
 		mode*, lev* : INTEGER;
 		type* : Type;
-		a*, b*, c*, r* : INTEGER;
+		a*, b*, c*, d*, e*, r* : INTEGER;
 		proc* : Object
 		END;
 
@@ -758,7 +758,10 @@ PROCEDURE Init* (modid : String);
 	Enter (class_type, 0, Make_string ('BOOLEAN'), bool_type);
 	Enter (class_type, 0, Make_string ('SET'), set_type);
 	Enter (class_type, 0, Make_string ('BYTE'), byte_type);
-	Enter (class_type, 0, Make_string ('CHAR'), char_type)
+	Enter (class_type, 0, Make_string ('CHAR'), char_type);
+	
+	Enter (class_sproc, 0, Make_string ('LoadLibrary'), NIL);
+	Enter (class_sproc, 1, Make_string ('GetProcAddress'), NIL);
 	END Init;
 	
 BEGIN
