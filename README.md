@@ -4,38 +4,13 @@
 
 This compiler is based on the Oberon-0 compiler in Prof. Niklaus Wirth "Compiler Construction" book.
 
-I intend to turn it into full-fledged Oberon-07 compiler for x86_64 architecture.
+The goal is to implement the complete compiler for Oberon-07 language. Now under recontruction.
 
-Written in Pascal, compiled by Free Pascal and output tested with FASM.
+The early versions of this compiler was written in Pascal (Delphi dialect), and the output was intend to run on bare machine without OS. But due to the lacking of runtime system, now I rebuilding the compiler from the scratch again, with the more practical goal that is to produce executables run on Windows x64 platform.
 
-NOTE: At this early stage, this compiler produce bare assembly code, which cannot run directly on any
-system (Windows, Linux, ...). In order to be run, the output code must be "glued" with runtime system
-manually. For example, PE64DEMO.ASM is the output code of test.obr glued with Windows-specific code.
-Anyway, I will use this compiler to write my OS, so the ability to run on Windows, Unixes,... is
-not considered yet.
+Beside that, I also switch from using Free Pascal to Gardens Point Component Pascal. From my exprience in this project, modern Pascal (Delphi dialect) is quite complex and error-prone than Oberon languages family. Despite having to rewrite many basic facilities that Free Pascal or Delphi already provided (like String handling, file I/O,...), it is still faster working with Component Pascal. Because a huge chunk of time was spend on debugging when using Pascal (mostly pointer-related bugs). And Gardens Point Component Pascal also has good runtime error/exception messages that total free me from using a debugger.
 
-If there are any bugs, please post in Issues. I would greatly appreciate any helping.
+A downside of switching to Gardens Point Component Pascal is that the compiler now require .NET 2.0 to run.
 
-## Features
+Written in Component Pascal, compiled by Gardens Point Component Pascal, and the generated output of this compiler is FASM-syntax assembly code.
 
-Language specification: http://www.inf.ethz.ch/personal/wirth/Articles/Oberon/Oberon07.Report.pdf
-
-### INT8, INT16 and INT32 types
-
-I reintroduce those integer types for accessing and storing small data in memory (<8 bytes).
-For numberic calculation purpose, 8 bytes INTEGER type is recommend.
-When doing calculation with small integer types, all intermediate values are in 8 bytes register
-so there is no code size benefit from using small integer types over standard INTEGER.
-There are 3 standard functions for convert larger integer to smaller integer: TOINT8, TOINT16 and TOINT32.
-
-### Dynamic array type
-
-Syntax: TYPE x = ARRAY OF NonArrayType;
-
-Dynamic array is just a pointer with an array descriptor attach to it. A normal pointer's size is 8 bytes
- but the size of a variable of dynamic array type can be 24 or 32 bytes. Dynamic array is restricted to
-1-dimension only. Different from ARM Oberon-07, where dynamic array is allocated on stack, dynamic array
-here is allocated on heap. Therefore, a dynamic array type can be contained in a record type,
-or be an element type of an array type, or be passed to another procedure as an open array or a dynamic array.
-However, array assignment will not work with dynamic array and assignment of dynamic array variables is treated
-as pointer assignment.
