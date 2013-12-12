@@ -14,5 +14,5 @@ A downside of switching to Gardens Point Component Pascal is that the compiler n
 
 Written in Component Pascal, compiled by Gardens Point Component Pascal, and the generated output of this compiler is FASM-syntax assembly code.
 
-Binary is also supply with source, it take input source from in.txt and emit the output assembly code in <module_name>.asm  At current stage, there is nothing much to compile
+Binary is also supply with source, it take input source from in.txt and emit the output assembly code in <module_name>.asm. At current stage, there is nothing much to compile
 
