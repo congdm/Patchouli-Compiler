@@ -6,18 +6,18 @@ section '.text' code readable executable
 New@@INIT:
 push	rbp
 mov	rbp, rsp
-sub	rsp, 64
+sub	rsp, 48
 sub	rsp, 32
-lea	r12, [New@@STRING + 0]
-mov	rcx, r12
+lea	r10, [New@@STRING + 0]
+mov	rcx, r10
 call	[@LoadLibrary]
 add	rsp, 32
 mov	qword [New@@VAR + 8], rax
 sub	rsp, 32
-mov	r12, qword [New@@VAR + 8]
-mov	rcx, r12
-lea	r13, [New@@STRING + 11]
-mov	rdx, r13
+mov	r10, qword [New@@VAR + 8]
+mov	rcx, r10
+lea	r11, [New@@STRING + 11]
+mov	rdx, r11
 call	[@GetProcAddress]
 add	rsp, 32
 mov	qword [New@@VAR + 0], rax

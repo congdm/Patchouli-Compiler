@@ -9,7 +9,9 @@ CONST
 	success* = TRUE; failed* = FALSE;
 
 	Word_size* = 8;
-	MIN_INT = -2147483648;
+	MAX_INT* = 2147483647;
+	MIN_INT* = -MAX_INT - 1;
+	max_str_len* = 255;
 
 	sym_null* = 0;
 	sym_times* = 1; sym_slash* = 2; sym_div* = 3; sym_mod* = 4;
@@ -42,11 +44,14 @@ CONST
 
 	flag_param* = 0; flag_export* = 1; flag_import* = 2; flag_used* = 3;
 	flag_readonly* = 4; flag_instack* = 5; flag_predefined* = 6;
+	
+	array_bound_check* = 0;
+	integer_overflow_check* = 1;
 
 TYPE
 	String* = POINTER TO StringDesc;
 	StringDesc* = RECORD
-		content* : ARRAY 256 OF CHAR;
+		content* : ARRAY max_str_len + 1 OF CHAR;
 		len* : INTEGER;
 		END;
 		
@@ -87,11 +92,12 @@ TYPE
 VAR
 	top_scope*, universe*, guard* : Object;
 	cur_lev* : INTEGER;
+	
 	(* predefined type *)
 	int_type*, bool_type*, set_type*, char_type*, byte_type* : Type;
 	nilrecord_type*, nil_type* : Type;
-	(* compiler flag *)
-	array_check_flag* : BOOLEAN;
+	
+	compiler_flag* : SET;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -206,6 +212,17 @@ PROCEDURE Write_number_to_console* (x : INTEGER);
 	Int_to_string (x, a);
 	Console.WriteString (a)
 	END Write_number_to_console;
+	
+PROCEDURE Str_len* (s : ARRAY OF CHAR) : INTEGER;
+	VAR
+		i : INTEGER;
+	BEGIN
+	i := 0;
+	WHILE (s [i] # 0X) & (i < LEN (s)) DO
+		INC (i)
+		END;
+	RETURN i
+	END Str_len;
 
 PROCEDURE Str_equal* (s1 : String; s2 : ARRAY OF CHAR) : BOOLEAN;
 	VAR
@@ -254,6 +271,46 @@ PROCEDURE Make_string* (const_str : ARRAY OF CHAR) : String;
 		END;
 	RETURN s
 	END Make_string;
+	
+PROCEDURE Is_safe_multiplication* (x, y : INTEGER) : BOOLEAN;
+	VAR
+		result : BOOLEAN;
+		q, r : INTEGER;
+	BEGIN
+	result := TRUE;
+	IF (x < 0) & (y >= 0) THEN
+		q := x;
+		x := y;
+		y := q
+	ELSIF (x < 0) & (y < 0) THEN
+		IF (x = MIN_INT) OR (y = MIN_INT) THEN
+			result := FALSE
+		ELSE
+			x := -x;
+			y := -y
+			END
+		END;
+	IF x > 0 THEN
+		IF y > 0 THEN
+			IF x > MAX_INT / y THEN
+				result := FALSE
+				END
+		ELSIF y < 0 THEN
+			q := MIN_INT DIV y;
+			r := MIN_INT MOD y;
+			IF r = 0 THEN
+				IF x > q THEN
+					result := FALSE
+					END
+			ELSE
+				IF x >= q THEN
+					result := FALSE
+					END
+				END
+			END
+		END;
+	RETURN result
+	END Is_safe_multiplication;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)

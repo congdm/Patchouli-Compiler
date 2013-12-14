@@ -890,9 +890,7 @@ PROCEDURE factor (VAR x : Base.Item);
 				ELSE
 					Generator.Prepare_to_call (x);
 					ActualParameters (x);
-					Generator.Call (x);
-					Generator.Cleanup_after_call (x);
-					Generator.Get_return_value (x)
+					Generator.Call (x)
 					END
 			ELSE
 				Scanner.Mark ('Found ( but designator is not a procedure')
@@ -1048,8 +1046,7 @@ PROCEDURE statement;
 			ELSIF x.proc.parblksize > 0 THEN
 				Scanner.Mark ('Not enough actual parameters')
 				END;
-			Generator.Call (x);
-			Generator.Cleanup_after_call (x)
+			Generator.Call (x)
 		ELSIF x.mode = Base.class_sproc THEN
 			IF x.type # NIL THEN
 				Scanner.Mark ('Function procedure must be called in expression')
@@ -1066,8 +1063,7 @@ PROCEDURE statement;
 			ELSE
 				Scanner.Mark ('Parameter list (even empty) expected')
 				END;
-			Generator.Call (x);
-			Generator.Cleanup_after_call (x)
+			Generator.Call (x)
 		ELSE
 			Scanner.Mark ('Invalid statement')
 			END

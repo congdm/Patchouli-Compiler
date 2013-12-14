@@ -1,5 +1,8 @@
 MODULE New;
 
+CONST
+	c = 3000000000;
+
 TYPE
 	StrArr = ARRAY 20 OF CHAR;
 

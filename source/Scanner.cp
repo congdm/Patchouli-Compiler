@@ -8,6 +8,9 @@ VAR
 	have_error* : BOOLEAN;
 	id* : Base.String;
 	
+	max_int : ARRAY 22 OF CHAR;
+	max_int_len : INTEGER;
+	
 	srcfile : Base.FileHandle;
 	ch : CHAR;
 	char_num : INTEGER;
@@ -31,6 +34,17 @@ PROCEDURE Read_char;
 		INC (char_num)
 		END;
 	END Read_char;
+	
+PROCEDURE Mark* (str : ARRAY OF CHAR);
+	VAR
+		s : ARRAY 22 OF CHAR;
+	BEGIN
+	Base.Int_to_string (char_num, s);
+	Console.WriteString (s);
+	Console.WriteString (': ');
+	Console.WriteString (str);
+	Console.WriteLn
+	END Mark;
 
 PROCEDURE Skip_blank_and_comment;
 	BEGIN
@@ -42,17 +56,28 @@ PROCEDURE Skip_blank_and_comment;
 PROCEDURE Get_word (VAR sym : INTEGER);
 	VAR
 		i : INTEGER;
+		flag : BOOLEAN;
 	BEGIN
 	NEW (id);
 	i := 0;
+	flag := TRUE;
 	WHILE (ch = '_') OR (ch >= 'A') & (ch <= 'Z')
-	OR (ch >= 'a') & (ch <= 'z') OR (ch >= '0') & (ch <= '9') DO
-		id.content [i] := ch;
-		Read_char;
-		INC (i);
+	OR (ch >= 'a') & (ch <= 'z')
+	OR (ch >= '0') & (ch <= '9') DO
+		IF flag THEN
+			IF i < Base.max_str_len THEN
+				id.content [i] := ch;
+				INC (i);
+			ELSE
+				Mark ('Identifier length is too long (compiler limit)');
+				flag := FALSE
+				END;
+			END;
+		Read_char
 		END;
 	id.len := i;
 	id.content [i] := 0X;
+	
 	sym := Base.sym_ident;
 	CASE id.content [0] OF
 		'A':
@@ -153,42 +178,84 @@ PROCEDURE Get_word (VAR sym : INTEGER);
 
 PROCEDURE Get_number;
 	VAR
-		s : Base.String;
-		i : INTEGER;
+		s : ARRAY 21 OF CHAR;
+		i, len : INTEGER;
+		flag : BOOLEAN;
 	BEGIN
-	NEW (s);
 	i := 0;
+	flag := TRUE;
+	WHILE (ch = '0') DO Read_char END;
 	WHILE (ch >= '0') & (ch <= '9') DO
-		s.content [i] := ch;
-		Read_char;
-		INC (i);
+		IF flag THEN
+			IF i < max_int_len THEN
+				s [i] := ch;
+				INC (i)
+			ELSE
+				Mark ('This number is too large to handle (compiler limit)');
+				flag := FALSE
+				END
+			END;
+		Read_char
 		END;
-	s.len := i;
 	val := 0;
-	FOR i := 0 TO s.len - 1 DO
-		val := val * 10 + ORD (s.content [i]) - ORD ('0');
-		END;
+	IF flag THEN
+		len := i;
+		IF len = max_int_len THEN
+			i := 0;
+			WHILE (i < len) & (s [i] = max_int [i]) DO
+				INC (i)
+				END;
+			IF s [i] > max_int [i] THEN
+				Mark ('This number is too large to handle (compiler limit)');
+				flag := FALSE
+				END;
+			END;
+		IF flag THEN
+			i := 0;
+			WHILE i < len DO
+				val := val * 10 + ORD (s [i]) - ORD ('0');
+				INC (i)
+				END
+			END
+		END
 	END Get_number;
 	
 PROCEDURE Get_string;
 	VAR
 		i : INTEGER;
+		flag : BOOLEAN;
 	BEGIN
 	NEW (id);
 	i := 0;
+	flag := TRUE;
 	IF ch = "'" THEN
 		Read_char;
 		WHILE (ch # 0X) & (ch # "'") DO
-			id.content [i] := ch;
-			Read_char;
-			INC (i)
+			IF flag THEN
+				IF i < Base.max_str_len THEN
+					id.content [i] := ch;
+					INC (i);
+				ELSE
+					Mark ('String length is too long (compiler limit)');
+					flag := FALSE
+					END;
+				END;
+			Read_char
 			END
 	ELSE
+		(* ch = '"' *)
 		Read_char;
 		WHILE (ch # 0X) & (ch # '"') DO
-			id.content [i] := ch;
-			Read_char;
-			INC (i)
+			IF flag THEN
+				IF i < Base.max_str_len THEN
+					id.content [i] := ch;
+					INC (i);
+				ELSE
+					Mark ('String length is too long (compiler limit)');
+					flag := FALSE
+					END;
+				END;
+			Read_char
 			END
 		END;
 	Read_char;
@@ -256,16 +323,8 @@ PROCEDURE Get* (VAR sym : INTEGER);
 			END;
 		END;
 	END Get;
-
-PROCEDURE Mark* (str : ARRAY OF CHAR);
-	VAR
-		s : ARRAY 22 OF CHAR;
-	BEGIN
-	Base.Int_to_string (char_num, s);
-	Console.WriteString (s);
-	Console.WriteString (': ');
-	Console.WriteString (str);
-	Console.WriteLn
-	END Mark;
-
+	
+BEGIN
+Base.Int_to_string (Base.MAX_INT, max_int);
+max_int_len := Base.Str_len (max_int);
 END Scanner.
