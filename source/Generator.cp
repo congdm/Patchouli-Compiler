@@ -32,26 +32,26 @@ CONST
 	(* RAX, RBX, RBP, RSP are use for special purpose *)
 	reg_RAX = 12; reg_RBX = 13; reg_RBP = 14; reg_RSP = 15;
 	
-	reg_EAX = reg_RAX + 64; reg_EBX = reg_RBX + 64; reg_ECX = reg_RCX + 64;
-	reg_EDX = reg_RDX + 64; reg_ESI = reg_RSI + 64; reg_EDI = reg_RDI + 64;
-	reg_EBP = reg_RBP + 64; reg_ESP = reg_RSP + 64; reg_R8D = reg_R8 + 64;
-	reg_R9D = reg_R9 + 64; reg_R10D = reg_R10 + 64; reg_R11D = reg_R11 + 64;
-	reg_R12D = reg_R12 + 64; reg_R13D = reg_R13 + 64; reg_R14D = reg_R14 + 64;
-	reg_R15D = reg_R15 + 64;
+	reg_EAX = reg_RAX + 16; reg_EBX = reg_RBX + 16; reg_ECX = reg_RCX + 16;
+	reg_EDX = reg_RDX + 16; reg_ESI = reg_RSI + 16; reg_EDI = reg_RDI + 16;
+	reg_EBP = reg_RBP + 16; reg_ESP = reg_RSP + 16; reg_R8D = reg_R8 + 16;
+	reg_R9D = reg_R9 + 16; reg_R10D = reg_R10 + 16; reg_R11D = reg_R11 + 16;
+	reg_R12D = reg_R12 + 16; reg_R13D = reg_R13 + 16; reg_R14D = reg_R14 + 16;
+	reg_R15D = reg_R15 + 16;
 	
-	reg_AX = reg_RAX + 128; reg_BX = reg_RBX + 128; reg_CX = reg_RCX + 128;
-	reg_DX = reg_RDX + 128; reg_SI = reg_RSI + 128; reg_DI = reg_RDI + 128;
-	reg_BP = reg_RBP + 128; reg_SP = reg_RSP + 128; reg_R8W = reg_R8 + 128;
-	reg_R9W = reg_R9 + 128; reg_R10W = reg_R10 + 128; reg_R11W = reg_R11 + 128;
-	reg_R12W = reg_R12 + 128; reg_R13W = reg_R13 + 128; reg_R14W = reg_R14 + 128;
-	reg_R15W = reg_R15 + 128;
+	reg_AX = reg_RAX + 32; reg_BX = reg_RBX + 32; reg_CX = reg_RCX + 32;
+	reg_DX = reg_RDX + 32; reg_SI = reg_RSI + 32; reg_DI = reg_RDI + 32;
+	reg_BP = reg_RBP + 32; reg_SP = reg_RSP + 32; reg_R8W = reg_R8 + 32;
+	reg_R9W = reg_R9 + 32; reg_R10W = reg_R10 + 32; reg_R11W = reg_R11 + 32;
+	reg_R12W = reg_R12 + 32; reg_R13W = reg_R13 + 32; reg_R14W = reg_R14 + 32;
+	reg_R15W = reg_R15 + 32;
 	
-	reg_AL = reg_RAX + 192; reg_BL = reg_RBX + 192; reg_CL = reg_RCX + 192;
-	reg_DL = reg_RDX + 192; reg_SIL = reg_RSI + 192; reg_DIL = reg_RDI + 192;
-	reg_BPL = reg_RBP + 192; reg_SPL = reg_RSP + 192; reg_R8L = reg_R8 + 192;
-	reg_R9L = reg_R9 + 192; reg_R10L = reg_R10 + 192; reg_R11L = reg_R11 + 192;
-	reg_R12L = reg_R12 + 192; reg_R13L = reg_R13 + 192; reg_R14L = reg_R14 + 192;
-	reg_R15L = reg_R15 + 192;
+	reg_AL = reg_RAX + 48; reg_BL = reg_RBX + 48; reg_CL = reg_RCX + 48;
+	reg_DL = reg_RDX + 48; reg_SIL = reg_RSI + 48; reg_DIL = reg_RDI + 48;
+	reg_BPL = reg_RBP + 48; reg_SPL = reg_RSP + 48; reg_R8L = reg_R8 + 48;
+	reg_R9L = reg_R9 + 48; reg_R10L = reg_R10 + 48; reg_R11L = reg_R11 + 48;
+	reg_R12L = reg_R12 + 48; reg_R13L = reg_R13 + 48; reg_R14L = reg_R14 + 48;
+	reg_R15L = reg_R15 + 48;
 
 TYPE
 	Operand = RECORD
@@ -230,9 +230,9 @@ PROCEDURE Small_reg (r, size : INTEGER) : INTEGER;
 	BEGIN
 	r := Decode_reg (r) MOD 64;
 	CASE size OF
-		1: INC (r, 192) |
-		2: INC (r, 128) |
-		4: INC (r, 64)
+		1: INC (r, 48) |
+		2: INC (r, 32) |
+		4: INC (r, 16)
 		END;
 	RETURN -r
 	END Small_reg;
@@ -660,7 +660,7 @@ PROCEDURE Commutative_op (op : INTEGER; VAR x, y : Base.Item);
 				Free_reg
 			END
 		END;
-	IF (x.type.form = type_integer)
+	IF (x.type.form = Base.type_integer)
 	& (Base.integer_overflow_check IN Base.compiler_flag) THEN
 		(* Implement later *)
 		END
@@ -863,7 +863,7 @@ PROCEDURE Op2* (op : INTEGER; VAR x, y : Base.Item);
 						Scanner.Mark ('Integer overflow detected')
 						END	|
 				Base.sym_div:
-					IF (x.a = -Base.MIN_INT) & (y.a = -1) THEN
+					IF (x.a = Base.MIN_INT) & (y.a = -1) THEN
 						Scanner.Mark ('Integer overflow detected')
 					ELSIF y.a = 0 THEN
 						Scanner.Mark ('Division by zero')

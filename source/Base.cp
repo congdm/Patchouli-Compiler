@@ -272,6 +272,40 @@ PROCEDURE Make_string* (const_str : ARRAY OF CHAR) : String;
 	RETURN s
 	END Make_string;
 	
+PROCEDURE Is_safe_addition* (x, y : INTEGER) : BOOLEAN;
+	VAR
+		result : BOOLEAN;
+	BEGIN
+	result := TRUE;
+	IF (x >= 0) & (y >= 0) THEN
+		IF y > MAX_INT - x THEN
+			result := FALSE
+			END;
+	ELSIF (x < 0) & (y < 0) THEN
+		IF y < MIN_INT - x THEN
+			result := FALSE
+			END
+		END;
+	RETURN result
+	END Is_safe_addition;
+	
+PROCEDURE Is_safe_subtraction* (x, y : INTEGER) : BOOLEAN;
+	VAR
+		result : BOOLEAN;
+	BEGIN
+	result := TRUE;
+	IF (x >= 0) & (y < 0) THEN
+		IF x > MAX_INT + y THEN
+			result := FALSE
+			END;
+	ELSIF (x < 0) & (y >= 0) THEN
+		IF x < MIN_INT + y THEN
+			result := FALSE
+			END
+		END;
+	RETURN result
+	END Is_safe_subtraction;
+	
 PROCEDURE Is_safe_multiplication* (x, y : INTEGER) : BOOLEAN;
 	VAR
 		result : BOOLEAN;
