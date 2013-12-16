@@ -19,6 +19,8 @@ CONST
 	
 	op_CALL = 40; op_RET = 41; op_LEAVE = 42;
 	
+	op_JMP = 50; vop_NJMP = 51; op_JO = 52; op_JNO = 53;
+	
 	reg_R10 = 0; reg_R11 = 1; (* R10, R11 are caller-save *)
 	reg_R12 = 2; reg_R13 = 3; reg_R14 = 4; reg_R15 = 5; reg_TOP = 5;
 	(* R12 to RDI are callee-save *)
@@ -70,7 +72,7 @@ TYPE
 VAR
 	op_table : ARRAY 256, 10 OF CHAR;
 	reg_table : ARRAY 256, 6 OF CHAR;
-	sym_array_index_trap : Base.String;
+	sym_array_index_trap, sym_integer_overflow_trap : Base.String;
 	sym_varbase, sym_stringbase : Base.String;
 
 	out : Base.FileHandle;
@@ -332,6 +334,20 @@ PROCEDURE Emit_op_sym (op : INTEGER; sym : Base.String);
 	Inc_program_counter
 	END Emit_op_sym;
 	
+PROCEDURE Emit_op_sym (op : INTEGER; sym : Base.String);
+	BEGIN
+	codes [pc].op := op;
+	Set_sym_operand (codes [pc].operands [0], sym);
+	Inc_program_counter
+	END Emit_op_sym;
+	
+PROCEDURE Emit_op_label (op, label_num : INTEGER);
+	BEGIN
+	codes [pc].op := op;
+	Set_label_operand (codes [pc].operands [0], label_num);
+	Inc_program_counter
+	END Emit_op_sym;
+	
 PROCEDURE Emit_op_reg_reg (op, r1, r2 : INTEGER);
 	BEGIN
 	codes [pc].op := op;
@@ -589,6 +605,13 @@ PROCEDURE Store* (VAR x, y : Base.Item);
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
+PROCEDURE Emit_integer_overflow_trap;
+	BEGIN
+	Emit_op_label (op_JNO, pc + 2);
+	Emit_op_sym (op_CALL, sym_integer_overflow_trap);
+	codes [pc].flag := codes [pc].flag + {flag_haslabel}
+	END Emit_integer_overflow_trap;
+
 PROCEDURE Op1* (op : INTEGER; VAR x : Base.Item);
 	VAR
 		s : SET;
@@ -613,7 +636,7 @@ PROCEDURE Op1* (op : INTEGER; VAR x : Base.Item);
 			IF x.type.form = Base.type_integer THEN
 				Emit_op_reg (op_NEG, x.r);
 				IF Base.integer_overflow_check IN Base.compiler_flag THEN
-					(* Implement later *)
+					Emit_integer_overflow_trap					
 					END
 			ELSIF x.type.form = Base.type_set THEN
 				Emit_op_reg (op_NOT, x.r)
@@ -662,7 +685,7 @@ PROCEDURE Commutative_op (op : INTEGER; VAR x, y : Base.Item);
 		END;
 	IF (x.type.form = Base.type_integer)
 	& (Base.integer_overflow_check IN Base.compiler_flag) THEN
-		(* Implement later *)
+		Emit_integer_overflow_trap
 		END
 	END Commutative_op;
 	
@@ -712,7 +735,7 @@ PROCEDURE Subtract (VAR x, y : Base.Item);
 			END
 		END;
 	IF Base.integer_overflow_check IN Base.compiler_flag THEN
-		(* Implement later *)
+		Emit_integer_overflow_trap
 		END
 	END Subtract;
 	
@@ -753,7 +776,7 @@ PROCEDURE Multiply (VAR x, y : Base.Item);
 			END
 		END;
 	IF Base.integer_overflow_check IN Base.compiler_flag THEN
-		(* Implement later *)
+		Emit_integer_overflow_trap
 		END
 	END Multiply;
 	
@@ -1591,7 +1614,11 @@ PROCEDURE Init_optable;
 	
 	op_table [op_CALL] := 'call';
 	op_table [op_RET] := 'ret';
-	op_table [op_LEAVE] := 'leave'
+	op_table [op_LEAVE] := 'leave';
+	
+	op_table [op_JMP] := 'jmp';
+	op_table [op_JO] := 'jo';
+	op_table [op_JNO] := 'jno'
 	END Init_optable;
 	
 PROCEDURE Init_regtable;
@@ -1668,6 +1695,7 @@ PROCEDURE Init_regtable;
 PROCEDURE Init_symbols;
 	BEGIN
 	sym_array_index_trap := Base.Make_string ('INVALID_ARRAY_INDEX_TRAP');
+	sym_integer_overflow_trap := Base.Make_string ('INTEGER_OVERFLOW_TRAP');
 	sym_varbase := Base.Make_string ('VAR');
 	sym_stringbase := Base.Make_string ('STRING')
 	END Init_symbols;
