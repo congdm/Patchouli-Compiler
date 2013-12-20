@@ -624,7 +624,7 @@ PROCEDURE Assignable* (dst_type : Type; VAR src : Item) : INTEGER;
 			result := 1
 			END
 	ELSIF (dst_type = int_type) & (src.type = byte_type)
-	OR (dst_type = byte_type) & (dst_type = int_type) THEN
+	OR (dst_type = byte_type) & (src.type = int_type) THEN
 		(* Ok, no problem *)
 	ELSE
 		result := 3
@@ -853,6 +853,8 @@ PROCEDURE Init* (modid : String);
 	
 	Enter (class_sproc, 0, Make_string ('LoadLibrary'), NIL);
 	Enter (class_sproc, 1, Make_string ('GetProcAddress'), NIL);
+	
+	compiler_flag := {integer_overflow_check};
 	END Init;
 	
 BEGIN

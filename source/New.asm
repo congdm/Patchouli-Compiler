@@ -7,6 +7,35 @@ New@@INIT:
 push	rbp
 mov	rbp, rsp
 sub	rsp, 48
+mov	r10, qword [New@@VAR + 16]
+add	r10, qword [New@@VAR + 24]
+jo	INTEGER_OVERFLOW_TRAP
+sub	r10, 4
+jo	INTEGER_OVERFLOW_TRAP
+mov	qword [New@@VAR + 16], r10
+mov	r10, qword [New@@VAR + 16]
+cmp	r10, 256
+jae	INTEGER_OVERFLOW_TRAP
+mov	byte [New@@VAR + 32], r10l
+mov	r10, qword [New@@VAR + 16]
+mov	r11, qword [New@@VAR + 24]
+test	r11, r11
+jle	INVALID_DIVISOR_TRAP
+mov	rax, r10
+cqo
+idiv	r11
+test	r10, r10
+jl	New@24
+mov	r10, rax
+jmp	New@28
+New@24:
+test	rdx, rdx
+je	New@27
+sub	rax, 1
+New@27:
+mov	r10, rax
+New@28:
+mov	qword [New@@VAR + 16], r10
 sub	rsp, 32
 lea	r10, [New@@STRING + 0]
 mov	rcx, r10
@@ -46,7 +75,7 @@ call	[@ExitProcess]
 
 section '.data' data readable writable
 New@@STRING db 85,83,69,82,51,50,46,68,76,76,0,77,101,115,115,97,103,101,66,111,120,65,0,72,101,108,108,111,0,72,101,108,108,111,0
-New@@VAR db 16 dup ?
+New@@VAR db 33 dup ?
 
 section '.idata' import data readable writeable
 dd 0,0,0,RVA @kernel_name,RVA @kernel_table

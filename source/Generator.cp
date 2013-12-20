@@ -15,11 +15,16 @@ CONST
 	op_XCHG = 7; op_CQO = 8; op_REP_MOVSB = 9;
 	
 	op_ADD = 20; op_SUB = 21; op_IMUL = 22; op_IDIV = 23; op_NEG = 24;
-	op_AND = 25; op_OR = 26; op_XOR = 27; op_NOT = 28;
+	op_AND = 25; op_OR = 26; op_XOR = 27; op_NOT = 28; op_CMP = 29;
+	op_TEST = 30;
 	
 	op_CALL = 40; op_RET = 41; op_LEAVE = 42;
 	
 	op_JMP = 50; vop_NJMP = 51; op_JO = 52; op_JNO = 53;
+	op_JB = 54; op_JAE = 55; op_JE = 56; op_JNE = 57; op_JL = 58; op_JGE = 59;
+	op_JG = 60; op_JLE = 61;
+	
+	(* ====================================================================== *)
 	
 	reg_R10 = 0; reg_R11 = 1; (* R10, R11 are caller-save *)
 	reg_R12 = 2; reg_R13 = 3; reg_R14 = 4; reg_R15 = 5; reg_TOP = 5;
@@ -73,6 +78,7 @@ VAR
 	op_table : ARRAY 256, 10 OF CHAR;
 	reg_table : ARRAY 256, 6 OF CHAR;
 	sym_array_index_trap, sym_integer_overflow_trap : Base.String;
+	sym_invalid_divisor_trap : Base.String;
 	sym_varbase, sym_stringbase : Base.String;
 
 	out : Base.FileHandle;
@@ -300,6 +306,12 @@ PROCEDURE Set_sym_operand (VAR o : Operand; sym : Base.String);
 	o.sym := sym
 	END Set_sym_operand;
 	
+PROCEDURE Set_label_operand (VAR o : Operand; label_num : INTEGER);
+	BEGIN
+	o.form := form_label;
+	o.imm := label_num;
+	END Set_label_operand;
+	
 PROCEDURE Emit_op_bare (op : INTEGER);
 	BEGIN
 	codes [pc].op := op;
@@ -334,19 +346,12 @@ PROCEDURE Emit_op_sym (op : INTEGER; sym : Base.String);
 	Inc_program_counter
 	END Emit_op_sym;
 	
-PROCEDURE Emit_op_sym (op : INTEGER; sym : Base.String);
-	BEGIN
-	codes [pc].op := op;
-	Set_sym_operand (codes [pc].operands [0], sym);
-	Inc_program_counter
-	END Emit_op_sym;
-	
 PROCEDURE Emit_op_label (op, label_num : INTEGER);
 	BEGIN
 	codes [pc].op := op;
 	Set_label_operand (codes [pc].operands [0], label_num);
 	Inc_program_counter
-	END Emit_op_sym;
+	END Emit_op_label;
 	
 PROCEDURE Emit_op_reg_reg (op, r1, r2 : INTEGER);
 	BEGIN
@@ -580,6 +585,12 @@ PROCEDURE Store* (VAR x, y : Base.Item);
 			IF x.type.size = 8 THEN
 				Emit_op_mem_reg (op_MOV, x, y.r)
 			ELSE
+				IF Base.integer_overflow_check IN Base.compiler_flag THEN
+					IF x.type = Base.byte_type THEN
+						Emit_op_reg_imm (op_CMP, y.r, 256);
+						Emit_op_sym (op_JAE, sym_integer_overflow_trap)
+						END
+					END;
 				Emit_op_mem_reg (op_MOV, x, Small_reg (y.r, x.type.size))
 				END
 			END;
@@ -605,13 +616,6 @@ PROCEDURE Store* (VAR x, y : Base.Item);
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE Emit_integer_overflow_trap;
-	BEGIN
-	Emit_op_label (op_JNO, pc + 2);
-	Emit_op_sym (op_CALL, sym_integer_overflow_trap);
-	codes [pc].flag := codes [pc].flag + {flag_haslabel}
-	END Emit_integer_overflow_trap;
-
 PROCEDURE Op1* (op : INTEGER; VAR x : Base.Item);
 	VAR
 		s : SET;
@@ -636,7 +640,7 @@ PROCEDURE Op1* (op : INTEGER; VAR x : Base.Item);
 			IF x.type.form = Base.type_integer THEN
 				Emit_op_reg (op_NEG, x.r);
 				IF Base.integer_overflow_check IN Base.compiler_flag THEN
-					Emit_integer_overflow_trap					
+					Emit_op_sym (op_JO, sym_integer_overflow_trap)
 					END
 			ELSIF x.type.form = Base.type_set THEN
 				Emit_op_reg (op_NOT, x.r)
@@ -685,7 +689,7 @@ PROCEDURE Commutative_op (op : INTEGER; VAR x, y : Base.Item);
 		END;
 	IF (x.type.form = Base.type_integer)
 	& (Base.integer_overflow_check IN Base.compiler_flag) THEN
-		Emit_integer_overflow_trap
+		Emit_op_sym (op_JO, sym_integer_overflow_trap)
 		END
 	END Commutative_op;
 	
@@ -735,7 +739,7 @@ PROCEDURE Subtract (VAR x, y : Base.Item);
 			END
 		END;
 	IF Base.integer_overflow_check IN Base.compiler_flag THEN
-		Emit_integer_overflow_trap
+		Emit_op_sym (op_JO, sym_integer_overflow_trap)
 		END
 	END Subtract;
 	
@@ -776,71 +780,61 @@ PROCEDURE Multiply (VAR x, y : Base.Item);
 			END
 		END;
 	IF Base.integer_overflow_check IN Base.compiler_flag THEN
-		Emit_integer_overflow_trap
+		Emit_op_sym (op_JO, sym_integer_overflow_trap)
 		END
 	END Multiply;
 	
 PROCEDURE Divide (VAR x, y : Base.Item; is_modulo : BOOLEAN);
 	VAR
-		need_saving : BOOLEAN;
+		i : INTEGER;
 	BEGIN
+	load (x);
+	load (y);
+	
+	IF Base.integer_overflow_check IN Base.compiler_flag THEN
+		Emit_op_reg_reg (op_TEST, y.r, y.r);
+		Emit_op_sym (op_JLE, sym_invalid_divisor_trap)
+		END;
+	
 	IF param_regs_usage > 1 THEN
-		need_saving := TRUE
-	ELSE
-		need_saving := FALSE
+		Emit_op_reg (op_PUSH, -reg_RDX)
 		END;
 		
-	IF x.mode = Base.class_const THEN
-		IF y.mode = Base.class_var THEN
-			x.r := reg_stack;
-			Inc_reg_stack
-		ELSIF y.mode = Base.class_ref THEN
-			Ref_to_regI (y)
-			END;
-		IF need_saving THEN Push_reg (-reg_RDX) END;
-		
-		Emit_op_reg_imm (op_MOV, -reg_RAX, x.a);
-		Emit_op_bare (op_CQO);
-		CASE y.mode OF
-			Base.class_var:		
-				Emit_op_mem (op_IDIV, y) |
-			Base.mode_regI:
-				Emit_op_mem (op_IDIV, y);
-				x.r := y.r |
-			Base.mode_reg:
-				Emit_op_reg (op_IDIV, y.r);
-				x.r := y.r |
-			END;
-		x.mode := Base.mode_reg;
-		y.mode := Base.class_const
-		(* Avoid accidental Free_reg of y
-		when x now using register of y *)
-	ELSE
-		ASSERT (x.mode = Base.mode_reg);
-		IF y.mode = Base.class_ref THEN Ref_to_regI (y) END;
-		IF need_saving THEN Push_reg (-reg_RDX) END;
-		
-		Emit_op_reg_reg (op_MOV, -reg_RAX, x.r);
-		Emit_op_bare (op_CQO);
-		CASE y.mode OF
-			Base.class_const:
-				IF y.a = 0 THEN Scanner.Mark ('Division by zero') END;
-				Emit_op_reg_imm (op_MOV, x.r, y.a);
-				Emit_op_reg (op_IDIV, x.r) |
-			Base.class_var, Base.mode_regI:
-				Emit_op_mem (op_IDIV, y) |
-			Base.mode_reg:
-				Emit_op_reg (op_IDIV, y.r);
-			END;
-		END;
-		
+	Emit_op_reg_reg (op_MOV, -reg_RAX, x.r);
+	Emit_op_bare (op_CQO);
+	Emit_op_reg (op_IDIV, y.r);
+	Emit_op_reg_reg (op_TEST, x.r, x.r);
+	Emit_op_label (op_JL, pc + 3);
+	
 	IF is_modulo THEN
-		Emit_op_reg_reg (op_MOV, x.r, -reg_RDX)
+		Emit_op_reg_reg (op_MOV, reg_stack - 2, -reg_RDX)
 	ELSE
-		Emit_op_reg_reg (op_MOV, x.r, -reg_RAX)
+		Emit_op_reg_reg (op_MOV, reg_stack - 2, -reg_RAX)
 		END;
-	IF need_saving THEN Pop_reg (-reg_RDX) END;
-	IF Use_register (y) THEN Free_reg END
+	i := pc;
+	Emit_op_label (op_JMP, 0); (* fix up later *)
+	
+	INCL (codes [pc].flag, flag_haslabel);
+	IF is_modulo THEN
+		Emit_op_reg_reg (op_ADD, -reg_RDX, y.r);
+		Emit_op_reg_reg (op_MOV, reg_stack - 2, -reg_RDX)
+	ELSE
+		Emit_op_reg_reg (op_TEST, -reg_RDX, -reg_RDX);
+		Emit_op_label (op_JE, pc + 2);
+		Emit_op_reg_imm (op_SUB, -reg_RAX, 1);
+		INCL (codes [pc].flag, flag_haslabel);
+		Emit_op_reg_reg (op_MOV, reg_stack - 2, -reg_RAX)
+		END;
+		
+	INCL (codes [pc].flag, flag_haslabel);
+	codes [i].operands [0].imm := pc;
+	
+	IF param_regs_usage > 1 THEN
+		Emit_op_reg (op_POP, -reg_RDX)
+		END;
+		
+	x.r := reg_stack - 2;
+	Free_reg
 	END Divide;
 	
 PROCEDURE Difference (VAR x, y : Base.Item);
@@ -886,16 +880,14 @@ PROCEDURE Op2* (op : INTEGER; VAR x, y : Base.Item);
 						Scanner.Mark ('Integer overflow detected')
 						END	|
 				Base.sym_div:
-					IF (x.a = Base.MIN_INT) & (y.a = -1) THEN
-						Scanner.Mark ('Integer overflow detected')
-					ELSIF y.a = 0 THEN
-						Scanner.Mark ('Division by zero')
+					IF y.a <= 0 THEN
+						Scanner.Mark ('Division by non-positive number')
 					ELSE
 						x.a := x.a DIV y.a
 						END |
 				Base.sym_mod:
-					IF y.a = 0 THEN
-						Scanner.Mark ('Division by zero')
+					IF y.a <= 0 THEN
+						Scanner.Mark ('Division by non-positive number')
 					ELSE
 						x.a := x.a MOD y.a
 						END
@@ -960,17 +952,18 @@ PROCEDURE Deref* (VAR x : Base.Item);
 	END Deref;
 	
 PROCEDURE Open_array_index (VAR x, y : Base.Item);
+	VAR
+		len : Base.Item;
 
 	PROCEDURE Calculate_offset
 	(VAR y : Base.Item; typ : Base.Type; len_offset : INTEGER);
 		VAR
 			len : Base.Item;
 		BEGIN
-		IF typ.base.size >= 0 THEN
+		IF typ.base.size > 0 THEN
 			Emit_op_reg_reg_imm (op_IMUL, y.r, y.r, typ.base.size)
 		ELSE
-			INC (len_offset, 8);
-			Calculate_offset (y, typ.base, len_offset);
+			Calculate_offset (y, typ.base, len_offset + 8);
 			
 			len.mode := Base.class_var;
 			len.a := len_offset;
@@ -989,7 +982,13 @@ PROCEDURE Open_array_index (VAR x, y : Base.Item);
 	ELSE
 		load (y);
 		IF Base.array_bound_check IN Base.compiler_flag THEN
-			(* Implement later *)
+			len.mode := Base.class_var;
+			len.a := x.b;
+			len.lev := Base.cur_lev;
+			len.type := Base.int_type;
+		
+			Emit_op_reg_mem (op_CMP, y.r, len);
+			Emit_op_sym (op_JAE, sym_array_index_trap)
 			END;
 		Calculate_offset (y, x.type, x.b);
 
@@ -1003,10 +1002,14 @@ PROCEDURE Open_array_index (VAR x, y : Base.Item);
 	
 PROCEDURE Index* (VAR x, y : Base.Item);
 	BEGIN
-	IF x.mode = Base.class_ref THEN	Ref_to_regI (x) END;
 	IF x.type.len < 0 THEN
+		IF x.mode = Base.class_ref THEN
+			x.b := x.a + 8;
+			Ref_to_regI (x)
+			END;
 		Open_array_index (x, y)
 	ELSE
+		IF x.mode = Base.class_ref THEN	Ref_to_regI (x) END;
 		IF y.mode = Base.class_const THEN
 			IF (y.a < 0) OR (y.a >= x.type.len) THEN
 				Scanner.Mark ('Array index out of bound');
@@ -1017,7 +1020,8 @@ PROCEDURE Index* (VAR x, y : Base.Item);
 		ELSE
 			load (y);
 			IF Base.array_bound_check IN Base.compiler_flag THEN
-				(* Implement later *)
+				Emit_op_reg_imm (op_CMP, y.r, x.type.len);
+				Emit_op_sym (op_JAE, sym_array_index_trap)
 				END;
 			Emit_op_reg_reg_imm (op_IMUL, y.r, y.r, x.type.base.size);
 			IF x.mode = Base.mode_regI THEN
@@ -1611,6 +1615,8 @@ PROCEDURE Init_optable;
 	op_table [op_OR] := 'or';
 	op_table [op_XOR] := 'xor';
 	op_table [op_NOT] := 'not';
+	op_table [op_CMP] := 'cmp';
+	op_table [op_TEST] := 'test';
 	
 	op_table [op_CALL] := 'call';
 	op_table [op_RET] := 'ret';
@@ -1618,7 +1624,15 @@ PROCEDURE Init_optable;
 	
 	op_table [op_JMP] := 'jmp';
 	op_table [op_JO] := 'jo';
-	op_table [op_JNO] := 'jno'
+	op_table [op_JNO] := 'jno';
+	op_table [op_JB] := 'jb';
+	op_table [op_JAE] := 'jae';
+	op_table [op_JE] := 'je';
+	op_table [op_JNE] := 'jne';
+	op_table [op_JL] := 'jl';
+	op_table [op_JGE] := 'jge';
+	op_table [op_JG] := 'jg';
+	op_table [op_JLE] := 'jle'
 	END Init_optable;
 	
 PROCEDURE Init_regtable;
@@ -1696,6 +1710,8 @@ PROCEDURE Init_symbols;
 	BEGIN
 	sym_array_index_trap := Base.Make_string ('INVALID_ARRAY_INDEX_TRAP');
 	sym_integer_overflow_trap := Base.Make_string ('INTEGER_OVERFLOW_TRAP');
+	sym_invalid_divisor_trap := Base.Make_string ('INVALID_DIVISOR_TRAP');
+	
 	sym_varbase := Base.Make_string ('VAR');
 	sym_stringbase := Base.Make_string ('STRING')
 	END Init_symbols;

@@ -1,7 +1,7 @@
 MODULE New;
 
 CONST
-	c = 3000000000;
+	c = 300000;
 
 TYPE
 	StrArr = ARRAY 20 OF CHAR;
@@ -9,8 +9,13 @@ TYPE
 VAR
 	MessageBoxA : PROCEDURE (handle : INTEGER; text, caption : StrArr; type : INTEGER);
 	handle : INTEGER;
+	x, y : INTEGER;
+	z : BYTE;
 	
 BEGIN
+x := x + y - 4;
+z := x;
+x := x DIV y;
 LoadLibrary (handle, 'USER32.DLL');
 GetProcAddress (MessageBoxA, handle, 'MessageBoxA');
 MessageBoxA (0, 'Hello', 'Hello', 0)
