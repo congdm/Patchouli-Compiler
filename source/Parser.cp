@@ -336,14 +336,13 @@ PROCEDURE RecordType (VAR typ : Base.Type; defobj : Base.Object);
 			END FieldList;
 	
 		BEGIN (* FieldListSequence *)
-		fields_size := 0;
 		FieldList (fields_size, defobj);
 		WHILE sym = Base.sym_semicolon DO
 			Scanner.Get (sym);
 			IF sym = Base.sym_ident THEN
 				FieldList (fields_size, defobj)
 			ELSE
-				Scanner.Mark ('There must be a field list after ; in record definition')
+				Scanner.Mark ('Superflous semicolon')
 				END
 			END
 		END FieldListSequence;

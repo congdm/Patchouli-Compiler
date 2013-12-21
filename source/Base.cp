@@ -346,6 +346,27 @@ PROCEDURE Is_safe_multiplication* (x, y : INTEGER) : BOOLEAN;
 	RETURN result
 	END Is_safe_multiplication;
 	
+PROCEDURE Integer_binary_logarithm* (a : INTEGER) : INTEGER;
+	VAR
+		e : INTEGER;
+	BEGIN
+	IF a <= 0 THEN
+		e := -1
+	ELSE
+		e := 0;
+		WHILE a > 1 DO
+			IF a MOD 2 = 0 THEN
+				INC (e);
+				a := a DIV 2
+			ELSE
+				e := -1;
+				a := 1
+				END
+			END
+		END;
+	RETURN e
+	END Integer_binary_logarithm;
+	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
@@ -854,7 +875,7 @@ PROCEDURE Init* (modid : String);
 	Enter (class_sproc, 0, Make_string ('LoadLibrary'), NIL);
 	Enter (class_sproc, 1, Make_string ('GetProcAddress'), NIL);
 	
-	compiler_flag := {integer_overflow_check};
+	compiler_flag := {integer_overflow_check, array_bound_check};
 	END Init;
 	
 BEGIN

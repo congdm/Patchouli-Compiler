@@ -1,22 +1,18 @@
 MODULE New;
 
-CONST
-	c = 300000;
-
 TYPE
 	StrArr = ARRAY 20 OF CHAR;
 
 VAR
-	MessageBoxA : PROCEDURE (handle : INTEGER; text, caption : StrArr; type : INTEGER);
-	handle : INTEGER;
-	x, y : INTEGER;
-	z : BYTE;
+
+PROCEDURE Ttt (x : ARRAY OF CHAR);
+	VAR
+		s : StrArr;
+	BEGIN
+	s [0] := x [0];
+	s [1] := x [1];
+	END Ttt;
 	
 BEGIN
-x := x + y - 4;
-z := x;
-x := x DIV y;
-LoadLibrary (handle, 'USER32.DLL');
-GetProcAddress (MessageBoxA, handle, 'MessageBoxA');
-MessageBoxA (0, 'Hello', 'Hello', 0)
+Ttt ('Hello')
 END New.
