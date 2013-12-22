@@ -216,7 +216,7 @@ PROCEDURE FormalParameters (VAR parblksize : INTEGER; VAR result_typ : Base.Type
 				cls := Base.class_ref;
 				read_only := TRUE;
 			ELSE
-				IF tp.form = Base.type_record THEN
+				IF (tp.form = Base.type_record) & (tp.base # NIL) THEN
 					par_size := Base.Word_size * 2
 					END
 				END
@@ -512,13 +512,23 @@ PROCEDURE DeclarationSequence (VAR vars_size : INTEGER);
 			Scanner.Mark ('No : in variable declaration')
 			END;	
 		type (tp, NIL);
-		WHILE first # Base.guard DO
-			first.val := vars_size;
-			first.type := tp;
-			first.lev := Base.cur_lev;
-			first := first.next;
-			INC (vars_size, tp.size)
-			END	
+		IF Base.cur_lev = 0 THEN
+			WHILE first # Base.guard DO
+				first.val := vars_size;
+				first.type := tp;
+				first.lev := 0;
+				first := first.next;
+				INC (vars_size, tp.size)
+				END
+		ELSE
+			WHILE first # Base.guard DO
+				INC (vars_size, tp.size);
+				first.val := -vars_size;
+				first.type := tp;
+				first.lev := Base.cur_lev;
+				first := first.next;
+				END
+			END
 		END VariableDeclaration;
 		
 	PROCEDURE ProcedureDeclaration;
@@ -599,7 +609,6 @@ PROCEDURE DeclarationSequence (VAR vars_size : INTEGER);
 		END ProcedureDeclaration;
 
 	BEGIN (* DeclarationSequence *)
-	vars_size := 0;
 	IF sym = Base.sym_const THEN
 		Scanner.Get (sym);
 		WHILE sym = Base.sym_ident DO

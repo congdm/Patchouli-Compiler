@@ -8,9 +8,10 @@ VAR
 PROCEDURE Ttt (x : ARRAY OF CHAR);
 	VAR
 		s : StrArr;
+		i : INTEGER;
 	BEGIN
 	s [0] := x [0];
-	s [1] := x [1];
+	s [i] := x [i];
 	END Ttt;
 	
 BEGIN

@@ -22,7 +22,7 @@ CONST
 	
 	op_JMP = 50; vop_NJMP = 51; op_JO = 52; op_JNO = 53;
 	op_JB = 54; op_JAE = 55; op_JE = 56; op_JNE = 57; op_JL = 58; op_JGE = 59;
-	op_JG = 60; op_JLE = 61;
+	op_JG = 60; op_JLE = 61; op_JA = 62; op_JBE = 63;
 	
 	(* ====================================================================== *)
 	
@@ -79,7 +79,7 @@ VAR
 	op_table : ARRAY 256, 10 OF CHAR;
 	reg_table : ARRAY 256, 6 OF CHAR;
 	sym_array_index_trap, sym_integer_overflow_trap : Base.String;
-	sym_invalid_divisor_trap : Base.String;
+	sym_invalid_divisor_trap, sym_type_check_trap : Base.String;
 	sym_varbase, sym_stringbase : Base.String;
 
 	out : Base.FileHandle;
@@ -263,7 +263,7 @@ PROCEDURE Set_mem_operand (VAR o : Operand; VAR mem : Base.Item);
 	ELSIF mem.lev > 0 THEN
 		o.form := form_mem_reg;
 		o.reg1 := reg_stackBase;
-		o.imm := -mem.a - mem.type.size
+		o.imm := mem.a
 	ELSE
 		o.form := form_mem_pc;
 		IF mem.type.form = Base.type_string THEN
@@ -481,6 +481,14 @@ PROCEDURE Make_string* (VAR x : Base.Item; str : Base.String);
 	INC (str_offset, str.len + 1)
 	END Make_string;
 	
+PROCEDURE Make_tag_item (VAR x : Base.Item; typ : Base.Type);
+	BEGIN
+	x.flag := {};
+	x.mode := Base.class_var;
+	x.lev := -1;
+	x.a := typ.tag
+	END Make_tag_item;
+	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
@@ -596,6 +604,7 @@ PROCEDURE Store* (VAR x, y : Base.Item);
 		i : INTEGER;
 	BEGIN
 	IF x.mode = Base.class_ref THEN Ref_to_regI (x) END;
+	IF y.mode = Base.class_ref THEN Ref_to_regI (y) END;
 	IF Base.Is_scalar_type (x.type) THEN
 		IF y.type.form = Base.type_string THEN
 			i := y.a DIV Base.char_type.size;
@@ -621,17 +630,31 @@ PROCEDURE Store* (VAR x, y : Base.Item);
 	ELSIF x.type.form = Base.type_array THEN
 		Emit_op_reg_mem (op_LEA, -reg_RSI, y);
 		Emit_op_reg_mem (op_LEA, -reg_RDI, x);
-		IF param_regs_usage > 0 THEN Emit_op_reg (op_PUSH, -reg_RCX) END;
+		IF param_regs_usage > 0 THEN
+			Emit_op_reg (op_PUSH, -reg_RCX)
+			END;
 		IF (y.type.form = Base.type_string) & (y.type.len < x.type.len) THEN
 			Emit_op_reg_imm (op_MOV, -reg_RCX, y.type.size)
 		ELSE
 			Emit_op_reg_imm (op_MOV, -reg_RCX, x.type.size);
 			END;
 		Emit_op_bare (op_REP_MOVSB);
-		IF param_regs_usage > 0 THEN Emit_op_reg (op_POP, -reg_RCX) END;
+		IF param_regs_usage > 0 THEN
+			Emit_op_reg (op_POP, -reg_RCX)
+			END;
 		used_regs := used_regs + {reg_RSI, reg_RDI}
 	ELSIF x.type.form = Base.type_record THEN
-		(* Implement later *)
+		Emit_op_reg_mem (op_LEA, -reg_RSI, y);
+		Emit_op_reg_mem (op_LEA, -reg_RDI, x);
+		IF param_regs_usage > 0 THEN
+			Emit_op_reg (op_PUSH, -reg_RCX)
+			END;
+		Emit_op_reg_imm (op_MOV, -reg_RCX, x.type.size);
+		Emit_op_bare (op_REP_MOVSB);
+		IF param_regs_usage > 0 THEN
+			Emit_op_reg (op_POP, -reg_RCX)
+			END;
+		used_regs := used_regs + {reg_RSI, reg_RDI}
 		END;
 	IF Use_register (y) THEN Free_reg END;
 	IF Use_register (x) THEN Free_reg END
@@ -1032,10 +1055,10 @@ PROCEDURE Open_array_index (VAR x, y : Base.Item);
 			size, e : INTEGER;
 			len : Base.Item;
 		BEGIN
+		len.flag := {Base.flag_param};
 		len.mode := Base.class_var;
 		len.a := len_offset;
 		len.lev := Base.cur_lev;
-		len.type := Base.int_type;
 		
 		Emit_op_reg_mem (op_IMUL, y.r, len);
 		
@@ -1060,10 +1083,10 @@ PROCEDURE Open_array_index (VAR x, y : Base.Item);
 			len : Base.Item;
 		BEGIN
 		IF Base.array_bound_check IN Base.compiler_flag THEN
+			len.flag := {Base.flag_param};
 			len.mode := Base.class_var;
 			len.a := x.b;
 			len.lev := Base.cur_lev;
-			len.type := Base.int_type;
 			
 			IF y.mode = Base.class_const THEN
 				Emit_op_mem_imm (op_CMP, len, y.a);
@@ -1075,7 +1098,7 @@ PROCEDURE Open_array_index (VAR x, y : Base.Item);
 			END
 		END Check_array_index;
 
-	BEGIN (* Open array index *)
+	BEGIN (* Open_array_index *)
 	ASSERT (x.mode = Base.mode_regI);
 	IF y.mode = Base.class_const THEN
 		IF y.a < 0 THEN
@@ -1091,13 +1114,12 @@ PROCEDURE Open_array_index (VAR x, y : Base.Item);
 		IF y.mode = Base.class_const THEN
 			INC (x.a, y.a * size)
 		ELSE
-			IF size > 8 THEN
-				e := Base.Integer_binary_logarithm (size);
-				IF e > 0 THEN
-					Emit_op_reg_imm (op_SHL, y.r, e)
-				ELSE
-					Emit_op_reg_reg_imm (op_IMUL, y.r, y.r, size)
-					END;
+			e := Base.Integer_binary_logarithm (size);
+			IF e < 0 THEN
+				Emit_op_reg_reg_imm (op_IMUL, y.r, y.r, size);
+				scale := 0
+			ELSIF e > 3 THEN
+				Emit_op_reg_imm (op_SHL, y.r, e);
 				scale := 0
 			ELSE
 				scale := size
@@ -1145,13 +1167,12 @@ PROCEDURE Index* (VAR x, y : Base.Item);
 				END;
 			
 			size := x.type.base.size;
-			IF size > 8 THEN
-				e := Base.Integer_binary_logarithm (size);
-				IF e > 0 THEN
-					Emit_op_reg_imm (op_SHL, y.r, e)
-				ELSE
-					Emit_op_reg_reg_imm (op_IMUL, y.r, y.r, size)
-					END;
+			e := Base.Integer_binary_logarithm (size);
+			IF e < 0 THEN
+				Emit_op_reg_reg_imm (op_IMUL, y.r, y.r, size);
+				scale := 0
+			ELSIF e > 3 THEN
+				Emit_op_reg_imm (op_SHL, y.r, e);
 				scale := 0
 			ELSE
 				scale := size
@@ -1173,7 +1194,36 @@ PROCEDURE Index* (VAR x, y : Base.Item);
 	END Index;
 	
 PROCEDURE Type_guard* (VAR x : Base.Item; typ : Base.Type);
+	VAR
+		tag1, tag2 : Base.Item;
 	BEGIN
+	IF x.type # typ THEN
+		Make_tag_item (tag2, typ);
+		Emit_op_reg_mem (op_LEA, -reg_RAX, tag2);
+		
+		IF x.type.form = Base.type_pointer THEN
+			load (x);
+			tag1.flag := {};
+			tag1.mode := Base.mode_regI;
+			tag1.r := x.r;
+			tag1.a := -8;
+			Inc_reg_stack;
+			Emit_op_reg_mem (op_MOV, reg_stack - 1, tag1);
+			tag1.r := reg_stack - 1;
+		ELSE
+			(* x is record variable parameter *)
+			tag1.flag := {Base.flag_param};
+			tag1.mode := Base.class_ref;
+			tag1.lev := x.lev;
+			tag1.a := x.a + 8;
+			Ref_to_regI (tag1)
+			END;
+			
+		tag1.a := 8 + typ.len * 8;
+		Emit_op_reg_mem (op_CMP, -reg_RAX, tag1);
+		Emit_op_sym (op_JNE, sym_type_check_trap);
+		Free_reg
+		END
 	END Type_guard;
 	
 (* -------------------------------------------------------------------------- *)
@@ -1181,14 +1231,17 @@ PROCEDURE Type_guard* (VAR x : Base.Item; typ : Base.Type);
 	
 PROCEDURE Relation* (op : INTEGER; VAR x, y : Base.Item);
 	BEGIN
+	(* Implement later *)
 	END Relation;
 	
 PROCEDURE Membership_test* (VAR x, y : Base.Item);
 	BEGIN
+	(* Implement later *)
 	END Membership_test;
 	
 PROCEDURE Type_test* (VAR x : Base.Item; typ : Base.Type);
 	BEGIN
+	(* Implement later *)
 	END Type_test;
 	
 (* -------------------------------------------------------------------------- *)
@@ -1474,12 +1527,12 @@ PROCEDURE Record_variable_parameter* (VAR x, proc : Base.Item; adr : INTEGER);
 		tag : Base.Item;
 	BEGIN
 	IF (x.mode = Base.class_ref) & ~ (Base.flag_readonly IN x.flag) THEN
-		tag := x;
-		INC (tag.a, 8)
+		tag.flag := {Base.flag_param};
+		tag.mode := Base.class_ref;
+		tag.lev := x.lev;
+		tag.a := x.a + 8
 	ELSE
-		tag.mode := Base.class_var;
-		tag.lev := -1;
-		tag.a := x.type.tag
+		Make_tag_item (tag, x.type)
 		END;
 	Reference_parameter (x, proc, adr);
 	Reference_parameter (tag, proc, adr + 8)
@@ -1658,10 +1711,37 @@ PROCEDURE Init* (module_name : Base.String);
 	Base.Write_newline (out)
 	END Init;
 	
+PROCEDURE Generate_trap_section;
+	VAR
+		i : INTEGER;
+	BEGIN
+	FOR i := 1 TO 4 DO
+		CASE i OF
+			1: Base.Write_string (out, sym_array_index_trap.content) |
+			2: Base.Write_string (out, sym_integer_overflow_trap.content) |
+			3: Base.Write_string (out, sym_invalid_divisor_trap.content) |
+			4: Base.Write_string (out, sym_type_check_trap.content)
+			END;
+		Base.Write_char (out, ':');
+		Base.Write_newline (out);
+		Base.Write_string (out, 'AND	rsp, -16');
+		Base.Write_newline (out);
+		Base.Write_string (out, 'SUB	rsp, 32');
+		Base.Write_newline (out);
+		Base.Write_string (out, 'MOV	ecx, -');
+		Base.Write_number (out, i);
+		Base.Write_newline (out);
+		Base.Write_string (out, 'CALL	[@ExitProcess]');
+		Base.Write_newline (out);
+		END;
+	Base.Write_newline (out)
+	END Generate_trap_section;
+	
 PROCEDURE Finish* (vars_size : INTEGER);
 	VAR
 		i : INTEGER;
 	BEGIN
+	Generate_trap_section;	
 	Base.Write_string (out, "section '.data' data readable writable");
 	Base.Write_newline (out);	
 	IF str_offset > 0 THEN
@@ -1766,7 +1846,9 @@ PROCEDURE Init_optable;
 	op_table [op_JL] := 'jl';
 	op_table [op_JGE] := 'jge';
 	op_table [op_JG] := 'jg';
-	op_table [op_JLE] := 'jle'
+	op_table [op_JLE] := 'jle';
+	op_table [op_JA] := 'ja';
+	op_table [op_JBE] := 'jbe'
 	END Init_optable;
 	
 PROCEDURE Init_regtable;
@@ -1845,6 +1927,7 @@ PROCEDURE Init_symbols;
 	sym_array_index_trap := Base.Make_string ('INVALID_ARRAY_INDEX_TRAP');
 	sym_integer_overflow_trap := Base.Make_string ('INTEGER_OVERFLOW_TRAP');
 	sym_invalid_divisor_trap := Base.Make_string ('INVALID_DIVISOR_TRAP');
+	sym_type_check_trap := Base.Make_string ('TYPE_CHECK_TRAP');
 	
 	sym_varbase := Base.Make_string ('VAR');
 	sym_stringbase := Base.Make_string ('STRING')

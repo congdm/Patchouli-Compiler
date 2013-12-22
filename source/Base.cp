@@ -831,8 +831,10 @@ PROCEDURE Check_parameter* (formal : Object; VAR actual : Item) : INTEGER;
 				result := 6
 			ELSIF ~ Is_extension_type (actual.type, formal.type) THEN
 				result := 8
-			ELSE
+			ELSIF formal.type.base # NIL THEN
 				result := 3
+			ELSE
+				result := 2
 				END
 		ELSIF formal.type # actual.type THEN
 			result := 6
