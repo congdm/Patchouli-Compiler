@@ -80,7 +80,7 @@ VAR
 	reg_table : ARRAY 256, 6 OF CHAR;
 	sym_array_index_trap, sym_integer_overflow_trap : Base.String;
 	sym_invalid_divisor_trap, sym_type_check_trap : Base.String;
-	sym_varbase, sym_stringbase : Base.String;
+	sym_varbase, sym_stringbase, sym_tagbase : Base.String;
 
 	out : Base.FileHandle;
 	codes : ARRAY 20000 OF Instruction;
@@ -88,7 +88,7 @@ VAR
 	modid : Base.String;
 	
 	pc : INTEGER;
-	str_offset : INTEGER;
+	str_offset, tag_offset : INTEGER;
 	reg_stack, mem_stack, param_regs_usage : INTEGER;
 	used_regs : SET;
 	stack_frame_usage, stack_frame_size : INTEGER;
@@ -489,6 +489,12 @@ PROCEDURE Make_tag_item (VAR x : Base.Item; typ : Base.Type);
 	x.a := typ.tag
 	END Make_tag_item;
 	
+PROCEDURE Alloc_type_tag* (typ : Base.Type);
+	BEGIN
+	typ.tag := tag_offset;
+	INC (tag_offset, 16 + 8 * (Base.type_extension_limit + 1) + 8 * typ.num_ptr)
+	END Alloc_type_tag;
+	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
@@ -610,6 +616,9 @@ PROCEDURE Store* (VAR x, y : Base.Item);
 			i := y.a DIV Base.char_type.size;
 			Emit_op_mem_imm (op_MOV, x, ORD (strings [i]))
 		ELSIF y.mode = Base.class_const THEN
+			IF (x.type = Base.byte_type) & ((y.a < 0) OR (y.a > 255)) THEN
+				Scanner.Mark ('Source const is not fit into BYTE variable')
+				END;
 			Emit_op_mem_imm (op_MOV, x, y.a)
 		ELSIF y.mode = Base.class_proc THEN
 			Emit_op_mem_proc (op_MOV, x, y.proc)
@@ -618,12 +627,6 @@ PROCEDURE Store* (VAR x, y : Base.Item);
 			IF x.type.size = 8 THEN
 				Emit_op_mem_reg (op_MOV, x, y.r)
 			ELSE
-				IF Base.integer_overflow_check IN Base.compiler_flag THEN
-					IF x.type = Base.byte_type THEN
-						Emit_op_reg_imm (op_CMP, y.r, 256);
-						Emit_op_sym (op_JAE, sym_integer_overflow_trap)
-						END
-					END;
 				Emit_op_mem_reg (op_MOV, x, Small_reg (y.r, x.type.size))
 				END
 			END;
@@ -1737,36 +1740,121 @@ PROCEDURE Generate_trap_section;
 	Base.Write_newline (out)
 	END Generate_trap_section;
 	
+PROCEDURE Generate_tag_section;
+	VAR
+		i : INTEGER;
+		
+	PROCEDURE Emit_pointer_offset (typ : Base.Type; offset : INTEGER);
+		VAR
+			field : Base.Object;
+			n : INTEGER;
+		BEGIN
+		IF typ.form = Base.type_record THEN
+			n := typ.num_ptr;
+			IF (typ.base # NIL) & (typ.base.num_ptr > 0) THEN
+				Emit_pointer_offset (typ.base, offset);
+				DEC (n, typ.base.num_ptr)
+				END;
+			IF n > 0 THEN
+				field := typ.fields;
+				WHILE n > 0 DO
+					IF field.type.num_ptr > 0 THEN
+						IF Base.Is_scalar_type (field.type) THEN
+							Base.Write_char (out, ',');
+							Base.Write_number (out, offset + field.val);
+							DEC (n)
+						ELSE
+							Emit_pointer_offset (typ.base, offset + field.val);
+							DEC (n, typ.base.num_ptr)
+							END
+						END;
+					field := field.next
+					END
+				END
+		ELSIF typ.form = Base.type_array THEN
+			IF Base.Is_scalar_type (typ.base) THEN
+				FOR n := 0 TO typ.len - 1 DO
+					Base.Write_char (out, ',');
+					Base.Write_number (out, offset + n * 8)
+					END
+			ELSE
+				FOR n := 0 TO typ.len - 1 DO
+					Emit_pointer_offset (typ.base, offset + n * 8)
+					END
+				END
+			END
+		END Emit_pointer_offset;
+		
+	PROCEDURE Emit_record_tag (typ : Base.Type);
+		VAR
+			i : INTEGER;
+		BEGIN
+		Base.Write_number (out, typ.size);
+		FOR i := 0 TO Base.type_extension_limit DO
+			Base.Write_string (out, ',0')
+			END;
+		IF typ.num_ptr > 0 THEN
+			Emit_pointer_offset (typ, 0)
+			END;
+		Base.Write_string (out, ',-1')
+		END Emit_record_tag;
+		
+	BEGIN (* Generate_tag_section *)
+	Base.Write_string (out, modid.content);
+	Base.Write_string (out, '@@');
+	Base.Write_string (out, sym_tagbase.content);
+	Base.Write_string (out, ' dq ');
+	
+	Emit_record_tag (Base.record_type_list [0]);
+	i := 1;
+	WHILE i < Base.record_no DO
+		Base.Write_char (out, ',');
+		Emit_record_tag (Base.record_type_list [i]);
+		INC (i)
+		END;
+	
+	Base.Write_newline (out)
+	END Generate_tag_section;
+	
+PROCEDURE Generate_string_section;
+	VAR
+		i : INTEGER;
+	BEGIN
+	Base.Write_string (out, modid.content);
+	Base.Write_string (out, '@@');
+	Base.Write_string (out, sym_stringbase.content);
+	Base.Write_string (out, ' db ');
+	Base.Write_number (out, ORD (strings [0]));
+	i := 1;
+	WHILE i < str_offset DO
+		Base.Write_char (out, ',');
+		Base.Write_number (out, ORD (strings [i]));
+		INC (i)
+		END;
+	Base.Write_newline (out)
+	END Generate_string_section;
+	
+PROCEDURE Generate_variable_section (vars_size : INTEGER);
+	BEGIN
+	Base.Write_string (out, modid.content);
+	Base.Write_string (out, '@@');
+	Base.Write_string (out, sym_varbase.content);
+	Base.Write_string (out, ' db ');
+	Base.Write_number (out, vars_size);
+	Base.Write_string (out, ' dup ?');
+	Base.Write_newline (out)
+	END Generate_variable_section;
+	
 PROCEDURE Finish* (vars_size : INTEGER);
 	VAR
 		i : INTEGER;
 	BEGIN
 	Generate_trap_section;	
 	Base.Write_string (out, "section '.data' data readable writable");
-	Base.Write_newline (out);	
-	IF str_offset > 0 THEN
-		Base.Write_string (out, modid.content);
-		Base.Write_string (out, '@@');
-		Base.Write_string (out, sym_stringbase.content);
-		Base.Write_string (out, ' db ');
-		Base.Write_number (out, ORD (strings [0]));
-		i := 1;
-		WHILE i < str_offset DO
-			Base.Write_char (out, ',');
-			Base.Write_number (out, ORD (strings [i]));
-			INC (i)
-			END;
-		Base.Write_newline (out)
-		END;
-	IF vars_size > 0 THEN
-		Base.Write_string (out, modid.content);
-		Base.Write_string (out, '@@');
-		Base.Write_string (out, sym_varbase.content);
-		Base.Write_string (out, ' db ');
-		Base.Write_number (out, vars_size);
-		Base.Write_string (out, ' dup ?');
-		Base.Write_newline (out)
-		END;
+	Base.Write_newline (out);
+	IF tag_offset > 0 THEN Generate_tag_section END;
+	IF str_offset > 0 THEN Generate_string_section END;
+	IF vars_size > 0 THEN Generate_variable_section (vars_size) END;
 	Base.Write_newline (out);
 	
 	Base.Write_string (out, "section '.idata' import data readable writeable");
@@ -1930,7 +2018,8 @@ PROCEDURE Init_symbols;
 	sym_type_check_trap := Base.Make_string ('TYPE_CHECK_TRAP');
 	
 	sym_varbase := Base.Make_string ('VAR');
-	sym_stringbase := Base.Make_string ('STRING')
+	sym_stringbase := Base.Make_string ('STRING');
+	sym_tagbase := Base.Make_string ('TYPETAG')
 	END Init_symbols;
 	
 BEGIN

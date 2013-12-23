@@ -12,6 +12,7 @@ CONST
 	MAX_INT* = 2147483647;
 	MIN_INT* = -MAX_INT - 1;
 	max_str_len* = 255;
+	type_extension_limit* = 7;
 
 	sym_null* = 0;
 	sym_times* = 1; sym_slash* = 2; sym_div* = 3; sym_mod* = 4;
@@ -69,13 +70,13 @@ TYPE
 		form* : INTEGER;
 		fields*, obj* : Object;
 		base* : Type;
-		size*, len*, tag* : INTEGER
+		size*, len*, tag*, num_ptr* : INTEGER
 		END;
 
 	ObjectDesc* = RECORD
 		flag* : SET;
 		class*, lev* : INTEGER;
-		name*, actual_name* : String;
+		name* : String;
 		type* : Type;
 		next*, dsc*, scope* : Object;
 		val*, parblksize* : INTEGER
@@ -91,7 +92,8 @@ TYPE
 
 VAR
 	top_scope*, universe*, guard* : Object;
-	cur_lev* : INTEGER;
+	record_type_list* : ARRAY 1024 OF Type;
+	cur_lev*, record_no* : INTEGER;
 	
 	(* predefined type *)
 	int_type*, bool_type*, set_type*, char_type*, byte_type* : Type;
@@ -139,11 +141,16 @@ PROCEDURE Close* (VAR file : FileHandle);
 PROCEDURE Read_char* (VAR file : FileHandle; VAR c : CHAR) : BOOLEAN;
 	VAR
 		i : INTEGER;
+		result : BOOLEAN;
 	BEGIN
 	i := file.r.Read ();
-	IF i = -1 THEN RETURN failed; END;
-	c := System.Convert.ToChar (i);
-	RETURN success;
+	IF i = -1 THEN
+		result := failed
+	ELSE
+		c := System.Convert.ToChar (i);
+		result := success
+		END;
+	RETURN result
 	END Read_char;
 	
 PROCEDURE Write_string* (VAR file : FileHandle; str : ARRAY OF CHAR);
@@ -457,14 +464,31 @@ PROCEDURE New_typ* (VAR typ : Type; form : INTEGER);
 	BEGIN
 	NEW (typ);
 	typ.flag := {};
-	typ.form := form
+	typ.form := form;
+	typ.num_ptr := 0
 	END New_typ;
+	
+PROCEDURE New_record_typ* (VAR typ : Type) : BOOLEAN;
+	VAR
+		result : BOOLEAN;
+	BEGIN
+	New_typ (typ, type_record);
+	IF record_no < LEN (record_type_list) THEN
+		record_type_list [record_no] := typ;
+		INC (record_no);
+		result := success
+	ELSE
+		result := failed
+		END;
+	typ.len := 0;
+	typ.size := 0;
+	RETURN result
+	END New_record_typ;
 	
 PROCEDURE New_predefined_typ (VAR typ : Type; form, size : INTEGER);
 	BEGIN
-	NEW (typ);
+	New_typ (typ, form);
 	typ.flag := {flag_predefined};
-	typ.form := form;
 	typ.size := size
 	END New_predefined_typ;
 	

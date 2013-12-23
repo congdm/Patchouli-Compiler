@@ -2,18 +2,16 @@ MODULE New;
 
 TYPE
 	StrArr = ARRAY 20 OF CHAR;
+	
+	ARecord = RECORD
+		x, y, z : INTEGER
+		END;
+		
+	BRecord = RECORD (ARecord)
+		m, n, p : BYTE
+		END;
 
 VAR
+	x : ARecord;
 
-PROCEDURE Ttt (x : ARRAY OF CHAR);
-	VAR
-		s : StrArr;
-		i : INTEGER;
-	BEGIN
-	s [0] := x [0];
-	s [i] := x [i];
-	END Ttt;
-	
-BEGIN
-Ttt ('Hello')
 END New.

@@ -299,7 +299,8 @@ PROCEDURE ArrayType (VAR typ : Base.Type; defobj : Base.Object);
 			Scanner.Mark ('OF or , expected');
 			typ.base := Base.int_type
 			END;
-		typ.size := typ.len * typ.base.size
+		typ.size := typ.len * typ.base.size;
+		typ.num_ptr := typ.len * typ.base.num_ptr
 		END length;
 		
 	BEGIN (* ArrayType *)
@@ -312,9 +313,9 @@ PROCEDURE RecordType (VAR typ : Base.Type; defobj : Base.Object);
 	VAR
 		obj : Base.Object;
 
-	PROCEDURE FieldListSequence (VAR fields_size : INTEGER; defobj : Base.Object);
+	PROCEDURE FieldListSequence (typ : Base.Type; defobj : Base.Object);
 
-		PROCEDURE FieldList (VAR fields_size : INTEGER; defobj : Base.Object);
+		PROCEDURE FieldList (typ : Base.Type; defobj : Base.Object);
 			VAR
 				first : Base.Object;
 				tp : Base.Type;
@@ -327,20 +328,21 @@ PROCEDURE RecordType (VAR typ : Base.Type; defobj : Base.Object);
 				END;
 			type (tp, defobj);
 			WHILE first # Base.guard DO
-				first.val := fields_size;
+				first.val := typ.size;
 				first.type := tp;
 				first.lev := Base.cur_lev;
 				first := first.next;
-				INC (fields_size, tp.size)
+				INC (typ.size, tp.size);
+				INC (typ.num_ptr, tp.num_ptr)
 				END
 			END FieldList;
 	
 		BEGIN (* FieldListSequence *)
-		FieldList (fields_size, defobj);
+		FieldList (typ, defobj);
 		WHILE sym = Base.sym_semicolon DO
 			Scanner.Get (sym);
 			IF sym = Base.sym_ident THEN
-				FieldList (fields_size, defobj)
+				FieldList (typ, defobj)
 			ELSE
 				Scanner.Mark ('Superflous semicolon')
 				END
@@ -348,24 +350,30 @@ PROCEDURE RecordType (VAR typ : Base.Type; defobj : Base.Object);
 		END FieldListSequence;
 		
 	BEGIN (* RecordType *)
-	Base.New_typ (typ, Base.type_record);
-	typ.size := 0;
-	typ.len := 0;
+	IF Base.New_record_typ (typ) = failed THEN
+		Scanner.Mark ('Module has too many record types (compiler limit)')
+		END;
 	
 	Scanner.Get (sym);
 	IF sym = Base.sym_lparen THEN
+		Scanner.Get (sym);
 		qualident (obj);
 		IF obj = defobj THEN
 			Scanner.Mark ('Recursive definition')
 		ELSIF (obj.class = Base.class_type)
 		& (obj.type.form = Base.type_record) THEN
-			typ.base := obj.type;
-			typ.size := obj.type.size;
-			typ.len := obj.type.len + 1
+			IF obj.type.len < Base.type_extension_limit THEN
+				typ.base := obj.type;
+				typ.size := obj.type.size;
+				typ.num_ptr := obj.type.num_ptr;
+				typ.len := obj.type.len + 1
+			ELSE
+				Scanner.Mark ('Type extension level too deep (compiler limit)')
+				END
 		ELSE
 			Scanner.Mark ('Invalid record base type')
 			END;
-		IF sym = Base.sym_rbrace THEN
+		IF sym = Base.sym_rparen THEN
 			Scanner.Get (sym)
 		ELSE
 			Scanner.Mark ('No closing )')
@@ -374,7 +382,7 @@ PROCEDURE RecordType (VAR typ : Base.Type; defobj : Base.Object);
 		
 	Base.Open_scope (NIL);
 	IF sym = Base.sym_ident THEN
-		FieldListSequence (typ.size, defobj)
+		FieldListSequence (typ, defobj)
 		END;
 	IF sym = Base.sym_end THEN
 		Scanner.Get (sym)
@@ -382,13 +390,15 @@ PROCEDURE RecordType (VAR typ : Base.Type; defobj : Base.Object);
 		Scanner.Mark ('No END for record definition')
 		END;
 	typ.fields := Base.top_scope.next;
-	Base.Close_scope
+	Base.Close_scope;
+	Generator.Alloc_type_tag (typ)
 	END RecordType;
 
 PROCEDURE PointerType (VAR typ : Base.Type; defobj : Base.Object);
 	BEGIN
 	Base.New_typ (typ, Base.type_pointer);
 	typ.size := Base.Word_size;
+	typ.num_ptr := 1;
 	
 	Scanner.Get (sym);
 	IF sym = Base.sym_to THEN
