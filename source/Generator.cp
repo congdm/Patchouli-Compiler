@@ -85,10 +85,11 @@ VAR
 	out : Base.FileHandle;
 	codes : ARRAY 20000 OF Instruction;
 	strings : ARRAY 131072 OF CHAR;
+	record_type_list : ARRAY Base.max_number_record_types OF Base.Type;
 	modid : Base.String;
 	
 	pc : INTEGER;
-	str_offset, tag_offset : INTEGER;
+	str_offset, tag_offset, record_no : INTEGER;
 	reg_stack, mem_stack, param_regs_usage : INTEGER;
 	used_regs : SET;
 	stack_frame_usage, stack_frame_size : INTEGER;
@@ -266,9 +267,11 @@ PROCEDURE Set_mem_operand (VAR o : Operand; VAR mem : Base.Item);
 		o.imm := mem.a
 	ELSE
 		o.form := form_mem_pc;
-		IF mem.type.form = Base.type_string THEN
+		IF mem.lev = -1 THEN
+			o.sym := sym_tagbase
+		ELSIF mem.type.form = Base.type_string THEN
 			o.sym := sym_stringbase
-		ELSE
+		ELSIF mem.lev = 0 THEN
 			o.sym := sym_varbase
 			END;
 		o.imm := mem.a
@@ -491,6 +494,12 @@ PROCEDURE Make_tag_item (VAR x : Base.Item; typ : Base.Type);
 	
 PROCEDURE Alloc_type_tag* (typ : Base.Type);
 	BEGIN
+	IF record_no >= LEN (record_type_list) THEN
+		Scanner.Mark ('Too many record types (compiler limit)')
+	ELSE
+		record_type_list [record_no] := typ;
+		INC (record_no)
+		END;
 	typ.tag := tag_offset;
 	INC (tag_offset, 16 + 8 * (Base.type_extension_limit + 1) + 8 * typ.num_ptr)
 	END Alloc_type_tag;
@@ -1588,11 +1597,46 @@ PROCEDURE String_parameter* (VAR x, proc : Base.Item; par : Base.Object);
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
+PROCEDURE Init_type_tag;
+	VAR
+		i, j : INTEGER;
+		tp : Base.Type;
+		basetps : ARRAY Base.type_extension_limit + 1 OF Base.Type;
+		dtag, tag : Base.Item;
+	BEGIN
+	FOR i := 0 TO record_no - 1 DO
+		tp := record_type_list [i];
+		Make_tag_item (dtag, tp);
+		INC (dtag.a, 8);
+		basetps [tp.len] := tp;
+		
+		WHILE tp.base # NIL DO
+			tp := tp.base;
+			basetps [tp.len] := tp
+			END;
+		j := 0;
+		WHILE j <= Base.type_extension_limit DO
+			IF basetps [j] # NIL THEN
+				Make_tag_item (tag, basetps [j]);
+				Emit_op_reg_mem (op_LEA, -reg_RAX, tag);
+				Emit_op_mem_reg (op_MOV, dtag, -reg_RAX);
+				INC (dtag.a, 8);
+				basetps [j] := NIL;
+				INC (j)
+			ELSE
+				j := Base.type_extension_limit + 1
+				END
+			END
+		END
+	END Init_type_tag;
+
 PROCEDURE Module_init*;
 	BEGIN
 	Emit_op_reg (op_PUSH, -reg_RBP);
 	Emit_op_reg_reg (op_MOV, -reg_RBP, -reg_RSP);
 	Emit_op_reg_imm (op_SUB, -reg_RSP, 0);
+	
+	Init_type_tag;
 	
 	stack_frame_usage := 0;
 	stack_frame_size := 0;
@@ -1804,15 +1848,13 @@ PROCEDURE Generate_tag_section;
 	Base.Write_string (out, '@@');
 	Base.Write_string (out, sym_tagbase.content);
 	Base.Write_string (out, ' dq ');
-	
-	Emit_record_tag (Base.record_type_list [0]);
+	Emit_record_tag (record_type_list [0]);
 	i := 1;
-	WHILE i < Base.record_no DO
+	WHILE i < record_no DO
 		Base.Write_char (out, ',');
-		Emit_record_tag (Base.record_type_list [i]);
+		Emit_record_tag (record_type_list [i]);
 		INC (i)
 		END;
-	
 	Base.Write_newline (out)
 	END Generate_tag_section;
 	

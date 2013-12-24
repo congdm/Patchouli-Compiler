@@ -3,12 +3,18 @@ MODULE New;
 TYPE
 	StrArr = ARRAY 20 OF CHAR;
 	
+	APointer = POINTER TO ARecord;
+	
 	ARecord = RECORD
 		x, y, z : INTEGER
 		END;
 		
-	BRecord = RECORD (ARecord)
+	BRecord = RECORD (APointer)
 		m, n, p : BYTE
+		END;
+		
+	CPointer = POINTER TO RECORD
+		x : RECORD (CPointer) END
 		END;
 
 VAR

@@ -13,6 +13,7 @@ CONST
 	MIN_INT* = -MAX_INT - 1;
 	max_str_len* = 255;
 	type_extension_limit* = 7;
+	max_number_record_types* = 1024;
 
 	sym_null* = 0;
 	sym_times* = 1; sym_slash* = 2; sym_div* = 3; sym_mod* = 4;
@@ -62,10 +63,7 @@ TYPE
 		w : IO.StreamWriter;
 		END;
 
-	Type* = POINTER TO TypeDesc;
-	Object* = POINTER TO ObjectDesc;
-
-	TypeDesc* = RECORD
+	Type* = POINTER TO RECORD
 		flag* : SET;
 		form* : INTEGER;
 		fields*, obj* : Object;
@@ -73,7 +71,7 @@ TYPE
 		size*, len*, tag*, num_ptr* : INTEGER
 		END;
 
-	ObjectDesc* = RECORD
+	Object* = POINTER TO RECORD
 		flag* : SET;
 		class*, lev* : INTEGER;
 		name* : String;
@@ -89,11 +87,17 @@ TYPE
 		a*, b*, c*, d*, e*, r* : INTEGER;
 		proc* : Object
 		END;
+		
+	UndefPtrList* = POINTER TO RECORD
+		ptr_typ : Type;
+		base_typ_name : String;
+		next : UndefPtrList
+		END;
 
 VAR
 	top_scope*, universe*, guard* : Object;
-	record_type_list* : ARRAY 1024 OF Type;
-	cur_lev*, record_no* : INTEGER;
+	undef_ptr_list* : UndefPtrList;
+	cur_lev* : INTEGER;
 	
 	(* predefined type *)
 	int_type*, bool_type*, set_type*, char_type*, byte_type* : Type;
@@ -278,6 +282,9 @@ PROCEDURE Make_string* (const_str : ARRAY OF CHAR) : String;
 		END;
 	RETURN s
 	END Make_string;
+	
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
 	
 PROCEDURE Is_safe_addition* (x, y : INTEGER) : BOOLEAN;
 	VAR
@@ -467,24 +474,7 @@ PROCEDURE New_typ* (VAR typ : Type; form : INTEGER);
 	typ.form := form;
 	typ.num_ptr := 0
 	END New_typ;
-	
-PROCEDURE New_record_typ* (VAR typ : Type) : BOOLEAN;
-	VAR
-		result : BOOLEAN;
-	BEGIN
-	New_typ (typ, type_record);
-	IF record_no < LEN (record_type_list) THEN
-		record_type_list [record_no] := typ;
-		INC (record_no);
-		result := success
-	ELSE
-		result := failed
-		END;
-	typ.len := 0;
-	typ.size := 0;
-	RETURN result
-	END New_record_typ;
-	
+
 PROCEDURE New_predefined_typ (VAR typ : Type; form, size : INTEGER);
 	BEGIN
 	New_typ (typ, form);
@@ -506,6 +496,50 @@ PROCEDURE Enter (cl, n : INTEGER; name : String; typ : Type);
 	obj.next := top_scope.next;
 	top_scope.next := obj
 	END Enter;
+	
+PROCEDURE Register_undefined_pointer_type* (typ : Type; base_typ_name : String);
+	VAR
+		undef : UndefPtrList;
+	BEGIN
+	NEW (undef);
+	undef.ptr_typ := typ;
+	typ.base := int_type;
+	undef.base_typ_name := base_typ_name;
+	undef.next := undef_ptr_list;
+	undef_ptr_list := undef
+	END Register_undefined_pointer_type;
+	
+PROCEDURE Check_undefined_pointer_list* (obj : Object);
+	VAR
+		p, q : UndefPtrList;
+	BEGIN
+	p := undef_ptr_list;
+	REPEAT
+		IF Str_equal2 (p.base_typ_name, obj.name) THEN
+			p.ptr_typ.base := obj.type;
+			IF p = undef_ptr_list THEN
+				undef_ptr_list := p.next
+			ELSE
+				q.next := p.next
+				END;
+			p := NIL
+		ELSE
+			q := p;
+			p := p.next
+			END
+		UNTIL p = NIL;
+	END Check_undefined_pointer_list;
+	
+PROCEDURE Cleanup_undefined_pointer_list*;
+	BEGIN
+	REPEAT
+		undef_ptr_list.ptr_typ.base := nilrecord_type;
+		undef_ptr_list := undef_ptr_list.next
+		UNTIL undef_ptr_list = NIL
+	END Cleanup_undefined_pointer_list;
+	
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
 
 PROCEDURE Is_scalar_type* (typ : Type) : BOOLEAN;
 	VAR

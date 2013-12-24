@@ -6,6 +6,16 @@ section '.text' code readable executable
 New@@INIT:
 push	rbp
 mov	rbp, rsp
+lea	rax, [New@@TYPETAG + 0]
+mov	[New@@TYPETAG + 8], rax
+lea	rax, [New@@TYPETAG + 0]
+mov	[New@@TYPETAG + 88], rax
+lea	rax, [New@@TYPETAG + 80]
+mov	[New@@TYPETAG + 96], rax
+lea	rax, [New@@TYPETAG + 160]
+mov	[New@@TYPETAG + 168], rax
+lea	rax, [New@@TYPETAG + 240]
+mov	[New@@TYPETAG + 248], rax
 sub	rsp, 32
 mov	ecx, 0
 call	[@ExitProcess]
@@ -32,7 +42,7 @@ MOV	ecx, -4
 CALL	[@ExitProcess]
 
 section '.data' data readable writable
-New@@TYPETAG dq 24,0,0,0,0,0,0,0,0,-1,27,0,0,0,0,0,0,0,0,-1
+New@@TYPETAG dq 24,0,0,0,0,0,0,0,0,-1,27,0,0,0,0,0,0,0,0,-1,0,0,0,0,0,0,0,0,0,-1,0,0,0,0,0,0,0,0,0,-1
 New@@VAR db 24 dup ?
 
 section '.idata' import data readable writeable

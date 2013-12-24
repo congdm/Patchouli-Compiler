@@ -350,16 +350,16 @@ PROCEDURE RecordType (VAR typ : Base.Type; defobj : Base.Object);
 		END FieldListSequence;
 		
 	BEGIN (* RecordType *)
-	IF Base.New_record_typ (typ) = failed THEN
-		Scanner.Mark ('Module has too many record types (compiler limit)')
-		END;
-	
+	Base.New_typ (typ, Base.type_record);
+	typ.size := 0;
+	typ.len := 0;
+
 	Scanner.Get (sym);
 	IF sym = Base.sym_lparen THEN
 		Scanner.Get (sym);
 		qualident (obj);
 		IF obj = defobj THEN
-			Scanner.Mark ('Recursive definition')
+			Scanner.Mark ('Circular definition')
 		ELSIF (obj.class = Base.class_type)
 		& (obj.type.form = Base.type_record) THEN
 			IF obj.type.len < Base.type_extension_limit THEN
@@ -369,6 +369,18 @@ PROCEDURE RecordType (VAR typ : Base.Type; defobj : Base.Object);
 				typ.len := obj.type.len + 1
 			ELSE
 				Scanner.Mark ('Type extension level too deep (compiler limit)')
+				END
+		ELSIF (obj.class = Base.class_type)
+		& (obj.type.form = Base.type_pointer) THEN
+			IF obj.type.base = Base.int_type THEN
+				Scanner.Mark ('Can not extend undefined record type')
+			ELSIF obj.type.base.len >= Base.type_extension_limit THEN
+				Scanner.Mark ('Type extension level too deep (compiler limit)')
+			ELSE
+				typ.base := obj.type.base;
+				typ.size := typ.base.size;
+				typ.num_ptr := typ.base.num_ptr;
+				typ.len := typ.base.len + 1
 				END
 		ELSE
 			Scanner.Mark ('Invalid record base type')
@@ -395,6 +407,8 @@ PROCEDURE RecordType (VAR typ : Base.Type; defobj : Base.Object);
 	END RecordType;
 
 PROCEDURE PointerType (VAR typ : Base.Type; defobj : Base.Object);
+	VAR
+		obj : Base.Object;
 	BEGIN
 	Base.New_typ (typ, Base.type_pointer);
 	typ.size := Base.Word_size;
@@ -408,13 +422,18 @@ PROCEDURE PointerType (VAR typ : Base.Type; defobj : Base.Object);
 		END;
 		
 	IF sym = Base.sym_record THEN
-		RecordType (typ.base, NIL)
+		RecordType (typ.base, defobj)
 	ELSE
-		type (typ.base, defobj)
-		END;
-	IF typ.base.form # Base.type_record THEN
-		Scanner.Mark ('Record type expected');
-		typ.base := Base.nilrecord_type
+		qualident (obj);
+		IF obj = Base.guard THEN
+			Base.Register_undefined_pointer_type (typ, Base.guard.name)
+		ELSIF (obj.class # Base.class_type)
+		OR (obj.type.form # Base.type_record) THEN
+			Scanner.Mark ('Record type expected');
+			typ.base := Base.nilrecord_type
+		ELSE
+			typ.base := obj.type
+			END
 		END
 	END PointerType;
 
@@ -454,8 +473,8 @@ PROCEDURE type (VAR typ : Base.Type; defobj : Base.Object);
 	typ := Base.int_type;
 	IF sym = Base.sym_ident THEN
 		qualident (obj);
-		IF obj = defobj THEN
-			Scanner.Mark ('Recursive definition')
+		IF (obj = defobj) & (obj.type.form # Base.type_pointer) THEN
+			Scanner.Mark ('Circular definition')
 		ELSIF obj.class = Base.class_type THEN
 			typ := obj.type
 		ELSE
@@ -507,7 +526,11 @@ PROCEDURE DeclarationSequence (VAR vars_size : INTEGER);
 		ELSE
 			Scanner.Mark ('No = in type declaration')
 			END;
-		StrucType (obj.type, obj)
+		StrucType (obj.type, obj);
+		IF (obj.type.form = Base.type_record)
+		& (Base.undef_ptr_list # NIL) THEN
+			Base.Check_undefined_pointer_list (obj)
+			END
 		END TypeDeclaration;
 	
 	PROCEDURE VariableDeclaration (VAR vars_size : INTEGER);
@@ -640,6 +663,10 @@ PROCEDURE DeclarationSequence (VAR vars_size : INTEGER);
 				Scanner.Mark ('No ; after type declaration')
 				END;
 			END;
+		IF Base.undef_ptr_list # NIL THEN
+			Base.Cleanup_undefined_pointer_list;
+			Scanner.Mark ('There are pointer types with undefined base type')
+			END
 		END;
 	IF sym = Base.sym_var THEN
 		Scanner.Get (sym);
