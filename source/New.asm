@@ -3,6 +3,52 @@ entry New@@INIT
 
 section '.text' code readable executable
 
+New@Test:
+push	rbp
+mov	rbp, rsp
+sub	rsp, 32
+mov	qword [rbp + -8], -1
+mov	qword [rbp + -8], 62
+mov	cl, byte [rbp + -16]
+mov	r10, -2
+shl	r10, cl
+xor	r10, -1
+mov	qword [rbp + -8], r10
+mov	cl, byte [rbp + -24]
+mov	r10, -1
+shl	r10, cl
+xor	r10, -2147483648
+mov	qword [rbp + -8], r10
+mov	cl, byte [rbp + -16]
+mov	rax, -1
+shl	rax, cl
+mov	cl, byte [rbp + -24]
+mov	r10, -2
+shl	r10, cl
+xor	r10, rax
+mov	cl, byte [rbp + -24]
+mov	rax, -1
+shl	rax, cl
+mov	cl, byte [rbp + -16]
+mov	rdx, -2
+shl	rdx, cl
+xor	rdx, rax
+or	r10, rdx
+mov	cl, byte [rbp + -16]
+mov	rdx, -2
+shl	rdx, cl
+xor	rdx, -4
+or	r10, rdx
+mov	cl, byte [rbp + -24]
+mov	rdx, -1
+shl	rdx, cl
+xor	rdx, -256
+or	r10, rdx
+or	r10, 76
+mov	qword [rbp + -8], r10
+leave
+ret
+
 New@@INIT:
 push	rbp
 mov	rbp, rsp

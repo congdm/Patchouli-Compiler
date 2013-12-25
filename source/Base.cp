@@ -14,6 +14,7 @@ CONST
 	max_str_len* = 255;
 	type_extension_limit* = 7;
 	max_number_record_types* = 1024;
+	set_size_limit* = 64;
 
 	sym_null* = 0;
 	sym_times* = 1; sym_slash* = 2; sym_div* = 3; sym_mod* = 4;
@@ -591,6 +592,19 @@ PROCEDURE Has_value* (VAR x : Item) : BOOLEAN;
 	BEGIN
 	IF Is_variable (x)
 	OR (x.mode IN {class_const, mode_reg, mode_cond, mode_regI}) THEN
+		result := TRUE
+	ELSE
+		result := FALSE
+		END;
+	RETURN result
+	END Has_value;
+	
+PROCEDURE Is_record_varparam* (VAR x : Item) : BOOLEAN;
+	VAR
+		result : BOOLEAN;
+	BEGIN
+	IF (x.mode = class_ref) & (x.type.form = type_record)
+	& (flag_param IN x.flag) & ~ (flag_readonly IN x.flag) THEN
 		result := TRUE
 	ELSE
 		result := FALSE

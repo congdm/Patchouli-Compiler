@@ -1,5 +1,8 @@
 MODULE New;
 
+CONST
+	universe_set = {0..31};
+
 TYPE
 	StrArr = ARRAY 20 OF CHAR;
 	
@@ -19,5 +22,14 @@ TYPE
 
 VAR
 	x : ARecord;
+	
+PROCEDURE Test;
+	VAR
+		s : SET;
+		y, z : INTEGER;
+	BEGIN
+	s := universe_set; s := {1 .. 5}; s := {0 .. y}; s := {z .. 30};
+	s := {3, 6, 2, y .. z, z .. y, 2 .. y, z .. 7}
+	END Test;
 
 END New.
