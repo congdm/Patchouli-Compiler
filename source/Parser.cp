@@ -52,6 +52,11 @@ PROCEDURE Comparable (VAR x, y : Base.Item) : BOOLEAN;
 	RETURN result
 	END Comparable;
 	
+PROCEDURE Equalable (VAR x, y : Base.Item) : BOOLEAN;
+	BEGIN
+	RETURN FALSE
+	END Equalable;
+	
 PROCEDURE Check_operator (op : INTEGER; VAR x : Base.Item);
 	BEGIN
 	IF ~ Base.Has_value (x) THEN
@@ -679,35 +684,24 @@ PROCEDURE ActualParameters (VAR x : Base.Item);
 		
 	BEGIN (* ActualParameters *)
 	Scanner.Get (sym);
-	IF x.mode = Base.class_proc THEN
-		param := x.proc.dsc
-	ELSE
-		param := x.type.fields
-		END;
+	IF x.mode = Base.class_proc THEN param := x.proc.dsc
+	ELSE param := x.type.fields END;
+	
 	IF ~ (Base.flag_param IN param.flag) THEN
-		IF sym = Base.sym_rparen THEN
-			Scanner.Get (sym)
-		ELSE
-			Scanner.Mark ('This procedure does not need any parameters')
-			END
+		IF sym = Base.sym_rparen THEN Scanner.Get (sym)
+		ELSE Scanner.Mark ('This procedure does not need any parameters') END
 	ELSE
 		Parameter (x, param);
 		WHILE sym = Base.sym_comma DO
 			Scanner.Get (sym);
-			IF ~ (Base.flag_param IN param.flag) THEN
-				Scanner.Mark ('This procedure does not need more parameters')
-			ELSE
-				Parameter (x, param)
-				END
+			IF Base.flag_param IN param.flag THEN Parameter (x, param)
+			ELSE Scanner.Mark ('This procedure does not need more parameters') END
 			END;
 		IF Base.flag_param IN param.flag THEN
 			Scanner.Mark ('Not enough actual parameters')
 			END;
-		IF sym = Base.sym_rparen THEN
-			Scanner.Get (sym)
-		ELSE
-			Scanner.Mark ('No closing )')
-			END
+		IF sym = Base.sym_rparen THEN Scanner.Get (sym)
+		ELSE Scanner.Mark ('No closing )') END
 		END
 	END ActualParameters;
 	
@@ -760,18 +754,11 @@ PROCEDURE StandProc (VAR x : Base.Item);
 			INC (i);
 			WHILE sym = Base.sym_comma DO
 				Scanner.Get (sym);
-				IF i >= LEN (params) THEN
-					Scanner.Mark ('Too many parameters')
-				ELSE
-					expression (params [i]);
-					INC (i)
-					END
+				IF i >= LEN (params) THEN Scanner.Mark ('Too many parameters')
+				ELSE expression (params [i]); INC (i) END
 				END;
-			IF sym = Base.sym_rparen THEN
-				Scanner.Get (sym)
-			ELSE
-				Scanner.Mark ('No closing )')
-				END
+			IF sym = Base.sym_rparen THEN Scanner.Get (sym)
+			ELSE Scanner.Mark ('No closing )') END
 			END
 		END;
 		
@@ -830,9 +817,7 @@ PROCEDURE selector (VAR x : Base.Item);
 		ELSIF sym = Base.sym_lparen THEN
 			Scanner.Get (sym);
 			IF (x.type.form = Base.type_pointer)
-			OR (x.type.form = Base.type_record)
-			& (Base.flag_param IN x.flag)
-			& ~ (Base.flag_readonly IN x.flag) THEN
+			OR Base.Is_record_varparam (x) THEN
 				qualident (obj);
 				IF (obj.class = Base.class_type) 
 				& (obj.type.form = x.type.form)
@@ -1020,9 +1005,9 @@ PROCEDURE expression (VAR x : Base.Item);
 				Scanner.Mark ('Invalid operands for SET membership relation')
 				END
 		ELSIF op = Base.sym_is THEN
-			IF ~ Has_value (x) OR (x.type.form # Base.type_pointer)
+			IF ~ Base.Has_value (x) OR (x.type.form # Base.type_pointer)
 			& ~ Base.Is_record_varparam (x) THEN
-				Scanner.Mark ('Expected a pointer or a record var param')
+				Scanner.Mark ('Expected a pointer or a record var-param')
 			ELSIF (y.mode # Base.class_type) OR (y.type.form # x.type.form)
 			OR ~ Base.Is_extension_type (y.type, x.type) THEN
 				Scanner.Mark ('Invalid or incompatible type in type test')

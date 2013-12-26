@@ -610,7 +610,7 @@ PROCEDURE Is_record_varparam* (VAR x : Item) : BOOLEAN;
 		result := FALSE
 		END;
 	RETURN result
-	END Has_value;
+	END Is_record_varparam;
 	
 PROCEDURE Is_compatible_open_array* (typ1, typ2 : Type) : BOOLEAN;
 	VAR
