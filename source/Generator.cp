@@ -291,7 +291,7 @@ PROCEDURE Set_mem_operand (VAR o : Operand; VAR mem : Base.Item);
 		
 	IF (mem.mode = Base.class_ref) OR (mem.type = NIL) THEN
 		o.size := 0
-	ELSIF Base.Is_scalar_type (mem.type) THEN
+	ELSIF mem.type.form IN Base.types_Scalar THEN
 		o.size := SHORT (SHORT (mem.type.size))
 	ELSE
 		o.size := 0
@@ -410,6 +410,14 @@ PROCEDURE Emit_op_reg_imm (op, r, imm : INTEGER);
 	Inc_program_counter
 	END Emit_op_reg_imm;
 	
+PROCEDURE Emit_op_reg_proc (op, r : INTEGER; proc : Base.Object);
+	BEGIN
+	codes [pc].op := op;
+	Set_reg_operand (codes [pc].operands [0], r);
+	Set_proc_operand (codes [pc].operands [1], proc);
+	Inc_program_counter
+	END Emit_op_reg_proc;
+	
 PROCEDURE Emit_op_mem_reg (op : INTEGER; VAR mem : Base.Item; r : INTEGER);
 	BEGIN
 	codes [pc].op := op;
@@ -425,15 +433,6 @@ PROCEDURE Emit_op_mem_imm (op : INTEGER; VAR mem : Base.Item; imm : INTEGER);
 	Set_imm_operand (codes [pc].operands [1], imm);
 	Inc_program_counter
 	END Emit_op_mem_imm;
-	
-PROCEDURE Emit_op_mem_proc
-(op : INTEGER; VAR mem : Base.Item; proc : Base.Object);
-	BEGIN
-	codes [pc].op := op;
-	Set_mem_operand (codes [pc].operands [0], mem);
-	Set_proc_operand (codes [pc].operands [1], proc);
-	Inc_program_counter
-	END Emit_op_mem_proc;
 	
 PROCEDURE Emit_op_reg_reg_imm (op, r1, r2, imm : INTEGER);
 	BEGIN
@@ -480,7 +479,7 @@ PROCEDURE Make_string* (VAR x : Base.Item; str : Base.String);
 	VAR
 		i : INTEGER;
 	BEGIN
-	x.flag := {Base.flag_readonly};
+	x.flag := {Base.flag_readOnly};
 	x.mode := Base.class_var;
 	x.lev := 0;
 	
@@ -576,9 +575,8 @@ PROCEDURE Ref_to_regI (VAR x : Base.Item);
 		x.r := reg_stack;
 		Inc_reg_stack
 		END;
-	IF Base.Is_variable (x) THEN Emit_op_reg_mem (op_MOV, x.r, x) END;
-	x.mode := Base.mode_regI;
-	x.a := 0; x.flag := {}
+	IF x.mode IN Base.cls_Variable THEN Emit_op_reg_mem (op_MOV, x.r, x) END;
+	x.mode := Base.mode_regI; x.a := 0;
 	END Ref_to_regI;
 	
 PROCEDURE load* (VAR x : Base.Item);
@@ -602,13 +600,15 @@ PROCEDURE load* (VAR x : Base.Item);
 				END
 			END;
 		x.mode := Base.mode_reg;
-		x.flag := {}
 		END
 	END load;
 	
 PROCEDURE Load_adr (VAR x : Base.Item);
 	BEGIN
-	IF x.mode = Base.mode_regI THEN
+	IF x.mode = Base.class_proc THEN
+		Emit_op_reg_proc (op_LEA, x.r, x.proc);
+		x.type := Base.nil_type
+	ELSIF x.mode = Base.mode_regI THEN
 		Emit_op_reg_mem (op_LEA, x.r, x)
 	ELSE
 		x.r := reg_stack;
@@ -620,7 +620,6 @@ PROCEDURE Load_adr (VAR x : Base.Item);
 			END
 		END;
 	x.mode := Base.mode_reg;
-	x.flag := {}
 	END Load_adr;	
 
 PROCEDURE Store* (VAR x, y : Base.Item);
@@ -629,17 +628,12 @@ PROCEDURE Store* (VAR x, y : Base.Item);
 	BEGIN
 	IF x.mode = Base.class_ref THEN Ref_to_regI (x) END;
 	IF y.mode = Base.class_ref THEN Ref_to_regI (y) END;
-	IF Base.Is_scalar_type (x.type) THEN
+	IF x.type.form IN Base.types_Scalar THEN
 		IF y.type.form = Base.type_string THEN
 			i := y.a DIV Base.char_type.size;
 			Emit_op_mem_imm (op_MOV, x, ORD (strings [i]))
-		ELSIF y.mode = Base.class_const THEN
-			IF (x.type = Base.byte_type) & ((y.a < 0) OR (y.a > 255)) THEN
-				Scanner.Mark ('Source const is not fit into BYTE variable')
-				END;
+		ELSIF (y.mode = Base.class_const) & ~ Is_big_immediate (y.a) THEN
 			Emit_op_mem_imm (op_MOV, x, y.a)
-		ELSIF y.mode = Base.class_proc THEN
-			Emit_op_mem_proc (op_MOV, x, y.proc)
 		ELSE
 			load (y);
 			IF x.type.size = 8 THEN
@@ -647,34 +641,26 @@ PROCEDURE Store* (VAR x, y : Base.Item);
 			ELSE
 				Emit_op_mem_reg (op_MOV, x, Small_reg (y.r, x.type.size))
 				END
-			END;
+			END
 	ELSIF x.type.form = Base.type_array THEN
 		Emit_op_reg_mem (op_LEA, -reg_RSI, y);
 		Emit_op_reg_mem (op_LEA, -reg_RDI, x);
-		IF param_regs_usage > 0 THEN
-			Emit_op_reg (op_PUSH, -reg_RCX)
-			END;
+		IF param_regs_usage > 0 THEN Emit_op_reg (op_PUSH, -reg_RCX) END;
 		IF (y.type.form = Base.type_string) & (y.type.len < x.type.len) THEN
 			Emit_op_reg_imm (op_MOV, -reg_RCX, y.type.size)
 		ELSE
 			Emit_op_reg_imm (op_MOV, -reg_RCX, x.type.size);
 			END;
 		Emit_op_bare (op_REP_MOVSB);
-		IF param_regs_usage > 0 THEN
-			Emit_op_reg (op_POP, -reg_RCX)
-			END;
+		IF param_regs_usage > 0 THEN Emit_op_reg (op_POP, -reg_RCX) END;
 		used_regs := used_regs + {reg_RSI, reg_RDI}
 	ELSIF x.type.form = Base.type_record THEN
 		Emit_op_reg_mem (op_LEA, -reg_RSI, y);
 		Emit_op_reg_mem (op_LEA, -reg_RDI, x);
-		IF param_regs_usage > 0 THEN
-			Emit_op_reg (op_PUSH, -reg_RCX)
-			END;
+		IF param_regs_usage > 0 THEN Emit_op_reg (op_PUSH, -reg_RCX) END;
 		Emit_op_reg_imm (op_MOV, -reg_RCX, x.type.size);
 		Emit_op_bare (op_REP_MOVSB);
-		IF param_regs_usage > 0 THEN
-			Emit_op_reg (op_POP, -reg_RCX)
-			END;
+		IF param_regs_usage > 0 THEN Emit_op_reg (op_POP, -reg_RCX) END;
 		used_regs := used_regs + {reg_RSI, reg_RDI}
 		END;
 	IF Use_register (y) THEN Free_reg END;
@@ -1164,7 +1150,7 @@ PROCEDURE Field* (VAR x : Base.Item; field : Base.Object);
 	BEGIN
 	IF x.mode = Base.class_ref THEN Ref_to_regI (x) END;
 	INC (x.a, field.val);
-	x.flag := {}
+	x.flag := x.flag - {Base.flag_varParam, Base.flag_param}
 	END Field;
 	
 PROCEDURE Deref* (VAR x : Base.Item);
@@ -1172,7 +1158,7 @@ PROCEDURE Deref* (VAR x : Base.Item);
 	IF x.mode = Base.class_ref THEN Ref_to_regI (x) END;
 	Ref_to_regI (x);
 	x.type := x.type.base;
-	x.flag := {}
+	EXCL (x.flag, Base.flag_readOnly)
 	END Deref;
 	
 PROCEDURE Open_array_index (VAR x, y : Base.Item);
@@ -1316,7 +1302,6 @@ PROCEDURE Index* (VAR x, y : Base.Item);
 			END
 		END;
 	x.type := x.type.base;
-	x.flag := {}
 	END Index;
 	
 PROCEDURE Type_guard* (VAR x : Base.Item; typ : Base.Type);
@@ -1348,10 +1333,9 @@ PROCEDURE Type_guard* (VAR x : Base.Item; typ : Base.Type);
 		tag1.a := 8 + typ.len * 8;
 		Emit_op_reg_mem (op_CMP, -reg_RAX, tag1);
 		Emit_op_sym (op_JNE, sym_type_check_trap);
-		Free_reg
+		Free_reg;
+		x.type := typ;
 		END;
-	x.type := typ;
-	x.flag := {}
 	END Type_guard;
 	
 (* -------------------------------------------------------------------------- *)
@@ -1602,16 +1586,18 @@ PROCEDURE Normal_parameter* (VAR x, proc : Base.Item; adr : INTEGER);
 			Base.class_const:
 				Emit_op_reg_imm (op_MOV, -param_reg, x.a) |
 			Base.class_ref:
-				Emit_op_reg_mem (op_MOV, -param_reg, x)
-			ELSE
-				IF (x.type = NIL) OR ~ Base.Is_scalar_type (x.type)
+				Emit_op_reg_mem (op_MOV, -param_reg, x) |
+			Base.class_proc:
+				Emit_op_reg_proc (op_LEA, -param_reg, x.proc) |
+			Base.class_var, Base.mode_regI:
+				IF (x.type = NIL) OR ~ (x.type.form IN Base.types_Scalar)
 				OR (x.type.size = 8) THEN
 					Emit_op_reg_mem (op_MOV, -param_reg, x)
 				ELSE
 					Emit_op_reg_mem
 					(op_MOV, Small_reg (param_reg, x.type.size), x)
 					END;
-				IF Use_register (x) THEN Free_reg END
+				IF x.mode = Base.mode_regI THEN Free_reg END
 			END;
 		INC (param_regs_usage)
 	ELSE
@@ -1645,7 +1631,7 @@ PROCEDURE Record_variable_parameter* (VAR x, proc : Base.Item; adr : INTEGER);
 	VAR
 		tag : Base.Item;
 	BEGIN
-	IF (x.mode = Base.class_ref) & ~ (Base.flag_readonly IN x.flag) THEN
+	IF Base.flag_varParam IN x.flag THEN
 		tag.flag := {Base.flag_param};
 		tag.mode := Base.class_ref;
 		tag.lev := x.lev;
@@ -1668,9 +1654,9 @@ PROCEDURE Open_array_parameter* (VAR x, proc : Base.Item; par : Base.Object);
 	
 	formal_type := par.type;
 	tp := x.type;
-	WHILE Base.Is_open_array (formal_type) DO
+	WHILE (formal_type.form = Base.type_array) & (formal_type.len < 0) DO
 		INC (adr, 8);
-		IF Base.Is_open_array (tp) THEN
+		IF (tp.form = Base.type_array) & (tp.len < 0) THEN
 			len.mode := Base.class_var;
 			len.lev := x.lev;
 			len.a := x.b;
@@ -1910,7 +1896,7 @@ PROCEDURE Generate_tag_section;
 				field := typ.fields;
 				WHILE n > 0 DO
 					IF field.type.num_ptr > 0 THEN
-						IF Base.Is_scalar_type (field.type) THEN
+						IF field.type.form = Base.type_pointer THEN
 							Base.Write_char (out, ',');
 							Base.Write_number (out, offset + field.val);
 							DEC (n)
@@ -1923,7 +1909,7 @@ PROCEDURE Generate_tag_section;
 					END
 				END
 		ELSIF typ.form = Base.type_array THEN
-			IF Base.Is_scalar_type (typ.base) THEN
+			IF typ.base.form = Base.type_pointer THEN
 				FOR n := 0 TO typ.len - 1 DO
 					Base.Write_char (out, ',');
 					Base.Write_number (out, offset + n * 8)
