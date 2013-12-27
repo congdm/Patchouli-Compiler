@@ -254,7 +254,8 @@ PROCEDURE Small_reg (r, size : INTEGER) : INTEGER;
 	CASE size OF
 		1: INC (r, 48) |
 		2: INC (r, 32) |
-		4: INC (r, 16)
+		4: INC (r, 16) |
+		8: (* Do nothing *)
 		END;
 	RETURN -r
 	END Small_reg;
@@ -1340,12 +1341,71 @@ PROCEDURE Type_guard* (VAR x : Base.Item; typ : Base.Type);
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
+
+PROCEDURE Scalar_comparison (op : INTEGER; VAR x, y : Base.Item);
+	VAR
+		r1, r2 : INTEGER;
+	BEGIN
+	IF x.mode = Base.class_ref THEN Ref_to_regI (x)
+	ELSIF x.mode = Base.class_proc THEN Load_adr (x)
+	ELSE Handle_big_const (x) END;
+	
+	IF y.mode = Base.class_ref THEN Ref_to_regI (y)
+	ELSIF y.mode = Base.class_proc THEN Load_adr (x)
+	ELSIF y.mode = Base.mode_cond THEN load (x)
+	ELSE Handle_big_const (x) END;
+	
+	IF (x.mode IN Base.cls_Variable) & (y.mode IN Base.cls_Variable) THEN
+		load (x)
+		END;
+	
+	IF x.mode = Base.mode_reg THEN
+		r1 := Small_reg (x.r, x.type.size);
+		IF y.mode = Base.class_const THEN
+			Emit_op_reg_imm (op_CMP, r1, y.a)
+		ELSIF y.mode IN Base.cls_Variable THEN
+			Emit_op_reg_mem (op_CMP, r1, y)
+		ELSIF y.mode = Base.mode_reg THEN
+			r2 := Small_reg (y.r, y.type.size);
+			Emit_op_reg_reg (op_CMP, r1, r2)
+			END
+	ELSIF x.mode IN Base.cls_Variable THEN
+		IF y.mode = Base.class_const THEN
+			Emit_op_mem_imm (op_CMP, x, y.a)
+		ELSIF y.mode = Base.mode_reg THEN
+			r2 := Small_reg (y.r, y.type.size);
+			Emit_op_mem_imm (op_CMP, x, r2)
+			END
+	ELSIF x.mode = Base.class_const THEN
+		IF y.mode = Base.mode_reg THEN
+			r2 := Small_reg (y.r, y.type.size);
+			Emit_op_reg_imm (op_CMP, r2, x.a)
+		ELSIF y.mode IN Base.cls_Variable THEN
+			Emit_op_mem_imm (op_CMP, y, x.a)
+			END;
+		IF (op = Base.sym_equal) OR (op = Base.sym_not_equal) THEN
+		ELSIF 
+		END;
+	END Scalar_comparison;
 	
 PROCEDURE Relation* (op : INTEGER; VAR x, y : Base.Item);
 	BEGIN
 	(* Implement later *)
-	IF x.type.form IN Base.types_Scalar THEN
+	IF (x.mode = Base.class_const) & (y.mode = Base.class_const) THEN
+		IF op = Base.sym_equal THEN IF x.a = y.a THEN x.a = 1 ELSE x.a = 0 END
+		ELSIF op = Base.sym_not_equal THEN IF x.a # y.a THEN x.a = 1 ELSE x.a = 0 END
+		ELSIF op = Base.sym_greater THEN IF x.a > y.a THEN x.a = 1 ELSE x.a = 0 END
+		ELSIF op = Base.sym_greater_equal THEN IF x.a >= y.a THEN x.a = 1 ELSE x.a = 0 END
+		ELSIF op = Base.sym_less THEN IF x.a < y.a THEN x.a = 1 ELSE x.a = 0 END
+		ELSIF op = Base.sym_less_equal THEN IF x.a <= y.a THEN x.a = 1 ELSE x.a = 0 END END;
+	IF (x.type.form IN Base.types_Scalar)
+	& (y.type.form IN Base.types_Scalar) THEN
 		
+		ELSIF x.mode = Base.class_const
+				
+				
+		IF x.mode IN Base.cls_Variable THEN
+	x.type := Base.bool_type
 	END Relation;
 	
 PROCEDURE Membership* (VAR x, y : Base.Item);
