@@ -27,15 +27,16 @@ CONST
 	sym_of* = 25; sym_then* = 26; sym_do* = 27; sym_to* = 28;
 	sym_lparen* = 29; sym_lbrak* = 30; sym_lbrace* = 31;
 	sym_not* = 32; sym_becomes* = 33;
-	sym_number* = 34; sym_nil* = 35; sym_string* = 36; sym_ident* = 37;
-	sym_semicolon* = 38; sym_end* = 40; sym_else* = 41;
-	sym_elsif* = 42; sym_until* = 43;
-	sym_if* = 44; sym_while* = 46; sym_repeat* = 47;
-	sym_array* = 54; sym_record* = 55; sym_pointer* = 56;
-	sym_const* = 57; sym_type* = 58; sym_var* = 59; sym_procedure* = 60;
-	sym_begin* = 61; sym_return* = 63; 
-	sym_module* = 64;
-	sym_eof* = 65;
+	sym_number* = 34; sym_nil* = 35; sym_true* = 36; sym_false* = 37;
+	sym_string* = 38; sym_ident* = 39;	
+	sym_semicolon* = 50; sym_end* = 51; sym_else* = 52;
+	sym_elsif* = 53; sym_until* = 54;
+	sym_if* = 55; sym_while* = 56; sym_repeat* = 57; sym_for* = 58;
+	sym_array* = 60; sym_record* = 61; sym_pointer* = 62;
+	sym_const* = 63; sym_type* = 64; sym_var* = 65; sym_procedure* = 66;
+	sym_begin* = 67; sym_return* = 68; 
+	sym_module* = 69;
+	sym_eof* = 70;
 
 	(* Object class/Item mode *)
 	class_head* = 0; class_module* = 1; class_var* = 2; class_ref* = 3;

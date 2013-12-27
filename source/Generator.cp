@@ -1344,6 +1344,8 @@ PROCEDURE Type_guard* (VAR x : Base.Item; typ : Base.Type);
 PROCEDURE Relation* (op : INTEGER; VAR x, y : Base.Item);
 	BEGIN
 	(* Implement later *)
+	IF x.type.form IN Base.types_Scalar THEN
+		
 	END Relation;
 	
 PROCEDURE Membership* (VAR x, y : Base.Item);

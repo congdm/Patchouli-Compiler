@@ -37,29 +37,6 @@ PROCEDURE Assignable (VAR dst, src : Base.Item) : BOOLEAN;
 	RETURN result
 	END Assignable;
 	
-PROCEDURE Comparable (VAR x, y : Base.Item) : BOOLEAN;
-	VAR
-		result : BOOLEAN;
-	BEGIN
-	result := FALSE;
-	RETURN result
-	END Comparable;
-	
-PROCEDURE Equalable (VAR x, y : Base.Item) : BOOLEAN;
-	VAR
-		result : BOOLEAN;
-	BEGIN
-	result := FALSE;
-	CASE Base.Equalable (x, y) OF
-		0: result := TRUE |
-		1: Scanner.Mark ('Invalid comparison') |
-		2: Scanner.Mark ('Comparison with non-global procedure') |
-		3: Scanner.Mark ('Comparison with incompatible procedure') |
-		4: Scanner.Mark ('Comparison with unrelated pointer type')
-		END;
-	RETURN result
-	END Equalable;
-	
 PROCEDURE Check_operator (op : INTEGER; VAR x : Base.Item);
 	BEGIN
 	IF ~ (x.mode IN Base.cls_HasValue) THEN
@@ -957,6 +934,12 @@ PROCEDURE factor (VAR x : Base.Item);
 	ELSIF sym = Base.sym_nil THEN
 		Generator.Make_const (x, Base.nil_type, 0);
 		Scanner.Get (sym)
+	ELSIF sym = Base.sym_true THEN
+		Generator.Make_const (x, Base.bool_type, 1);
+		Scanner.Get (sym)
+	ELSIF sym = Base.sym_false THEN
+		Generator.Make_const (x, Base.bool_type, 0);
+		Scanner.Get (sym)
 	ELSIF sym = Base.sym_lbrace THEN
 		set (x)
 	ELSIF sym = Base.sym_lparen THEN
@@ -1037,10 +1020,7 @@ PROCEDURE expression (VAR x : Base.Item);
 	IF (sym >= Base.sym_equal) & (sym <= Base.sym_is) THEN
 		op := sym;
 		Check_relation (op, x);
-		IF (op # Base.sym_is) & (x.mode IN Base.cls_Variable)
-		OR (x.mode = Base.mode_cond) THEN
-			Generator.load (x)
-			END;
+		IF x.mode = Base.mode_cond THEN Generator.load (x) END;
 		
 		Scanner.Get (sym);
 		SimpleExpression (y);

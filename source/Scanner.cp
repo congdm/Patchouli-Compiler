@@ -106,6 +106,10 @@ PROCEDURE Get_word (VAR sym : INTEGER);
 			ELSIF (i = 5) & Base.Str_equal (id, 'ELSIF') THEN
 				sym := Base.sym_elsif;
 				END; |
+		'F':
+			IF (i = 5) & Base.Str_equal (id, 'FALSE') THEN
+				sym := Base.sym_array;
+				END; |
 		'I':
 			IF i = 2 THEN
 				IF id.content [1] = 'F' THEN
@@ -156,6 +160,8 @@ PROCEDURE Get_word (VAR sym : INTEGER);
 			ELSIF i = 4 THEN
 				IF Base.Str_equal (id, 'THEN') THEN
 					sym := Base.sym_then;
+				ELSIF Base.Str_equal (id, 'TRUE') THEN
+					sym := Base.sym_true
 				ELSIF Base.Str_equal (id, 'TYPE') THEN
 					sym := Base.sym_type
 					END
