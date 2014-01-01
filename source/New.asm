@@ -7,44 +7,19 @@ New@Test:
 push	rbp
 mov	rbp, rsp
 sub	rsp, 32
-mov	qword [rbp + -8], -1
-mov	qword [rbp + -8], 62
-mov	cl, byte [rbp + -16]
-mov	r10, -2
-shl	r10, cl
-xor	r10, -1
+mov	r10, qword [rbp + -8]
+or	r10, qword [rbp + -16]
 mov	qword [rbp + -8], r10
-mov	cl, byte [rbp + -24]
-mov	r10, -1
-shl	r10, cl
-xor	r10, -2147483648
+mov	r10, qword [rbp + -8]
+mov	r11, qword [rbp + -16]
+not	r11
+and	r10, r11
 mov	qword [rbp + -8], r10
-mov	cl, byte [rbp + -16]
-mov	rax, -1
-shl	rax, cl
-mov	cl, byte [rbp + -24]
-mov	r10, -2
-shl	r10, cl
-xor	r10, rax
-mov	cl, byte [rbp + -24]
-mov	rax, -1
-shl	rax, cl
-mov	cl, byte [rbp + -16]
-mov	rdx, -2
-shl	rdx, cl
-xor	rdx, rax
-or	r10, rdx
-mov	cl, byte [rbp + -16]
-mov	rdx, -2
-shl	rdx, cl
-xor	rdx, -4
-or	r10, rdx
-mov	cl, byte [rbp + -24]
-mov	rdx, -1
-shl	rdx, cl
-xor	rdx, -256
-or	r10, rdx
-or	r10, 76
+mov	r10, qword [rbp + -8]
+and	r10, qword [rbp + -16]
+mov	qword [rbp + -8], r10
+mov	r10, qword [rbp + -8]
+xor	r10, qword [rbp + -16]
 mov	qword [rbp + -8], r10
 leave
 ret
@@ -52,6 +27,7 @@ ret
 New@@INIT:
 push	rbp
 mov	rbp, rsp
+sub	rsp, 48
 lea	rax, [New@@TYPETAG + 0]
 mov	[New@@TYPETAG + 8], rax
 lea	rax, [New@@TYPETAG + 0]
@@ -62,6 +38,47 @@ lea	rax, [New@@TYPETAG + 160]
 mov	[New@@TYPETAG + 168], rax
 lea	rax, [New@@TYPETAG + 240]
 mov	[New@@TYPETAG + 248], rax
+sub	rsp, 32
+lea	r10, [New@@STRING + 0]
+mov	rcx, r10
+call	[@LoadLibrary]
+add	rsp, 32
+mov	qword [New@@VAR + 24], rax
+sub	rsp, 32
+mov	r10, qword [New@@VAR + 24]
+mov	rcx, r10
+lea	r10, [New@@STRING + 11]
+mov	rdx, r10
+call	[@GetProcAddress]
+add	rsp, 32
+mov	qword [New@@VAR + 32], rax
+mov	qword [New@@VAR + 40], 2147483647
+mov	qword [New@@VAR + 48], 2147483647
+mov	r10, qword [New@@VAR + 40]
+imul	r10, qword [New@@VAR + 48]
+jo	INTEGER_OVERFLOW_TRAP
+shl	r10, 1
+jo	INTEGER_OVERFLOW_TRAP
+mov	qword [New@@VAR + 40], r10
+sub	rsp, 32
+mov	rcx, 0
+lea	rsi, [New@@STRING + 23]
+lea	rdi, [rbp + 0]
+push	rcx
+mov	rcx, 12
+rep movsb
+pop	rcx
+lea	rdx, [rbp + 0]
+lea	rsi, [New@@STRING + 35]
+lea	rdi, [rbp + 20]
+push	rcx
+mov	rcx, 5
+rep movsb
+pop	rcx
+lea	r8, [rbp + 20]
+mov	r9, 0
+call	qword [New@@VAR + 32]
+add	rsp, 32
 sub	rsp, 32
 mov	ecx, 0
 call	[@ExitProcess]
@@ -89,7 +106,8 @@ CALL	[@ExitProcess]
 
 section '.data' data readable writable
 New@@TYPETAG dq 24,0,0,0,0,0,0,0,0,-1,27,0,0,0,0,0,0,0,0,-1,0,0,0,0,0,0,0,0,0,-1,0,0,0,0,0,0,0,0,0,-1
-New@@VAR db 24 dup ?
+New@@STRING db 85,83,69,82,51,50,46,68,76,76,0,77,101,115,115,97,103,101,66,111,120,65,0,72,101,108,108,111,32,87,111,114,108,100,0,84,101,115,116,0
+New@@VAR db 56 dup ?
 
 section '.idata' import data readable writeable
 dd 0,0,0,RVA @kernel_name,RVA @kernel_table

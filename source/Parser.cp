@@ -111,6 +111,20 @@ PROCEDURE Check_relation (rel : INTEGER; VAR x : Base.Item);
 		Generator.Make_const (x, Base.int_type, 0)
 		END
 	END Check_relation;
+	
+PROCEDURE Check_bool (VAR x : Base.Item);
+	BEGIN
+	IF ~ (x.mode IN Base.cls_HasValue) OR (x.type # Base.bool_type) THEN
+		Scanner.Mark ('Expect a boolean expression');
+		Generator.Make_const (x, Base.bool_type, 0)
+		END
+	END Check_bool;
+	
+PROCEDURE Check (expected : INTEGER; err : ARRAY OF CHAR);
+	BEGIN
+	IF sym = expected THEN Scanner.Get (sym)
+	ELSE Scanner.Mark (err) END
+	END Check;
 
 PROCEDURE ^ expression (VAR x : Base.Item);
 PROCEDURE ^ type (VAR typ : Base.Type; defobj : Base.Object);
@@ -175,8 +189,7 @@ PROCEDURE FormalParameters (VAR parblksize : INTEGER; VAR result_typ : Base.Type
 			typ.size := Base.Word_size * 2;
 			tp := typ;
 			Scanner.Get (sym);
-			IF sym = Base.sym_of THEN Scanner.Get (sym)
-			ELSE Scanner.Mark ('No OF after ARRAY') END
+			Check (Base.sym_of, 'No OF after ARRAY')
 			END;
 		WHILE sym = Base.sym_array DO
 			Base.New_typ (tp.base, Base.type_array);
@@ -185,11 +198,7 @@ PROCEDURE FormalParameters (VAR parblksize : INTEGER; VAR result_typ : Base.Type
 			tp.size := -1;
 			INC (typ.size, Base.Word_size);
 			Scanner.Get (sym);
-			IF sym = Base.sym_of THEN
-				Scanner.Get (sym)
-			ELSE
-				Scanner.Mark ('No OF after ARRAY')
-				END
+			Check (Base.sym_of, 'No OF after ARRAY')
 			END;
 		
 		qualident (obj);
@@ -223,9 +232,8 @@ PROCEDURE FormalParameters (VAR parblksize : INTEGER; VAR result_typ : Base.Type
 			ident (obj, cls);
 			IF first = Base.guard THEN first := obj END
 			END;
-			
-		IF sym = Base.sym_colon THEN Scanner.Get (sym)
-		ELSE Scanner.Mark ('No colon after identifier list') END;
+		
+		Check (Base.sym_colon, 'No colon after identifier list');
 			
 		FormalType (tp);
 		par_size := Base.Word_size;
@@ -272,8 +280,7 @@ PROCEDURE FormalParameters (VAR parblksize : INTEGER; VAR result_typ : Base.Type
 				END
 			END
 		END;
-	IF sym = Base.sym_rparen THEN Scanner.Get (sym)
-	ELSE Scanner.Mark ('No closing )') END;
+	Check (Base.sym_rparen, 'No closing )');
 	IF sym = Base.sym_colon THEN
 		Scanner.Get (sym);
 		qualident (obj);
@@ -338,8 +345,7 @@ PROCEDURE RecordType (VAR typ : Base.Type; defobj : Base.Object);
 				tp : Base.Type;
 			BEGIN
 			IdentList (first, Base.class_field);
-			IF sym = Base.sym_colon THEN Scanner.Get (sym)
-			ELSE Scanner.Mark ('No colon after identifier list') END;
+			Check (Base.sym_colon, 'No colon after identifier list');
 			type (tp, defobj);
 			WHILE first # Base.guard DO
 				first.val := typ.size;
@@ -398,14 +404,12 @@ PROCEDURE RecordType (VAR typ : Base.Type; defobj : Base.Object);
 		ELSE
 			Scanner.Mark ('Invalid record base type')
 			END;
-		IF sym = Base.sym_rparen THEN Scanner.Get (sym)
-		ELSE Scanner.Mark ('No closing )') END
+		Check (Base.sym_rparen, 'No closing )')
 		END;
 		
 	Base.Open_scope (NIL);
 	IF sym = Base.sym_ident THEN FieldListSequence (typ, defobj) END;
-	IF sym = Base.sym_end THEN Scanner.Get (sym)
-	ELSE Scanner.Mark ('No END for record definition') END;
+	Check (Base.sym_end, 'No END for record definition');
 	typ.fields := Base.top_scope.next;
 	Base.Close_scope;
 	Generator.Alloc_type_tag (typ)
@@ -420,8 +424,7 @@ PROCEDURE PointerType (VAR typ : Base.Type; defobj : Base.Object);
 	typ.num_ptr := 1;
 	
 	Scanner.Get (sym);
-	IF sym = Base.sym_to THEN Scanner.Get (sym)
-	ELSE Scanner.Mark ('No TO in pointer definition') END;
+	Check (Base.sym_to, 'No TO in pointer definition');
 		
 	IF sym = Base.sym_record THEN
 		RecordType (typ.base, defobj)
@@ -495,12 +498,11 @@ PROCEDURE DeclarationSequence (VAR vars_size : INTEGER);
 			obj : Base.Object;
 			x : Base.Item;
 		BEGIN
-		identdef (obj, Base.class_const);
-		obj.type := Base.nilrecord_type; (* Defense again circular definition *)
-		IF sym = Base.sym_equal THEN Scanner.Get (sym)
-		ELSE Scanner.Mark ('No = in const declaration') END;
+		identdef (obj, Base.class_head); (* Defense again circular definition *)
+		Check (Base.sym_equal, 'No = in const declaration');
 		expression (x);
 		IF x.mode = Base.class_const THEN
+			obj.class := Base.class_const;
 			obj.val := x.a;
 			obj.type := x.type
 		ELSIF (x.mode = Base.class_var) & (x.type.form = Base.type_string) THEN
@@ -510,7 +512,10 @@ PROCEDURE DeclarationSequence (VAR vars_size : INTEGER);
 			obj.val := x.a;
 			obj.type := x.type
 		ELSE
-			Scanner.Mark ('Const expected')
+			Scanner.Mark ('Expect a const expression');
+			obj.class := Base.class_const;
+			obj.type := Base.int_type;
+			obj.val := 0
 			END
 		END ConstDeclaration;
 		
@@ -519,8 +524,7 @@ PROCEDURE DeclarationSequence (VAR vars_size : INTEGER);
 			obj : Base.Object;
 		BEGIN
 		identdef (obj, Base.class_type);
-		IF sym = Base.sym_equal THEN Scanner.Get (sym)
-		ELSE Scanner.Mark ('No = in type declaration') END;
+		Check (Base.sym_equal, 'No = in type declaration');
 		StrucType (obj.type, obj);
 		IF (obj.type.form = Base.type_record) & (Base.undef_ptr_list # NIL) THEN
 			Base.Check_undefined_pointer_list (obj)
@@ -533,8 +537,7 @@ PROCEDURE DeclarationSequence (VAR vars_size : INTEGER);
 			tp : Base.Type;
 		BEGIN
 		IdentList (first, Base.class_var);
-		IF sym = Base.sym_colon THEN Scanner.Get (sym)
-		ELSE Scanner.Mark ('No : in variable declaration') END;	
+		Check (Base.sym_colon, 'No colon after identifier list');
 		type (tp, NIL);
 		IF Base.cur_lev = 0 THEN
 			WHILE first # Base.guard DO
@@ -604,9 +607,8 @@ PROCEDURE DeclarationSequence (VAR vars_size : INTEGER);
 			ELSIF proc.type # NIL THEN
 				Scanner.Mark ('No return value for function procedure')
 				END;
-				
-			IF sym = Base.sym_end THEN Scanner.Get (sym)
-			ELSE Scanner.Mark ('No END for procedure body') END;
+			
+			Check (Base.sym_end, 'No END for procedure body');
 			Generator.Return (proc, locblksize);
 			
 			proc.dsc := Base.top_scope.next;
@@ -616,8 +618,7 @@ PROCEDURE DeclarationSequence (VAR vars_size : INTEGER);
 			
 		BEGIN (* ProcedureDeclaration *)
 		ProcedureHeading (proc);
-		IF sym = Base.sym_semicolon THEN Scanner.Get (sym)
-		ELSE Scanner.Mark ('No ; after procedure heading') END;
+		Check (Base.sym_semicolon, 'No ; after procedure heading');
 		ProcedureBody (proc);
 		IF sym = Base.sym_ident THEN
 			IF ~ Base.Str_equal2 (proc.name, Scanner.id) THEN
@@ -634,22 +635,14 @@ PROCEDURE DeclarationSequence (VAR vars_size : INTEGER);
 		Scanner.Get (sym);
 		WHILE sym = Base.sym_ident DO
 			ConstDeclaration;
-			IF sym = Base.sym_semicolon THEN
-				Scanner.Get (sym)
-			ELSE
-				Scanner.Mark ('No ; after const declaration')
-				END;
-			END;
+			Check (Base.sym_semicolon, 'No ; after const declaration')
+			END
 		END;
 	IF sym = Base.sym_type THEN
 		Scanner.Get (sym);
 		WHILE sym = Base.sym_ident DO
 			TypeDeclaration;
-			IF sym = Base.sym_semicolon THEN
-				Scanner.Get (sym)
-			ELSE
-				Scanner.Mark ('No ; after type declaration')
-				END;
+			Check (Base.sym_semicolon, 'No ; after type declaration')
 			END;
 		IF Base.undef_ptr_list # NIL THEN
 			Base.Cleanup_undefined_pointer_list;
@@ -660,21 +653,13 @@ PROCEDURE DeclarationSequence (VAR vars_size : INTEGER);
 		Scanner.Get (sym);
 		WHILE sym = Base.sym_ident DO
 			VariableDeclaration (vars_size);
-			IF sym = Base.sym_semicolon THEN
-				Scanner.Get (sym)
-			ELSE
-				Scanner.Mark ('No ; after variable declaration')
-				END;
-			END;
+			Check (Base.sym_semicolon, 'No ; after variable declaration')
+			END
 		END;
 	WHILE sym = Base.sym_procedure DO
 		ProcedureDeclaration;
-		IF sym = Base.sym_semicolon THEN
-			Scanner.Get (sym)
-		ELSE
-			Scanner.Mark ('No ; after procedure declaration')
-			END;
-		END;
+		Check (Base.sym_semicolon, 'No ; after procedure declaration')
+		END
 	END DeclarationSequence;
 	
 PROCEDURE ActualParameters (VAR x : Base.Item);
@@ -720,8 +705,7 @@ PROCEDURE ActualParameters (VAR x : Base.Item);
 		IF Base.flag_param IN param.flag THEN
 			Scanner.Mark ('Not enough actual parameters')
 			END;
-		IF sym = Base.sym_rparen THEN Scanner.Get (sym)
-		ELSE Scanner.Mark ('No closing )') END
+		Check (Base.sym_rparen, 'No closing )')
 		END
 	END ActualParameters;
 	
@@ -774,11 +758,9 @@ PROCEDURE StandProc (VAR x : Base.Item);
 				IF i >= LEN (params) THEN Scanner.Mark ('Too many parameters')
 				ELSE expression (params [i]); INC (i) END
 				END;
-			IF sym = Base.sym_rparen THEN Scanner.Get (sym)
-			ELSE Scanner.Mark ('No closing )') END
+			Check (Base.sym_rparen, 'No closing )')
 			END
 		END;
-		
 	CASE x.a OF
 		0: SProc_LoadLibrary (i, params [0], params [1]) |
 		1: SProc_GetProcAddress (i, params [0], params [1], params [2])
@@ -824,18 +806,14 @@ PROCEDURE selector (VAR x : Base.Item);
 				ELSE
 					Scanner.Mark ('Invalid array index')
 					END;
-				IF sym = Base.sym_rbrak THEN Scanner.Get (sym)
-				ELSE Scanner.Mark ('No closing ]') END
+				Check (Base.sym_rbrak, 'No closing ]')
 			ELSE
 				Scanner.Mark ('Not an array but found [ selector')
 				END
 		ELSIF sym = Base.sym_arrow THEN
 			Scanner.Get (sym);
-			IF csfx = Base.csf_Pointer THEN
-				Generator.Deref (x)
-			ELSE
-				Scanner.Mark ('Not a pointer but found ^ selector')
-				END
+			IF csfx = Base.csf_Pointer THEN Generator.Deref (x)
+			ELSE Scanner.Mark ('Not a pointer but found ^ selector') END
 		ELSIF sym = Base.sym_lparen THEN
 			Scanner.Get (sym);
 			IF (csfx = Base.csf_Pointer)
@@ -847,8 +825,7 @@ PROCEDURE selector (VAR x : Base.Item);
 				ELSE
 					Scanner.Mark ('Invalid or incompatible type in type guard')
 					END;
-				IF sym = Base.sym_rparen THEN Scanner.Get (sym)
-				ELSE Scanner.Mark ('No closing )') END
+				Check (Base.sym_rparen, 'No closing )')
 			ELSE
 				Scanner.Mark ('Not a pointer or record var-param but found ( selector')
 				END
@@ -901,8 +878,7 @@ PROCEDURE set (VAR x : Base.Item);
 			Scanner.Get (sym);
 			element (x)
 			END;
-		IF sym = Base.sym_rbrace THEN Scanner.Get (sym)
-		ELSE Scanner.Mark ('No closing }') END
+		Check (Base.sym_rbrace, 'No closing }')
 		END;
 	Generator.Set1 (x)
 	END set;
@@ -945,8 +921,7 @@ PROCEDURE factor (VAR x : Base.Item);
 	ELSIF sym = Base.sym_lparen THEN
 		Scanner.Get (sym);
 		expression (x);
-		IF sym = Base.sym_rparen THEN Scanner.Get (sym)
-		ELSE Scanner.Mark ('No closing )') END
+		Check (Base.sym_rparen, 'No closing )')
 	ELSIF sym = Base.sym_not THEN
 		Scanner.Get (sym);
 		factor (x);
@@ -1049,6 +1024,37 @@ PROCEDURE expression (VAR x : Base.Item);
 		END
 	END expression;
 	
+PROCEDURE IfStatement;
+	VAR
+		x : Base.Item;
+		L : INTEGER;
+	BEGIN
+	L := 0;
+	Scanner.Get (sym);
+	expression (x); Check_bool (x); Generator.CFJump (x);
+	Check (Base.sym_then, 'No THEN after IF condition');
+	StatementSequence;
+	
+	WHILE sym = Base.sym_elsif DO
+		Generator.FJump (L); Generator.Fix_link (x.a);
+		Scanner.Get (sym);
+		expression (x); Check_bool (x); Generator.CFJump (x);
+		Check (Base.sym_then, 'No THEN after ELSIF condition');
+		StatementSequence
+		END;
+		
+	IF sym = Base.sym_else THEN
+		Generator.FJump (L); Generator.Fix_link (x.a);
+		Scanner.Get (sym);
+		StatementSequence
+	ELSE
+		Generator.Fix_link (x.a)
+		END;
+		
+	Generator.Fix_link (L);
+	Check (Base.sym_end, 'No END for IF statement')
+	END IfStatement;
+	
 PROCEDURE statement;
 	VAR
 		x, y : Base.Item;
@@ -1090,8 +1096,8 @@ PROCEDURE statement;
 		ELSE
 			Scanner.Mark ('Invalid statement')
 			END
-	(* ELSIF sym = Base.sym_if THEN
-		IfStatement
+	ELSIF sym = Base.sym_if THEN
+		IfStatement (*
 	ELSIF sym = Base.sym_while THEN
 		WhileStatement
 	ELSIF sym = Base.sym_repeat THEN
@@ -1118,11 +1124,7 @@ PROCEDURE Module*;
 		modid : Base.String;
 	BEGIN
 	Scanner.Get (sym);
-	IF sym = Base.sym_module THEN
-		Scanner.Get (sym)
-	ELSE
-		Scanner.Mark ('No MODULE keyword')
-		END;
+	Check (Base.sym_module, 'No MODULE keyword');
 	IF sym = Base.sym_ident THEN
 		modid := Scanner.id;
 		Scanner.Get (sym)
@@ -1130,11 +1132,7 @@ PROCEDURE Module*;
 		modid := Base.Make_string ('ERROR_MODULE_NAME');
 		Scanner.Mark ('No module name')
 		END;
-	IF sym = Base.sym_semicolon THEN
-		Scanner.Get (sym)
-	ELSE
-		Scanner.Mark ('No ; after module name')
-		END;
+	Check (Base.sym_semicolon, 'No ; after module name');
 	
 	Base.Init (modid);
 	Generator.Init (modid);
@@ -1149,23 +1147,16 @@ PROCEDURE Module*;
 		END;
 	Generator.End_module_init;
 
-	IF sym = Base.sym_end THEN
-		Scanner.Get (sym)
-	ELSE
-		Scanner.Mark ('No END for module')
-		END;
+	Check (Base.sym_end, 'No END for module');
 	IF sym = Base.sym_ident THEN
 		IF ~ Base.Str_equal2 (modid, Scanner.id) THEN
-			Scanner.Mark ('Module identifier do not match')
+			Scanner.Mark ('Wrong module name')
 			END;
 		Scanner.Get (sym)
 	ELSE
 		Scanner.Mark ('No module identifier after END')
 		END;
-	IF sym # Base.sym_period THEN
-		Scanner.Mark ('No ending .')
-		END;
-		
+	IF sym # Base.sym_period THEN Scanner.Mark ('No ending .') END;
 	Generator.Finish (vars_size);
 	END Module;
 

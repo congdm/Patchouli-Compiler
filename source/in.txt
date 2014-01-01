@@ -22,14 +22,25 @@ TYPE
 
 VAR
 	x : ARecord;
+	hUser32 : INTEGER;
+	MessageBoxA : PROCEDURE (hWnd : INTEGER; text, caption : StrArr; type : INTEGER);
+	u, v : INTEGER;
 	
 PROCEDURE Test;
 	VAR
-		s : SET;
+		s1, s2 : SET;
 		y, z : INTEGER;
 	BEGIN
-	s := universe_set; s := {1 .. 5}; s := {0 .. y}; s := {z .. 30};
-	s := {3, 6, 2, y .. z, z .. y, 2 .. y, z .. 7}
+	s1 := s1 + s2;
+	s1 := s1 - s2;
+	s1 := s1 * s2;
+	s1 := s1 / s2;
 	END Test;
-
+	
+BEGIN
+LoadLibrary (hUser32, "USER32.DLL");
+GetProcAddress (MessageBoxA, hUser32, "MessageBoxA");
+u := 2147483647; v := 2147483647;
+u := u * v * 2;
+MessageBoxA (0, "Hello World", "Test", 0)
 END New.

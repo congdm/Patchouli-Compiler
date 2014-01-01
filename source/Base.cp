@@ -20,7 +20,7 @@ CONST
 	sym_times* = 1; sym_slash* = 2; sym_div* = 3; sym_mod* = 4;
 	sym_and* = 5; sym_plus* = 6; sym_minus* = 7; sym_or* = 8;
 	sym_equal* = 9; sym_not_equal* = 10; sym_less* = 11;
-	sym_greater_equal* = 12; sym_less_equal* = 13; sym_greater* = 14;
+	sym_greater_equal* = 12; sym_greater* = 13; sym_less_equal* = 14;
 	sym_in* = 15; sym_is* = 16; sym_arrow* = 17;
 	sym_period* = 18; sym_comma* = 19; sym_colon* = 20; sym_upto* = 21;
 	sym_rparen* = 22; sym_rbrak* = 23; sym_rbrace* = 24;
@@ -307,80 +307,6 @@ PROCEDURE Make_string* (const_str : ARRAY OF CHAR) : String;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
-	
-PROCEDURE Is_safe_addition* (x, y : INTEGER) : BOOLEAN;
-	VAR
-		result : BOOLEAN;
-	BEGIN
-	result := TRUE;
-	IF (x >= 0) & (y >= 0) THEN
-		IF y > MAX_INT - x THEN
-			result := FALSE
-			END;
-	ELSIF (x < 0) & (y < 0) THEN
-		IF y < MIN_INT - x THEN
-			result := FALSE
-			END
-		END;
-	RETURN result
-	END Is_safe_addition;
-	
-PROCEDURE Is_safe_subtraction* (x, y : INTEGER) : BOOLEAN;
-	VAR
-		result : BOOLEAN;
-	BEGIN
-	result := TRUE;
-	IF (x >= 0) & (y < 0) THEN
-		IF x > MAX_INT + y THEN
-			result := FALSE
-			END;
-	ELSIF (x < 0) & (y >= 0) THEN
-		IF x < MIN_INT + y THEN
-			result := FALSE
-			END
-		END;
-	RETURN result
-	END Is_safe_subtraction;
-	
-PROCEDURE Is_safe_multiplication* (x, y : INTEGER) : BOOLEAN;
-	VAR
-		result : BOOLEAN;
-		q, r : INTEGER;
-	BEGIN
-	result := TRUE;
-	IF (x < 0) & (y >= 0) THEN
-		q := x;
-		x := y;
-		y := q
-	ELSIF (x < 0) & (y < 0) THEN
-		IF (x = MIN_INT) OR (y = MIN_INT) THEN
-			result := FALSE
-		ELSE
-			x := -x;
-			y := -y
-			END
-		END;
-	IF x > 0 THEN
-		IF y > 0 THEN
-			IF x > MAX_INT / y THEN
-				result := FALSE
-				END
-		ELSIF y < 0 THEN
-			q := MIN_INT DIV y;
-			r := MIN_INT MOD y;
-			IF r = 0 THEN
-				IF x > q THEN
-					result := FALSE
-					END
-			ELSE
-				IF x >= q THEN
-					result := FALSE
-					END
-				END
-			END
-		END;
-	RETURN result
-	END Is_safe_multiplication;
 	
 PROCEDURE Integer_binary_logarithm* (a : INTEGER) : INTEGER;
 	VAR

@@ -219,7 +219,7 @@ PROCEDURE Get_number;
 		IF flag THEN
 			i := 0;
 			WHILE i < len DO
-				val := val * 10 + ORD (s [i]) - ORD ('0');
+				val := val * 10 + (ORD (s [i]) - ORD ('0'));
 				INC (i)
 				END
 			END
