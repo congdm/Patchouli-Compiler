@@ -26,6 +26,16 @@ VAR
 	MessageBoxA : PROCEDURE (hWnd : INTEGER; text, caption : StrArr; type : INTEGER);
 	u, v : INTEGER;
 	
+PROCEDURE P3;
+	BEGIN
+	IF u > 0 THEN
+		u := 1
+		END;
+	WHILE v > 0 DO
+		v := v - 1
+		END;
+	END P3;
+	
 PROCEDURE Test;
 	VAR
 		s1, s2 : SET;

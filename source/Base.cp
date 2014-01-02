@@ -45,6 +45,7 @@ CONST
 	
 	cls_Variable* = {class_var, class_ref, mode_regI};
 	cls_HasValue* = cls_Variable + {class_const, mode_reg, mode_cond};
+	modes_UseReg* = {mode_reg, mode_regI};
 
 	(* Type form *)
 	type_integer* = 0; type_boolean* = 1; type_set* = 2; type_char* = 3;
@@ -868,6 +869,6 @@ New_predefined_typ (int_type, type_integer, Word_size);
 New_predefined_typ (bool_type, type_boolean, 1);
 New_predefined_typ (set_type, type_set, Word_size);
 New_predefined_typ (byte_type, type_integer, 1);
-New_predefined_typ (char_type, type_char, 1);
+New_predefined_typ (char_type, type_char, 2);
 New_predefined_typ (nil_type, type_pointer, Word_size)
 END Base.

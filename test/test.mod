@@ -1,10 +1,10 @@
 MODULE Test;
 
 VAR
-	s : ARRAY 20 OF INTEGER;
+	s : ARRAY 20 OF CHAR;
 	len : INTEGER;
 	
-PROCEDURE WriteChar (c : INTEGER);
+PROCEDURE WriteChar (c : CHAR);
 BEGIN
 END WriteChar;
 	

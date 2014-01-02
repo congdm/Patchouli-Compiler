@@ -709,10 +709,31 @@ PROCEDURE ActualParameters (VAR x : Base.Item);
 		END
 	END ActualParameters;
 	
+PROCEDURE SPActualParameters
+(VAR params : ARRAY OF Base.Item; VAR n : INTEGER);
+	BEGIN
+	n := 0;
+	IF sym = Base.sym_lparen THEN
+		Scanner.Get (sym);
+		IF sym = Base.sym_rparen THEN
+			Scanner.Get (sym)
+		ELSE
+			expression (params [n]);
+			INC (n);
+			WHILE sym = Base.sym_comma DO
+				Scanner.Get (sym);
+				IF n >= LEN (params) THEN Scanner.Mark ('Too many parameters')
+				ELSE expression (params [n]); INC (n) END
+				END;
+			Check (Base.sym_rparen, 'No closing )')
+			END
+		END
+	END SPActualParameters;
+	
 PROCEDURE StandProc (VAR x : Base.Item);
 	VAR
 		i : INTEGER;
-		params : ARRAY 8 OF Base.Item;
+		params : ARRAY 4 OF Base.Item;
 
 	PROCEDURE SProc_LoadLibrary (n : INTEGER; VAR y, z : Base.Item);
 		BEGIN
@@ -736,7 +757,7 @@ PROCEDURE StandProc (VAR x : Base.Item);
 			IF (p1.mode IN Base.cls_Variable)
 			& (p1.type.form = Base.type_procedure)
 			& (Base.Classify_item (p2) = Base.csf_Integer)
-			& (Base.Classify_item (p3) IN {Base.csf_String, Base.csf_CharArray}) THEN
+			& (Base.Classify_item (p3) = Base.csf_Integer) THEN
 				Generator.SProc_GetProcAddress (p1, p2, p3)
 			ELSE
 				Scanner.Mark ('Invalid or incompatible parameters')
@@ -745,27 +766,67 @@ PROCEDURE StandProc (VAR x : Base.Item);
 		END SProc_GetProcAddress;
 
 	BEGIN (* StandProc *)
-	i := 0;
-	IF sym = Base.sym_lparen THEN
-		Scanner.Get (sym);
-		IF sym = Base.sym_rparen THEN
-			Scanner.Get (sym)
-		ELSE
-			expression (params [i]);
-			INC (i);
-			WHILE sym = Base.sym_comma DO
-				Scanner.Get (sym);
-				IF i >= LEN (params) THEN Scanner.Mark ('Too many parameters')
-				ELSE expression (params [i]); INC (i) END
-				END;
-			Check (Base.sym_rparen, 'No closing )')
-			END
-		END;
+	i := 0; SPActualParameters (params, i);
 	CASE x.a OF
 		0: SProc_LoadLibrary (i, params [0], params [1]) |
 		1: SProc_GetProcAddress (i, params [0], params [1], params [2])
 		END
 	END StandProc;
+	
+PROCEDURE StandFunc (VAR x : Base.Item);
+	VAR
+		i : INTEGER;
+		params : ARRAY 4 OF Base.Item;
+
+	PROCEDURE SFunc_ABS (VAR x, y : Base.Item);
+		BEGIN
+		IF Base.Classify_item (y) = Base.csf_Integer THEN
+			Generator.SFunc_ABS (x, y)
+		ELSE Scanner.Mark ('Invalid or incompatible parameters') END
+		END SFunc_ABS;
+		
+	PROCEDURE SFunc_ODD (VAR x, y : Base.Item);
+		BEGIN
+		IF Base.Classify_item (y) = Base.csf_Integer THEN
+			Generator.SFunc_ODD (x, y)
+		ELSE Scanner.Mark ('Invalid or incompatible parameters') END
+		END SFunc_ODD;
+		
+	PROCEDURE SFunc_LEN (VAR x, y : Base.Item);
+		BEGIN
+		IF Base.Classify_item (y) = Base.csf_Array THEN
+			Generator.SFunc_LEN (x, y)
+		ELSE Scanner.Mark ('Invalid or incompatible parameters') END
+		END SFunc_LEN;
+		
+	PROCEDURE SFunc_ADR (VAR x, y : Base.Item);
+		BEGIN
+		IF y.mode IN Base.cls_Variable THEN
+			Generator.SFunc_ADR (x, y)
+		ELSE Scanner.Mark ('Invalid or incompatible parameters') END
+		END SFunc_ADR;
+
+	BEGIN (* StandFunc *)
+	i := 0; SPActualParameters (params, i);
+	IF (x.a < 27) & (i # 1) OR (x.a >= 27) & (x.a < 30) & (i # 2)
+	OR (x.a >= 30) & (i # 1) THEN
+		Scanner.Mark ('Wrong number of parameters')
+	ELSE
+		CASE x.a OF
+			20: SFunc_ABS (x, params [0]) |
+			21: SFunc_ODD (x, params [0]) |
+			22: SFunc_LEN (x, params [0]) |
+			(*23: SFunc_FLOOR (x, params [0]) |
+			24: SFunc_FLT (x, params [0]) |
+			25: SFunc_ORD (x, params [0]) |
+			26: SFunc_CHR (x, params [0]) |
+			27: SFunc_LSL (x, params [0], params [1]) |
+			28: SFunc_ASR (x, params [0], params [1]) |
+			29: SFunc_ROR (x, params [0], params [1]) |*)
+			30: SFunc_ADR (x, params [0])
+			END
+		END
+	END StandFunc;
 	
 PROCEDURE selector (VAR x : Base.Item);
 	VAR
@@ -1055,6 +1116,41 @@ PROCEDURE IfStatement;
 	Check (Base.sym_end, 'No END for IF statement')
 	END IfStatement;
 	
+PROCEDURE WhileStatement;
+	VAR
+		x : Base.Item;
+		L : INTEGER;
+	BEGIN
+	L := Generator.pc;
+	Scanner.Get (sym);
+	expression (x); Check_bool (x); Generator.CFJump (x);
+	Check (Base.sym_do, 'No DO after WHILE condition');
+	StatementSequence;
+	
+	WHILE sym = Base.sym_elsif DO
+		Generator.BJump (L); Generator.Fix_link (x.a);
+		Scanner.Get (sym);
+		expression (x); Check_bool (x); Generator.CFJump (x);
+		Check (Base.sym_do, 'No DO after ELSIF condition');
+		StatementSequence
+		END;
+		
+	Generator.BJump (L); Generator.Fix_link (x.a);
+	Check (Base.sym_end, 'No END for WHILE statement')
+	END WhileStatement;
+	
+PROCEDURE RepeatStatement;
+	VAR
+		L : INTEGER;
+		x : Base.Item;
+	BEGIN
+	L := Generator.pc;
+	Scanner.Get (sym);
+	StatementSequence;
+	Check (Base.sym_until, 'No UNTIL for REPEAT statement');
+	expression (x); Check_bool (x); Generator.CBJump (x, L)
+	END RepeatStatement;
+	
 PROCEDURE statement;
 	VAR
 		x, y : Base.Item;
@@ -1097,11 +1193,11 @@ PROCEDURE statement;
 			Scanner.Mark ('Invalid statement')
 			END
 	ELSIF sym = Base.sym_if THEN
-		IfStatement (*
+		IfStatement
 	ELSIF sym = Base.sym_while THEN
 		WhileStatement
 	ELSIF sym = Base.sym_repeat THEN
-		RepeatStatement
+		RepeatStatement(*
 	ELSIF sym = Base.sym_for THEN
 		ForStatement
 	ELSIF sym = Base.sym_case THEN

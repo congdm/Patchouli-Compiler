@@ -13,9 +13,7 @@ CONST
 	form_mem_pc = 4; form_mem_scale = 5; form_proc_name = 6; form_sym = 7;
 	form_label = 8; form_mem_proc = 9;
 	
-	flag_haslabel = 0; flag_skiped = 1;
-	
-	mode_useReg = {Base.mode_reg, Base.mode_regI};
+	flag_hasLabel = 0; flag_skiped = 1;
 	
 	op_NOP = 0;
 	op_MOV = 1; op_MOVSX = 2; op_MOVZX = 3; op_LEA = 4; op_PUSH = 5; op_POP = 6;
@@ -29,8 +27,8 @@ CONST
 	op_CALL = 40; op_RET = 41; op_LEAVE = 42;
 	
 	op_JMP = 50; vop_NJMP = 51; op_JO = 52; op_JNO = 53;
-	op_JE = 54; op_JNE = 55; op_JL = 58; op_JGE = 59; op_JG = 60; op_JLE = 61;
-	op_JA = 62; op_JBE = 63; op_JB = 54; op_JAE = 55;
+	op_JE = 54; op_JNE = 55; op_JL = 56; op_JGE = 57; op_JG = 58; op_JLE = 59;
+	op_JA = 60; op_JBE = 61; op_JB = 62; op_JAE = 63; op_JC = 64; op_JNC = 65;
 	
 	(* ====================================================================== *)
 	
@@ -96,7 +94,7 @@ VAR
 	record_type_list : ARRAY Base.max_number_record_types OF Base.Type;
 	modid : Base.String;
 	
-	pc : INTEGER;
+	pc* : INTEGER;
 	str_offset, tag_offset, record_no : INTEGER;
 	reg_stack, mem_stack, param_regs_usage : INTEGER;
 	used_regs : SET;
@@ -222,7 +220,7 @@ PROCEDURE Write_codes_to_file;
 	Base.Write_newline (out);
 	FOR i := 0 TO pc - 1 DO
 		IF ~ (flag_skiped IN codes [i].flag) THEN
-			IF flag_haslabel IN codes [i].flag THEN
+			IF flag_hasLabel IN codes [i].flag THEN
 				Write_scope_name (Base.top_scope);
 				Base.Write_char (out, '@');
 				Base.Write_number (out, i);
@@ -532,6 +530,7 @@ PROCEDURE Make_item* (VAR x : Base.Item; obj : Base.Object);
 	x.lev := obj.lev;
 	x.type := obj.type;
 	x.a := obj.val;
+	x.b := 0;
 	x.proc := obj
 	END Make_item;
 	
@@ -562,6 +561,15 @@ PROCEDURE Make_tag_item (VAR x : Base.Item; typ : Base.Type);
 	x.lev := -1;
 	x.a := typ.tag
 	END Make_tag_item;
+	
+PROCEDURE Make_len_item (VAR x : Base.Item; len_offset : INTEGER);
+	BEGIN
+	x.flag := {Base.flag_param};
+	x.mode := Base.class_var;
+	x.type := Base.int_type;
+	x.a := len_offset;
+	x.lev := Base.cur_lev;
+	END Make_len_item;
 	
 PROCEDURE Alloc_type_tag* (typ : Base.Type);
 	BEGIN
@@ -625,7 +633,7 @@ PROCEDURE Ref_to_regI (VAR x : Base.Item);
 	VAR
 		reg : INTEGER;
 	BEGIN
-	IF ~ (x.mode IN mode_useReg) THEN
+	IF ~ (x.mode IN Base.modes_UseReg) THEN
 		x.r := reg_stack;
 		Inc_reg_stack
 		END;
@@ -641,7 +649,7 @@ PROCEDURE load* (VAR x : Base.Item);
 		IF x.mode IN Base.cls_Variable THEN
 			IF x.mode = Base.class_ref THEN
 				Ref_to_regI (x)
-			ELSIF ~ (x.mode IN mode_useReg) THEN
+			ELSIF ~ (x.mode IN Base.modes_UseReg) THEN
 				x.r := reg_stack; Inc_reg_stack
 				END;
 			CASE x.type.size OF
@@ -673,6 +681,22 @@ PROCEDURE Load_adr (VAR x : Base.Item);
 		END;
 	x.mode := Base.mode_reg;
 	END Load_adr;
+	
+PROCEDURE Convert_to_cond (VAR x : Base.Item);
+	BEGIN
+	IF x.mode = Base.class_const THEN
+		Set_cond (x, vop_NJMP - x.a)
+	ELSIF x.mode = Base.mode_reg THEN
+		Emit_op_reg_reg (op_TEST, x.r, x.r);
+		Set_cond (x, op_JNE);
+		Free_reg
+	ELSE
+		IF x.mode = Base.class_ref THEN Ref_to_regI (x) END;
+		Emit_op_mem_imm (op_CMP, x, 0);
+		Set_cond (x, op_JNE);
+		IF x.mode IN Base.modes_UseReg THEN Free_reg END
+		END
+	END Convert_to_cond;
 	
 PROCEDURE Check_const (VAR x : Base.Item);
 	BEGIN
@@ -721,8 +745,8 @@ PROCEDURE Store* (VAR x, y : Base.Item);
 		IF param_regs_usage > 0 THEN Emit_op_reg (op_POP, -reg_RCX) END;
 		used_regs := used_regs + {reg_RSI, reg_RDI}
 		END;
-	IF y.mode IN mode_useReg THEN Free_reg END;
-	IF x.mode IN mode_useReg THEN Free_reg END
+	IF y.mode IN Base.modes_UseReg THEN Free_reg END;
+	IF x.mode IN Base.modes_UseReg THEN Free_reg END
 	END Store;
 	
 (* -------------------------------------------------------------------------- *)
@@ -818,8 +842,8 @@ PROCEDURE Set3* (VAR x, y, z : Base.Item);
 		IF z.mode = Base.class_ref THEN Ref_to_regI (z) END;
 		
 		x_is_const := x.mode = Base.class_const;
-		y_use_reg := y.mode IN mode_useReg;
-		z_use_reg := z.mode IN mode_useReg;
+		y_use_reg := y.mode IN Base.modes_UseReg;
+		z_use_reg := z.mode IN Base.modes_UseReg;
 		IF x_is_const & ~ y_use_reg & ~ z_use_reg THEN Inc_reg_stack END;
 		
 		IF param_regs_usage > 0 THEN Push_reg (-reg_RCX) END;
@@ -856,6 +880,69 @@ PROCEDURE negated (c : INTEGER) : INTEGER;
 	IF c MOD 2 = 0 THEN r := c + 1 ELSE r := c - 1 END;
 	RETURN r
 	END negated;
+	
+PROCEDURE merged (L0, L1 : INTEGER) : INTEGER;
+	VAR
+		L2, L3 : INTEGER;
+	BEGIN
+    IF L0 # 0 THEN
+		L3 := L0;
+		REPEAT L2 := L3; L3 := codes [L2].operands [0].imm UNTIL L3 = 0;
+		codes [L2].operands [0].imm := L1;
+		L1 := L0
+		END;
+    RETURN L1
+	END merged;
+	
+PROCEDURE Fix_link* (L : INTEGER);
+	VAR
+		L1 : INTEGER;
+	BEGIN
+	IF L # 0 THEN
+		REPEAT
+			L1 := codes [L].operands [0].imm;
+			codes [L].operands [0].imm := pc;
+			L := L1
+			UNTIL L = 0;
+		INCL (codes [pc].flag, flag_hasLabel)
+		END
+	END Fix_link;
+
+PROCEDURE FJump* (VAR L : INTEGER);
+	BEGIN
+	Emit_op_label (op_JMP, L);
+	L := pc - 1
+	END FJump;
+
+PROCEDURE CFJump* (VAR x : Base.Item);
+	VAR
+		op : INTEGER;
+	BEGIN
+	IF x.mode # Base.mode_cond THEN Convert_to_cond (x) END;
+	op := negated (x.r);
+	IF op # vop_NJMP THEN
+		Emit_op_label (op, x.a);
+		x.a := pc - 1
+		END;
+	Fix_link (x.b)
+	END CFJump;
+	
+PROCEDURE CBJump* (VAR x : Base.Item; L : INTEGER);
+	VAR
+		op : INTEGER;
+	BEGIN
+	IF x.mode # Base.mode_cond THEN Convert_to_cond (x) END;
+    op := negated (x.r);
+	IF op # vop_NJMP THEN Emit_op_label (op, L) END
+	END CBJump;
+  
+PROCEDURE BJump* (L : INTEGER);
+	BEGIN
+	Emit_op_label (op_JMP, L)
+	END BJump;
+	
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
 
 PROCEDURE Op1* (op : INTEGER; VAR x : Base.Item);
 	VAR
@@ -865,19 +952,10 @@ PROCEDURE Op1* (op : INTEGER; VAR x : Base.Item);
 	IF op = Base.sym_not THEN
 		IF x.mode = Base.class_const THEN
 			x.a := x.a + 1 MOD 2
-		ELSIF x.mode = Base.mode_cond THEN
+		ELSE
+			IF x.mode # Base.mode_cond THEN Convert_to_cond (x) END;
 			x.r := negated (x.r);
 			t := x.a; x.a := x.b; x.b := t
-		ELSE
-			IF x.mode = Base.class_ref THEN Ref_to_regI (x) END;
-			IF x.mode = Base.mode_reg THEN
-				Emit_op_reg_reg (op_TEST, x.r, x.r);
-				Free_reg
-			ELSE
-				Emit_op_mem_imm (op_CMP, x, 0);
-				IF x.mode IN mode_useReg THEN Free_reg END
-				END;
-			Set_cond (x, op_JE)
 			END
 	ELSIF op = Base.sym_minus THEN
 		IF x.mode = Base.class_const THEN
@@ -904,9 +982,14 @@ PROCEDURE Op1* (op : INTEGER; VAR x : Base.Item);
 				END
 			END
 	ELSIF op = Base.sym_and THEN
-		(* Implement later *)
+		IF x.mode # Base.mode_cond THEN Convert_to_cond (x) END;
+		op := negated (x.r);
+		IF op # vop_NJMP THEN Emit_op_label (op, x.a); x.a := pc - 1 END;
+		Fix_link (x.b); x.b := 0
 	ELSIF op = Base.sym_or THEN
-		(* Implement later *)
+		IF x.mode # Base.mode_cond THEN Convert_to_cond (x) END;
+		IF x.r # vop_NJMP THEN Emit_op_label (x.r, x.b); x.b := pc - 1 END;
+		Fix_link (x.a); x.a := 0
 		END
 	END Op1;
 	
@@ -1083,7 +1166,7 @@ PROCEDURE Divide (VAR x, y : Base.Item; is_modulo : BOOLEAN);
 		i := pc;
 		Emit_op_label (op_JMP, 0); (* fix up later *)
 		
-		INCL (codes [pc].flag, flag_haslabel);
+		INCL (codes [pc].flag, flag_hasLabel);
 		IF is_modulo THEN
 			Emit_op_reg_reg (op_ADD, -reg_RDX, y.r);
 			Emit_op_reg_reg (op_MOV, reg_stack - 2, -reg_RDX)
@@ -1091,11 +1174,11 @@ PROCEDURE Divide (VAR x, y : Base.Item; is_modulo : BOOLEAN);
 			Emit_op_reg_reg (op_TEST, -reg_RDX, -reg_RDX);
 			Emit_op_label (op_JE, pc + 2);
 			Emit_op_reg_imm (op_SUB, -reg_RAX, 1);
-			INCL (codes [pc].flag, flag_haslabel);
+			INCL (codes [pc].flag, flag_hasLabel);
 			Emit_op_reg_reg (op_MOV, reg_stack - 2, -reg_RAX)
 			END;
 			
-		INCL (codes [pc].flag, flag_haslabel);
+		INCL (codes [pc].flag, flag_hasLabel);
 		codes [i].operands [0].imm := pc;
 		
 		IF param_regs_usage > 1 THEN Emit_op_reg (op_POP, -reg_RDX) END;	
@@ -1143,7 +1226,7 @@ PROCEDURE Op2* (op : INTEGER; VAR x, y : Base.Item);
 					IF y.a > 0 THEN x.a := x.a MOD y.a
 					ELSE Scanner.Mark ('Division by non-positive number') END
 				END
-		ELSIF x.type.form = Base.type_set THEN
+		ELSIF x.type = Base.set_type THEN
 			s1 := {};
 			s2 := {};
 			SYSTEM.PUT (SYSTEM.ADR (s1), x.a);
@@ -1153,15 +1236,6 @@ PROCEDURE Op2* (op : INTEGER; VAR x, y : Base.Item);
 				Base.sym_minus: x.a := ORD (s1 - s2) |
 				Base.sym_times: x.a := ORD (s1 * s2) |
 				Base.sym_slash: x.a := ORD (s1 / s2) |
-				END
-		ELSIF x.type.form = Base.type_boolean THEN
-			CASE op OF
-				Base.sym_and:
-					IF (x.a # 0) & (y.a # 0) THEN x.a := 1
-					ELSE x.a := 0 END |
-				Base.sym_or:
-					IF (x.a # 0) OR (y.a # 0) THEN x.a := 1
-					ELSE x.a := 0 END
 				END
 			END
 	ELSE
@@ -1174,13 +1248,23 @@ PROCEDURE Op2* (op : INTEGER; VAR x, y : Base.Item);
 				Base.sym_div: Divide (x, y, FALSE) |
 				Base.sym_mod: Divide (x, y, TRUE)
 				END
-		ELSIF x.type.form = Base.type_set THEN
+		ELSIF x.type = Base.set_type THEN
 			CASE op OF
 				Base.sym_plus: Commutative_op (op_OR, x, y) |
 				Base.sym_minus: Difference (x, y) |
 				Base.sym_times: Commutative_op (op_AND, x, y) |
 				Base.sym_slash: Commutative_op (op_XOR, x, y) |
 				END
+		ELSIF x.type = Base.bool_type THEN
+			IF y.mode # Base.mode_cond THEN Convert_to_cond (y) END;
+			IF op = Base.sym_and THEN
+				x.a := merged (y.a, x.a);
+				x.b := y.b
+			ELSIF op = Base.sym_or THEN
+				x.b := merged (y.b, x.b);
+				x.a := y.a
+				END;
+			x.r := y.r
 			END
 		END
 	END Op2;
@@ -1206,6 +1290,7 @@ PROCEDURE Deref* (VAR x : Base.Item);
 	
 PROCEDURE Open_array_index (VAR x, y : Base.Item);
 	VAR
+		flag : BOOLEAN;
 		size, scale, e : INTEGER;
 
 	PROCEDURE Calculate_offset
@@ -1214,11 +1299,7 @@ PROCEDURE Open_array_index (VAR x, y : Base.Item);
 			size, e : INTEGER;
 			len : Base.Item;
 		BEGIN
-		len.flag := {Base.flag_param};
-		len.mode := Base.class_var;
-		len.a := len_offset;
-		len.lev := Base.cur_lev;
-		
+		Make_len_item (len, len_offset);
 		Emit_op_reg_mem (op_IMUL, y.r, len);
 		
 		size := typ.base.size;
@@ -1242,11 +1323,7 @@ PROCEDURE Open_array_index (VAR x, y : Base.Item);
 			len : Base.Item;
 		BEGIN
 		IF Base.array_bound_check IN Base.compiler_flag THEN
-			len.flag := {Base.flag_param};
-			len.mode := Base.class_var;
-			len.a := x.b;
-			len.lev := Base.cur_lev;
-			
+			Make_len_item (len, x.b);
 			IF y.mode = Base.class_const THEN
 				Emit_op_mem_imm (op_CMP, len, y.a);
 				Emit_op_sym (op_JBE, sym_array_index_trap)
@@ -1258,39 +1335,35 @@ PROCEDURE Open_array_index (VAR x, y : Base.Item);
 		END Check_array_index;
 
 	BEGIN (* Open_array_index *)
-	ASSERT (x.mode = Base.mode_regI);
-	IF y.mode # Base.class_const THEN load (y)
-	ELSIF y.a < 0 THEN Scanner.Mark ('Array index out of bound') END;
-	Check_array_index (x, y);
+	flag := FALSE;
+	IF y.mode # Base.class_const THEN load (y); flag := TRUE
+	ELSIF y.a < 0 THEN Scanner.Mark ('Array index out of bound')
+	ELSIF y.a > 0 THEN flag := TRUE END;
 	
-	size := x.type.base.size;
-	IF size > 0 THEN
-		IF y.mode = Base.class_const THEN
-			INC (x.a, y.a * size)
-		ELSE
-			e := Base.Integer_binary_logarithm (size);
-			IF e < 0 THEN
-				Emit_op_reg_reg_imm (op_IMUL, y.r, y.r, size);
-				scale := 0
-			ELSIF e > 3 THEN
-				Emit_op_reg_imm (op_SHL, y.r, e);
-				scale := 0
+	IF flag THEN
+		IF x.mode = Base.class_ref THEN Ref_to_regI (x) END;
+		Check_array_index (x, y);
+		size := x.type.base.size;
+		IF size > 0 THEN
+			IF y.mode = Base.class_const THEN
+				INC (x.a, y.a * size)
 			ELSE
-				scale := size
-				END;
-			Emit_op_reg_memX (op_LEA, reg_stack - 2, x.r, y.r, scale, x.a);
-			Free_reg;
-			x.r := reg_stack - 1;
-			x.a := 0
+				e := Base.Integer_binary_logarithm (size);
+				IF e < 0 THEN
+					Emit_op_reg_reg_imm (op_IMUL, y.r, y.r, size); scale := 0
+				ELSIF e > 3 THEN
+					Emit_op_reg_imm (op_SHL, y.r, e); scale := 0
+				ELSE scale := size END;
+				Emit_op_reg_memX (op_LEA, reg_stack - 2, x.r, y.r, scale, x.a);
+				Free_reg; x.r := reg_stack - 1; x.a := 0
+				END
+		ELSE
+			ASSERT (x.type.base.form = Base.type_array);
+			load (y);
+			Calculate_offset (y, x.type.base, x.b + 8);
+			Emit_op_reg_memX (op_LEA, reg_stack - 2, x.r, y.r, 0, x.a);
+			Free_reg; x.r := reg_stack - 1; x.a := 0
 			END
-	ELSE
-		ASSERT (x.type.base.form = Base.type_array);
-		load (y);
-		Calculate_offset (y, x.type.base, x.b + 8);
-		Emit_op_reg_memX (op_LEA, reg_stack - 2, x.r, y.r, 0, x.a);
-		Free_reg;
-		x.r := reg_stack - 1;
-		x.a := 0
 		END;
 	INC (x.b, 8)
 	END Open_array_index;
@@ -1300,48 +1373,37 @@ PROCEDURE Index* (VAR x, y : Base.Item);
 		scale, e, size : INTEGER;
 	BEGIN
 	IF x.type.len < 0 THEN
-		IF x.mode = Base.class_ref THEN
-			x.b := x.a + 8;
-			Ref_to_regI (x)
-			END;
+		IF x.b = 0 THEN x.b := x.a + 8 END;
 		Open_array_index (x, y)
 	ELSE
 		IF x.mode = Base.class_ref THEN	Ref_to_regI (x) END;
 		IF y.mode = Base.class_const THEN
 			IF (y.a < 0) OR (y.a >= x.type.len) THEN
 				Scanner.Mark ('Array index out of bound')
-			ELSE
-				INC (x.a, y.a * x.type.base.size)
-				END
+			ELSE INC (x.a, y.a * x.type.base.size) END
 		ELSE
 			load (y);
 			IF Base.array_bound_check IN Base.compiler_flag THEN
 				Emit_op_reg_imm (op_CMP, y.r, x.type.len);
 				Emit_op_sym (op_JAE, sym_array_index_trap)
 				END;
-			
+				
 			size := x.type.base.size;
 			e := Base.Integer_binary_logarithm (size);
 			IF e < 0 THEN
-				Emit_op_reg_reg_imm (op_IMUL, y.r, y.r, size);
-				scale := 0
+				Emit_op_reg_reg_imm (op_IMUL, y.r, y.r, size); scale := 0
 			ELSIF e > 3 THEN
-				Emit_op_reg_imm (op_SHL, y.r, e);
-				scale := 0
-			ELSE
-				scale := size
-				END;
+				Emit_op_reg_imm (op_SHL, y.r, e); scale := 0
+			ELSE scale := size END;
 				
 			IF x.mode = Base.mode_regI THEN
 				Emit_op_reg_memX (op_LEA, reg_stack - 2, x.r, y.r, scale, x.a);
 				Free_reg
 			ELSE
-				ASSERT (x.mode = Base.class_var);
 				Emit_op_reg_memX (op_LEA, y.r, reg_stackBase, y.r, scale, x.a);
 				x.mode := Base.mode_regI
 				END;
-			x.r := reg_stack - 1;
-			x.a := 0
+			x.r := reg_stack - 1; x.a := 0
 			END
 		END;
 	x.type := x.type.base;
@@ -1359,6 +1421,7 @@ PROCEDURE Type_guard* (VAR x : Base.Item; typ : Base.Type);
 			load (x);
 			tag1.flag := {};
 			tag1.mode := Base.mode_regI;
+			tag1.type := Base.int_type;
 			tag1.r := x.r;
 			tag1.a := -8;
 			Inc_reg_stack;
@@ -1368,6 +1431,7 @@ PROCEDURE Type_guard* (VAR x : Base.Item; typ : Base.Type);
 			(* x is record variable parameter *)
 			tag1.flag := {Base.flag_param};
 			tag1.mode := Base.class_ref;
+			tag1.type := Base.int_type;
 			tag1.lev := x.lev;
 			tag1.a := x.a + 8;
 			Ref_to_regI (tag1)
@@ -1383,21 +1447,6 @@ PROCEDURE Type_guard* (VAR x : Base.Item; typ : Base.Type);
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
-
-PROCEDURE Fix_link* (L : INTEGER);
-	BEGIN
-	(* to be implemented *)
-	END Fix_link;
-
-PROCEDURE FJump* (VAR L : INTEGER);
-	BEGIN
-	(* to be implemented *)
-	END FJump;
-
-PROCEDURE CFJump* (VAR x : Base.Item);
-	BEGIN
-	(* to be implemented *)
-	END CFJump;
 
 PROCEDURE Scalar_comparison (op : INTEGER; VAR x, y : Base.Item);
 	VAR
@@ -1526,6 +1575,7 @@ PROCEDURE Enter* (proc : Base.Object; locblksize : INTEGER);
 		END;
 		
 	par.mode := Base.class_var;
+	par.type := Base.nil_type;
 	par.lev := Base.cur_lev;
 	par.flag := {Base.flag_param};
 	par.a := 0;
@@ -1601,14 +1651,10 @@ PROCEDURE Need_saving (VAR proc : Base.Item; reg : INTEGER) : BOOLEAN;
 		result : BOOLEAN;
 	BEGIN
 	IF (reg >= 0) & (reg <= reg_TOP) & (reg_stack > reg) THEN
-		IF (proc.mode IN mode_useReg) & (Decode_reg (proc.r) = reg) THEN
+		IF (proc.mode IN Base.modes_UseReg) & (Decode_reg (proc.r) = reg) THEN
 			result := FALSE
-		ELSE
-			result := TRUE
-			END
-	ELSE
-		result := FALSE
-		END;
+		ELSE result := TRUE END
+	ELSE result := FALSE END;
 	RETURN result
 	END Need_saving;
 	
@@ -1675,12 +1721,12 @@ PROCEDURE Call* (VAR x : Base.Item);
 	ELSE
 		(* x is procedure variable *)
 		IF x.type.base # NIL THEN
-			IF ~ (x.mode IN mode_useReg) THEN
+			IF ~ (x.mode IN Base.modes_UseReg) THEN
 				x.r := reg_stack; Inc_reg_stack
 				END;
 			x.mode := Base.mode_reg; x.type := x.type.base; x.flag := {};
 			Emit_op_reg_reg (op_MOV, x.r, -reg_RAX)
-		ELSIF x.mode IN mode_useReg THEN
+		ELSIF x.mode IN Base.modes_UseReg THEN
 			Free_reg
 			END;
 		END
@@ -1703,7 +1749,9 @@ PROCEDURE Normal_parameter* (VAR x, proc : Base.Item; adr : INTEGER);
 				param_reg := Small_reg (param_reg, x.type.size);
 				Emit_op_reg_imm (op_MOV, param_reg, x.a) |
 			Base.class_ref:
-				Emit_op_reg_mem (op_MOV, param_reg, x) |
+				Ref_to_regI (x);
+				Emit_op_reg_mem (op_MOV, param_reg, x);
+				Free_reg |
 			Base.class_proc:
 				Emit_op_reg_mem (op_LEA, param_reg, x) |
 			Base.class_var, Base.mode_regI:
@@ -1733,11 +1781,13 @@ PROCEDURE Reference_parameter* (VAR x, proc : Base.Item; adr : INTEGER);
 		param_reg : INTEGER;
 	BEGIN
 	IF x.mode = Base.class_ref THEN
+		x.mode := Base.class_var;
+		x.type := Base.nil_type;
 		Normal_parameter (x, proc, adr)
 	ELSIF adr < 32 THEN
 		param_reg := -reg_RCX - (adr DIV 8);
 		Emit_op_reg_mem (op_LEA, param_reg, x);
-		IF x.mode IN mode_useReg THEN Free_reg END;
+		IF x.mode IN Base.modes_UseReg THEN Free_reg END;
 		INC (param_regs_usage)
 	ELSE
 		Load_adr (x);
@@ -1776,10 +1826,7 @@ PROCEDURE Open_array_parameter* (VAR x, proc : Base.Item; par : Base.Object);
 	WHILE (formal_type.form = Base.type_array) & (formal_type.len < 0) DO
 		INC (adr, 8);
 		IF (tp.form = Base.type_array) & (tp.len < 0) THEN
-			len.mode := Base.class_var;
-			len.type := Base.int_type;
-			len.lev := x.lev;
-			len.a := x.b;
+			Make_len_item (len, x.b);
 			INC (x.b, 8)
 		ELSE
 			len.mode := Base.class_const;
@@ -1881,11 +1928,69 @@ PROCEDURE End_module_init*;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
+PROCEDURE SFunc_ABS* (VAR x, y : Base.Item);
+	BEGIN
+	IF y.mode = Base.class_const THEN
+		IF y.a = MIN_INT THEN
+			Scanner.Mark ('Integer overflow detected');
+			Make_const (x, Base.int_type, 0)
+		ELSE
+			Make_const (x, Base.int_type, ABS (y.a))
+			END
+	ELSE
+		load (y);
+		Emit_op_reg_reg (op_TEST, y.r, y.r);
+		Emit_op_label (op_JGE, pc + 2);
+		Emit_op_reg (op_NEG, y.r);
+		INCL (codes [pc].flag, flag_hasLabel);
+		x.mode := Base.mode_reg; x.r := y.r
+		END
+	END SFunc_ABS;
+	
+PROCEDURE SFunc_ODD* (VAR x, y : Base.Item);
+	BEGIN
+	IF y.mode = Base.class_const THEN
+		y.a := y.a MOD 2;
+		Make_const (x, Base.bool_type, y.a)
+	ELSE
+		IF y.mode = Base.mode_reg THEN
+			Emit_op_reg_imm (op_SHR, y.r, 1);
+			Free_reg
+		ELSE
+			Emit_op_mem_imm (op_BT, y, 0);
+			IF y.mode IN Base.modes_UseReg THEN Free_reg END
+			END;
+		Set_cond (x, op_JC)
+		END
+	END SFunc_ODD;
+	
+PROCEDURE SFunc_LEN* (VAR x, y : Base.Item);
+	BEGIN
+	IF y.type.len < 0 THEN
+		IF y.b = 0 THEN Make_len_item (x, y.a + 8)
+		ELSE Make_len_item (x, y.b) END
+	ELSE
+		Make_const (x, Base.int_type, y.type.len)
+		END;
+	IF y.mode IN Base.modes_UseReg THEN Free_reg END
+	END SFunc_LEN;
+	
+PROCEDURE SFunc_ADR* (VAR x, y : Base.Item);
+	BEGIN
+	IF y.mode = Base.class_ref THEN
+		x.mode := Base.mode_reg; x.r := reg_stack; Inc_reg_stack; 
+		Emit_op_reg_mem (op_MOV, x.r, y)
+	ELSE
+		Load_adr (y);
+		x.mode := Base.mode_reg; x.r := y.r
+		END
+	END SFunc_ADR;
+
 PROCEDURE SProc_LoadLibrary* (VAR x, y : Base.Item);
 	VAR
 		i : INTEGER;
 	BEGIN
-	IF (x.mode IN mode_useReg) & (x.r IN {reg_R10, reg_R11}) THEN
+	IF (x.mode IN Base.modes_UseReg) & (x.r IN {reg_R10, reg_R11}) THEN
 		Push_reg (-x.r)
 		END;
 	IF mem_stack MOD 16 # 0 THEN i := 40 ELSE i := 32 END;
@@ -1897,18 +2002,18 @@ PROCEDURE SProc_LoadLibrary* (VAR x, y : Base.Item);
 	Emit_op_sym (op_CALL, Base.Make_string ('[@LoadLibrary]'));
 	
 	Emit_op_reg_imm (op_ADD, -reg_RSP, i);
-	IF (x.mode IN mode_useReg) & (x.r IN {reg_R10, reg_R11}) THEN
+	IF (x.mode IN Base.modes_UseReg) & (x.r IN {reg_R10, reg_R11}) THEN
 		Pop_reg (-x.r)
 		END;
 	Emit_op_mem_reg (op_MOV, x, -reg_RAX);
-	IF x.mode IN mode_useReg THEN Free_reg END
+	IF x.mode IN Base.modes_UseReg THEN Free_reg END
 	END SProc_LoadLibrary;
 	
 PROCEDURE SProc_GetProcAddress* (VAR x, y, z : Base.Item);
 	VAR
 		i : INTEGER;
 	BEGIN
-	IF (x.mode IN mode_useReg) & (x.r IN {reg_R10, reg_R11}) THEN
+	IF (x.mode IN Base.modes_UseReg) & (x.r IN {reg_R10, reg_R11}) THEN
 		Push_reg (-x.r)
 		END;
 	IF mem_stack MOD 16 # 0 THEN i := 40 ELSE i := 32 END;
@@ -1923,11 +2028,11 @@ PROCEDURE SProc_GetProcAddress* (VAR x, y, z : Base.Item);
 	Emit_op_sym (op_CALL, Base.Make_string ('[@GetProcAddress]'));
 	
 	Emit_op_reg_imm (op_ADD, -reg_RSP, i);
-	IF (x.mode IN mode_useReg) & (x.r IN {reg_R10, reg_R11}) THEN
+	IF (x.mode IN Base.modes_UseReg) & (x.r IN {reg_R10, reg_R11}) THEN
 		Pop_reg (-x.r)
 		END;
 	Emit_op_mem_reg (op_MOV, x, -reg_RAX);
-	IF x.mode IN mode_useReg THEN Free_reg END
+	IF x.mode IN Base.modes_UseReg THEN Free_reg END
 	END SProc_GetProcAddress;
 
 (* -------------------------------------------------------------------------- *)
@@ -2185,7 +2290,9 @@ PROCEDURE Init_optable;
 	op_table [op_JG] := 'jg';
 	op_table [op_JLE] := 'jle';
 	op_table [op_JA] := 'ja';
-	op_table [op_JBE] := 'jbe'
+	op_table [op_JBE] := 'jbe';
+	op_table [op_JC] := 'jc';
+	op_table [op_JNC] := 'jnc'
 	END Init_optable;
 	
 PROCEDURE Init_regtable;
