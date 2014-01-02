@@ -1,7 +1,7 @@
 MODULE Parser;
 
 IMPORT
-	Base, Scanner, Generator, Console;
+	Base, Scanner, Generator := GeneratorWin64, Console;
 
 CONST
 	success = Base.success; failed = Base.failed;
@@ -778,44 +778,69 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 		i : INTEGER;
 		params : ARRAY 4 OF Base.Item;
 
-	PROCEDURE SFunc_ABS (VAR x, y : Base.Item);
+	PROCEDURE SFunc_ABS (VAR y : Base.Item);
 		BEGIN
 		IF Base.Classify_item (y) = Base.csf_Integer THEN
-			Generator.SFunc_ABS (x, y)
-		ELSE Scanner.Mark ('Invalid or incompatible parameters') END
+			Generator.SFunc_ABS (y)
+		ELSE
+			Scanner.Mark ('Invalid or incompatible parameters');
+			Generator.Make_const (y, Base.int_type, 0)
+			END
 		END SFunc_ABS;
 		
-	PROCEDURE SFunc_ODD (VAR x, y : Base.Item);
+	PROCEDURE SFunc_ODD (VAR y : Base.Item);
 		BEGIN
 		IF Base.Classify_item (y) = Base.csf_Integer THEN
-			Generator.SFunc_ODD (x, y)
-		ELSE Scanner.Mark ('Invalid or incompatible parameters') END
+			Generator.SFunc_ODD (y)
+		ELSE
+			Scanner.Mark ('Invalid or incompatible parameters');
+			Generator.Make_const (y, Base.int_type, 0)
+			END
 		END SFunc_ODD;
 		
-	PROCEDURE SFunc_LEN (VAR x, y : Base.Item);
+	PROCEDURE SFunc_LEN (VAR y : Base.Item);
 		BEGIN
 		IF Base.Classify_item (y) = Base.csf_Array THEN
-			Generator.SFunc_LEN (x, y)
-		ELSE Scanner.Mark ('Invalid or incompatible parameters') END
+			Generator.SFunc_LEN (y)
+		ELSE
+			Scanner.Mark ('Invalid or incompatible parameters');
+			Generator.Make_const (y, Base.int_type, 0)
+			END
 		END SFunc_LEN;
 		
-	PROCEDURE SFunc_ADR (VAR x, y : Base.Item);
+	PROCEDURE SFunc_ADR (VAR y : Base.Item);
 		BEGIN
 		IF y.mode IN Base.cls_Variable THEN
-			Generator.SFunc_ADR (x, y)
-		ELSE Scanner.Mark ('Invalid or incompatible parameters') END
+			Generator.SFunc_ADR (y)
+		ELSE
+			Scanner.Mark ('Invalid or incompatible parameters');
+			Generator.Make_const (y, Base.int_type, 0)
+			END
 		END SFunc_ADR;
-
+		
+	PROCEDURE SFunc_VAL (VAR y, z : Base.Item);
+		BEGIN
+		IF (y.mode IN Base.cls_HasValue)
+		& (y.type.form IN Base.types_Scalar)
+		& (z.mode = Base.class_type)
+		& (z.type.form IN Base.types_Scalar) THEN
+			y.type := z.type
+		ELSE
+			Scanner.Mark ('Invalid or incompatible parameters');
+			Generator.Make_const (y, Base.int_type, 0)
+			END
+		END SFunc_VAL;
+		
 	BEGIN (* StandFunc *)
 	i := 0; SPActualParameters (params, i);
 	IF (x.a < 27) & (i # 1) OR (x.a >= 27) & (x.a < 30) & (i # 2)
-	OR (x.a >= 30) & (i # 1) THEN
+	OR (x.a = 30) & (i # 1) OR (x.a = 31) & (i # 2) THEN
 		Scanner.Mark ('Wrong number of parameters')
 	ELSE
 		CASE x.a OF
-			20: SFunc_ABS (x, params [0]) |
-			21: SFunc_ODD (x, params [0]) |
-			22: SFunc_LEN (x, params [0]) |
+			20: SFunc_ABS (params [0]) |
+			21: SFunc_ODD (params [0]) |
+			22: SFunc_LEN (params [0]) |
 			(*23: SFunc_FLOOR (x, params [0]) |
 			24: SFunc_FLT (x, params [0]) |
 			25: SFunc_ORD (x, params [0]) |
@@ -823,8 +848,11 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 			27: SFunc_LSL (x, params [0], params [1]) |
 			28: SFunc_ASR (x, params [0], params [1]) |
 			29: SFunc_ROR (x, params [0], params [1]) |*)
-			30: SFunc_ADR (x, params [0])
-			END
+			30: SFunc_ADR (params [0]) |
+			31: SFunc_VAL (params [0], params [1])
+			END;
+		IF x.a # 31 THEN params [0].type := x.type END;
+		x := params [0]
 		END
 	END StandFunc;
 	
