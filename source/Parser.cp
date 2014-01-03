@@ -249,7 +249,7 @@ PROCEDURE FormalParameters (VAR parblksize : INTEGER; VAR result_typ : Base.Type
 					END
 				END
 			END;
-		IF (tp.form = Base.type_array) & (tp.len = -1) THEN
+		IF (tp.form = Base.type_array) & (tp.len < 0) THEN
 			par_size := tp.size
 			END;
 		
@@ -800,13 +800,37 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 		
 	PROCEDURE SFunc_LEN (VAR y : Base.Item);
 		BEGIN
-		IF Base.Classify_item (y) = Base.csf_Array THEN
+		IF Base.Classify_item (y) IN {Base.csf_Array, Base.csf_CharArray} THEN
 			Generator.SFunc_LEN (y)
 		ELSE
 			Scanner.Mark ('Invalid or incompatible parameters');
 			Generator.Make_const (y, Base.int_type, 0)
 			END
 		END SFunc_LEN;
+		
+	PROCEDURE SFunc_ORD (VAR y : Base.Item);
+		VAR
+			csf : INTEGER;
+		BEGIN
+		csf := Base.Classify_item (y);
+		IF ~ (csf IN {Base.csf_Char, Base.csf_Set, Base.csf_Boolean}) THEN
+			IF (csf # Base.csf_String) OR (y.type.len # 2) THEN
+				Scanner.Mark ('Invalid or incompatible parameters');
+				Generator.Make_const (y, Base.int_type, 0)
+				END
+			END;
+		Generator.SFunc_ORD (y)
+		END SFunc_ORD;
+		
+	PROCEDURE SFunc_CHR (VAR y : Base.Item);
+		BEGIN
+		IF Base.Classify_item (y) = Base.csf_Integer THEN
+			Generator.SFunc_CHR (y)
+		ELSE
+			Scanner.Mark ('Invalid or incompatible parameters');
+			Generator.Make_const (y, Base.int_type, 0)
+			END
+		END SFunc_CHR;
 		
 	PROCEDURE SFunc_ADR (VAR y : Base.Item);
 		BEGIN
@@ -824,7 +848,7 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 		& (y.type.form IN Base.types_Scalar)
 		& (z.mode = Base.class_type)
 		& (z.type.form IN Base.types_Scalar) THEN
-			y.type := z.type
+			Generator.SFunc_VAL (y, z.type)
 		ELSE
 			Scanner.Mark ('Invalid or incompatible parameters');
 			Generator.Make_const (y, Base.int_type, 0)
@@ -841,17 +865,17 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 			20: SFunc_ABS (params [0]) |
 			21: SFunc_ODD (params [0]) |
 			22: SFunc_LEN (params [0]) |
-			(*23: SFunc_FLOOR (x, params [0]) |
-			24: SFunc_FLT (x, params [0]) |
-			25: SFunc_ORD (x, params [0]) |
-			26: SFunc_CHR (x, params [0]) |
-			27: SFunc_LSL (x, params [0], params [1]) |
-			28: SFunc_ASR (x, params [0], params [1]) |
-			29: SFunc_ROR (x, params [0], params [1]) |*)
+			(*23: SFunc_FLOOR (params [0]) |
+			24: SFunc_FLT (params [0]) |*)
+			25: SFunc_ORD (params [0]) |
+			26: SFunc_CHR (params [0]) |
+			(*27: SFunc_LSL (params [0], params [1]) |
+			28: SFunc_ASR (params [0], params [1]) |
+			29: SFunc_ROR (params [0], params [1]) |*)
 			30: SFunc_ADR (params [0]) |
 			31: SFunc_VAL (params [0], params [1])
 			END;
-		IF x.a # 31 THEN params [0].type := x.type END;
+		IF (x.a # 31) & (x.a # 20) THEN params [0].type := x.type END;
 		x := params [0]
 		END
 	END StandFunc;
@@ -890,10 +914,20 @@ PROCEDURE selector (VAR x : Base.Item);
 			Scanner.Get (sym);
 			IF csfx IN {Base.csf_Array, Base.csf_CharArray} THEN
 				expression (y);
-				IF Base.Classify_item (y) = Base.csf_Integer THEN
-					Generator.Index (x, y)
-				ELSE
+				IF Base.Classify_item (y) # Base.csf_Integer THEN
+					Generator.Make_const (y, Base.int_type, 0);
 					Scanner.Mark ('Invalid array index')
+					END;
+				Generator.Index (x, y);
+				WHILE (sym = Base.sym_comma)
+				& (x.type.form = Base.type_array) DO
+					Scanner.Get (sym);
+					expression (y);
+					IF Base.Classify_item (y) # Base.csf_Integer THEN
+						Generator.Make_const (y, Base.int_type, 0);
+						Scanner.Mark ('Invalid array index')
+						END;
+					Generator.Index (x, y)
 					END;
 				Check (Base.sym_rbrak, 'No closing ]')
 			ELSE
@@ -916,7 +950,7 @@ PROCEDURE selector (VAR x : Base.Item);
 					END;
 				Check (Base.sym_rparen, 'No closing )')
 			ELSE
-				Scanner.Mark ('Not a pointer or record var-param but found ( selector')
+				Scanner.Mark ('Type guard is not applicable')
 				END
 		ELSE
 			exit := TRUE
@@ -980,7 +1014,13 @@ PROCEDURE factor (VAR x : Base.Item);
 	ELSIF sym = Base.sym_ident THEN
 		designator (x);
 		IF sym = Base.sym_lparen THEN
-			IF Base.Classify_item (x) = Base.csf_Procedure THEN
+			IF x.mode = Base.class_sproc THEN
+				IF x.type = NIL THEN
+					Scanner.Mark ('Found proper procedure in expression')
+				ELSE
+					StandFunc (x)
+					END
+			ELSIF Base.Classify_item (x) = Base.csf_Procedure THEN
 				IF (x.type = NIL) OR (x.mode # Base.class_proc)
 				& (x.type.base = NIL) THEN
 					Scanner.Mark ('Found proper procedure in expression')

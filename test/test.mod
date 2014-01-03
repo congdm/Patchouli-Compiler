@@ -1,45 +1,81 @@
 MODULE Test;
 
-VAR
-	s : ARRAY 20 OF CHAR;
-	len : INTEGER;
+CONST
+	STD_OUTPUT_HANDLE = -11;
+
+TYPE
+	AnsiStr = ARRAY 256 OF BYTE;
 	
-PROCEDURE WriteChar (c : CHAR);
-BEGIN
-END WriteChar;
-	
-PROCEDURE WriteStr;
-VAR i : INTEGER;
-BEGIN
-	i := len - 1;
-	WHILE i >= 0 DO
-		WriteChar (s[i]);
-		i := i - 1;
-	END;
-END WriteStr;
-
-PROCEDURE IntToStr (x : INTEGER);
 VAR
-	i, m : INTEGER;
+	AllocConsole : PROCEDURE() : INTEGER;
+	GetStdHandle : PROCEDURE(nStdHandle : INTEGER) : INTEGER;
+	WriteFile : PROCEDURE(hFile, lpBuffer, nNumberOfBytesToWrite,
+	                      lpNumberOfBytesWritten, lpOverlapped : INTEGER) : INTEGER;
+	
+	stdout : INTEGER;
+	
+PROCEDURE MakeAnsiStr (VAR out : AnsiStr; in : ARRAY OF CHAR);
+	VAR
+		i, n : INTEGER;
 BEGIN
-	len := 0;
-	IF x > 0 THEN
-		i := 0; WHILE i < 20 DO s[i] := 0; i := i + 1; END;
-		REPEAT
-			m := x MOD 10;
-			x := x DIV 10;
-			s [len] := m + 48;
-			len := len + 1;
-		UNTIL x = 0;
-	END;
-END IntToStr;
+	n := LEN(in);
+	IF n > LEN(out) THEN n := LEN(out) END;
+	i := 0;
+	WHILE i < n DO out[i] := ORD(in[i]); i := i + 1 END;
+	IF out[n - 1] # 0 THEN out [n - 1] := 0 END
+END MakeAnsiStr;
 
-PROCEDURE Add (VAR x : INTEGER; y : INTEGER);
+PROCEDURE NullStringLen(str : ARRAY OF BYTE) : INTEGER;
+	VAR
+		len : INTEGER;
+		flag : BOOLEAN;
 BEGIN
-	x := x + y;
-END Add;
+	len := 0; flag := TRUE;
+	WHILE (len < LEN(str)) & flag DO
+		IF str[len] # 0 THEN len := len + 1 ELSE flag := FALSE END
+	END
+RETURN len
+END NullStringLen;
+
+PROCEDURE InitLibrary;
+	VAR
+		s : AnsiStr;
+		kernel32 : INTEGER;
+BEGIN
+	LoadLibrary (kernel32, 'kernel32.dll');
+	MakeAnsiStr (s, 'AllocConsole');
+	GetProcAddress (AllocConsole, kernel32, ADR(s));
+	MakeAnsiStr (s, 'GetStdHandle');
+	GetProcAddress (GetStdHandle, kernel32, ADR(s));
+	MakeAnsiStr (s, 'WriteFile');
+	GetProcAddress (WriteFile, kernel32, ADR(s))
+END InitLibrary;
+
+PROCEDURE InitConsole;
+	VAR
+		res : INTEGER;
+BEGIN
+	res := AllocConsole();
+	stdout := GetStdHandle(STD_OUTPUT_HANDLE)
+END InitConsole;
+
+PROCEDURE WriteAnsiString (str : ARRAY OF BYTE);
+	VAR
+		res, n : INTEGER;
+BEGIN
+	res := WriteFile(stdout, ADR(str), NullStringLen(str), ADR(n), 0)
+END WriteAnsiString;
+
+PROCEDURE Main;
+	VAR
+		s : AnsiStr;
+BEGIN
+	MakeAnsiStr (s, 'Hello, world!');
+	WriteAnsiString (s)
+END Main;
 
 BEGIN
-	IntToStr (45);
-	WriteStr;
+InitLibrary;
+InitConsole;
+Main
 END Test.

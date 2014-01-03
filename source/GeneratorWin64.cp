@@ -935,12 +935,14 @@ PROCEDURE CBJump* (VAR x : Base.Item; L : INTEGER);
 	BEGIN
 	IF x.mode # Base.mode_cond THEN Convert_to_cond (x) END;
     op := negated (x.r);
-	IF op # vop_NJMP THEN Emit_op_label (op, L) END
+	IF op # vop_NJMP THEN Emit_op_label (op, L) END;
+	INCL (codes [L].flag, flag_hasLabel)
 	END CBJump;
   
 PROCEDURE BJump* (L : INTEGER);
 	BEGIN
-	Emit_op_label (op_JMP, L)
+	Emit_op_label (op_JMP, L);
+	INCL (codes [L].flag, flag_hasLabel)
 	END BJump;
 	
 (* -------------------------------------------------------------------------- *)
@@ -1494,7 +1496,9 @@ PROCEDURE Scalar_comparison (op : INTEGER; VAR x, y : Base.Item);
 			ELSIF op = Base.sym_greater THEN op := Base.sym_less
 			ELSIF op = Base.sym_greater_equal THEN op := Base.sym_less_equal END
 			END
-		END
+		END;
+	IF y.mode IN Base.modes_UseReg THEN Free_reg END;
+	IF x.mode IN Base.modes_UseReg THEN Free_reg END
 	END Scalar_comparison;
 	
 PROCEDURE String_comparison (op : INTEGER; VAR x, y : Base.Item);
@@ -1816,18 +1820,20 @@ PROCEDURE Record_variable_parameter* (VAR x, proc : Base.Item; adr : INTEGER);
 	
 PROCEDURE Open_array_parameter* (VAR x, proc : Base.Item; par : Base.Object);
 	VAR
-		len : Base.Item;
+		temp, len : Base.Item;
 		tp, formal_type : Base.Type;
 		adr : INTEGER;
 	BEGIN
 	adr := par.val;
-	Reference_parameter (x, proc, adr);
+	temp := x;
+	Reference_parameter (temp, proc, adr);
 	
 	formal_type := par.type;
 	tp := x.type;
 	WHILE (formal_type.form = Base.type_array) & (formal_type.len < 0) DO
 		INC (adr, 8);
 		IF (tp.form = Base.type_array) & (tp.len < 0) THEN
+			IF x.b = 0 THEN x.b := x.a + 8 END;
 			Make_len_item (len, x.b);
 			INC (x.b, 8)
 		ELSE
@@ -1971,10 +1977,39 @@ PROCEDURE SFunc_LEN* (VAR y : Base.Item);
 	IF y.mode IN Base.modes_UseReg THEN Free_reg END
 	END SFunc_LEN;
 	
+PROCEDURE SFunc_ORD* (VAR y : Base.Item);
+	BEGIN
+	IF y.mode IN Base.cls_Variable THEN
+		IF y.type.form = Base.type_string THEN
+			y.mode := Base.class_const;
+			y.a := ORD (strings [y.a DIV Base.char_type.size])
+		ELSIF y.type.size < 8 THEN
+			load (y)
+			END
+		END
+	END SFunc_ORD;
+	
+PROCEDURE SFunc_CHR* (VAR y : Base.Item);
+	BEGIN
+	IF y.mode = Base.class_const THEN
+		IF (y.a < 0) OR (y.a > Base.MAX_CHAR) THEN
+			Scanner.Mark ('Value out of characters range')
+			END
+	ELSIF y.mode IN Base.cls_Variable THEN
+		IF y.type.size < Base.char_type.size THEN load (y) END
+		END
+	END SFunc_CHR;
+	
 PROCEDURE SFunc_ADR* (VAR y : Base.Item);
 	BEGIN
 	Load_adr (y)
 	END SFunc_ADR;
+	
+PROCEDURE SFunc_VAL* (VAR y : Base.Item; tp : Base.Type);
+	BEGIN
+	IF y.mode = Base.class_const THEN load (y) END;
+	y.type := tp
+	END SFunc_VAL;
 
 PROCEDURE SProc_LoadLibrary* (VAR x, y : Base.Item);
 	VAR
@@ -2012,7 +2047,7 @@ PROCEDURE SProc_GetProcAddress* (VAR x, y, z : Base.Item);
 	load (y);
 	Emit_op_reg_reg (op_MOV, -reg_RCX, y.r);
 	Free_reg;
-	Load_adr (z);
+	load (z);
 	Emit_op_reg_reg (op_MOV, -reg_RDX, z.r);
 	Free_reg;
 	Emit_op_sym (op_CALL, Base.Make_string ('[@GetProcAddress]'));
@@ -2070,14 +2105,14 @@ PROCEDURE Generate_trap_section;
 			END;
 		Base.Write_char (out, ':');
 		Base.Write_newline (out);
-		Base.Write_string (out, 'AND	rsp, -16');
+		Base.Write_string (out, 'and	rsp, -16');
 		Base.Write_newline (out);
-		Base.Write_string (out, 'SUB	rsp, 32');
+		Base.Write_string (out, 'sub	rsp, 32');
 		Base.Write_newline (out);
-		Base.Write_string (out, 'MOV	ecx, -');
+		Base.Write_string (out, 'mov	ecx, -');
 		Base.Write_number (out, i);
 		Base.Write_newline (out);
-		Base.Write_string (out, 'CALL	[@ExitProcess]');
+		Base.Write_string (out, 'call	[@ExitProcess]');
 		Base.Write_newline (out);
 		END;
 	Base.Write_newline (out)
@@ -2155,7 +2190,7 @@ PROCEDURE Generate_string_section;
 	Base.Write_string (out, modid.content);
 	Base.Write_string (out, '@@');
 	Base.Write_string (out, sym_stringbase.content);
-	Base.Write_string (out, ' db ');
+	Base.Write_string (out, ' dw ');
 	Base.Write_number (out, ORD (strings [0]));
 	i := 1;
 	WHILE i < str_offset DO
@@ -2213,7 +2248,7 @@ PROCEDURE Finish* (vars_size : INTEGER);
 	Base.Write_newline (out);
 	Base.Write_string (out, '@nameofLoadLibrary dw 0');
 	Base.Write_newline (out);
-	Base.Write_string (out, "db 'LoadLibraryA',0");
+	Base.Write_string (out, "db 'LoadLibraryW',0");
 	Base.Write_newline (out);
 	Base.Write_string (out, '@nameofGetProcAddress dw 0');
 	Base.Write_newline (out);

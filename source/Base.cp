@@ -11,6 +11,7 @@ CONST
 	Word_size* = 8;
 	MAX_INT* = 2147483647;
 	MIN_INT* = -MAX_INT - 1;
+	MAX_CHAR* = 65535;
 	max_str_len* = 255;
 	type_extension_limit* = 7;
 	max_number_record_types* = 1024;
@@ -857,6 +858,16 @@ PROCEDURE Init* (modid : String);
 	
 	Enter (class_sproc, 0, Make_string ('LoadLibrary'), NIL);
 	Enter (class_sproc, 1, Make_string ('GetProcAddress'), NIL);
+	
+	Enter (class_sproc, 20, Make_string ('ABS'), NIL);
+	Enter (class_sproc, 21, Make_string ('ODD'), bool_type);
+	Enter (class_sproc, 22, Make_string ('LEN'), int_type);
+	
+	Enter (class_sproc, 25, Make_string ('ORD'), int_type);
+	Enter (class_sproc, 26, Make_string ('CHR'), char_type);
+	
+	Enter (class_sproc, 30, Make_string ('ADR'), int_type);
+	Enter (class_sproc, 31, Make_string ('VAL'), NIL);
 	
 	compiler_flag := {integer_overflow_check, array_bound_check};
 	END Init;

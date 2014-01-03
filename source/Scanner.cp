@@ -108,7 +108,7 @@ PROCEDURE Get_word (VAR sym : INTEGER);
 				END; |
 		'F':
 			IF (i = 5) & Base.Str_equal (id, 'FALSE') THEN
-				sym := Base.sym_array;
+				sym := Base.sym_false;
 				END; |
 		'I':
 			IF i = 2 THEN
