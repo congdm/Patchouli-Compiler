@@ -324,7 +324,8 @@ PROCEDURE ArrayType (VAR typ : Base.Type; defobj : Base.Object);
 			typ.base := Base.int_type
 			END;
 		typ.size := typ.len * typ.base.size;
-		typ.num_ptr := typ.len * typ.base.num_ptr
+		typ.num_ptr := typ.len * typ.base.num_ptr;
+		typ.alignment := typ.base.alignment
 		END length;
 		
 	BEGIN (* ArrayType *)
@@ -347,6 +348,10 @@ PROCEDURE RecordType (VAR typ : Base.Type; defobj : Base.Object);
 			IdentList (first, Base.class_field);
 			Check (Base.sym_colon, 'No colon after identifier list');
 			type (tp, defobj);
+			IF tp.alignment > typ.alignment THEN
+				typ.alignment := tp.alignment
+				END;
+			Base.Adjust_alignment (typ.size, tp.alignment);
 			WHILE first # Base.guard DO
 				first.val := typ.size;
 				first.type := tp;
@@ -370,6 +375,7 @@ PROCEDURE RecordType (VAR typ : Base.Type; defobj : Base.Object);
 	Base.New_typ (typ, Base.type_record);
 	typ.size := 0;
 	typ.len := 0;
+	typ.alignment := 0;
 
 	Scanner.Get (sym);
 	IF sym = Base.sym_lparen THEN
@@ -384,7 +390,8 @@ PROCEDURE RecordType (VAR typ : Base.Type; defobj : Base.Object);
 				typ.base := obj.type;
 				typ.size := obj.type.size;
 				typ.num_ptr := obj.type.num_ptr;
-				typ.len := obj.type.len + 1
+				typ.len := obj.type.len + 1;
+				typ.alignment := obj.type.alignment
 			ELSE
 				Scanner.Mark ('Type extension level too deep (compiler limit)')
 				END
@@ -399,7 +406,8 @@ PROCEDURE RecordType (VAR typ : Base.Type; defobj : Base.Object);
 				typ.base := obj.type.base;
 				typ.size := typ.base.size;
 				typ.num_ptr := typ.base.num_ptr;
-				typ.len := typ.base.len + 1
+				typ.len := typ.base.len + 1;
+				typ.alignment := typ.base.alignment
 				END
 		ELSE
 			Scanner.Mark ('Invalid record base type')
@@ -409,6 +417,7 @@ PROCEDURE RecordType (VAR typ : Base.Type; defobj : Base.Object);
 		
 	Base.Open_scope (NIL);
 	IF sym = Base.sym_ident THEN FieldListSequence (typ, defobj) END;
+	Base.Adjust_alignment (typ.size, typ.alignment);
 	Check (Base.sym_end, 'No END for record definition');
 	typ.fields := Base.top_scope.next;
 	Base.Close_scope;
@@ -422,6 +431,7 @@ PROCEDURE PointerType (VAR typ : Base.Type; defobj : Base.Object);
 	Base.New_typ (typ, Base.type_pointer);
 	typ.size := Base.Word_size;
 	typ.num_ptr := 1;
+	typ.alignment := Base.Word_size;
 	
 	Scanner.Get (sym);
 	Check (Base.sym_to, 'No TO in pointer definition');
@@ -446,6 +456,7 @@ PROCEDURE ProcedureType (VAR typ : Base.Type);
 	BEGIN
 	Base.New_typ (typ, Base.type_procedure);
 	typ.size := Base.Word_size;
+	typ.alignment := Base.Word_size;
 	
 	Base.Open_scope (NIL);
 	Scanner.Get (sym);
@@ -476,7 +487,9 @@ PROCEDURE type (VAR typ : Base.Type; defobj : Base.Object);
 	typ := Base.int_type;
 	IF sym = Base.sym_ident THEN
 		qualident (obj);
-		IF (obj = defobj) & (obj.type.form # Base.type_pointer) THEN
+		IF obj = Base.guard THEN
+			Scanner.Mark ('Undefined type')
+		ELSIF (obj = defobj) & (obj.type.form # Base.type_pointer) THEN
 			Scanner.Mark ('Circular definition')
 		ELSIF obj.class = Base.class_type THEN
 			typ := obj.type
@@ -539,6 +552,7 @@ PROCEDURE DeclarationSequence (VAR vars_size : INTEGER);
 		IdentList (first, Base.class_var);
 		Check (Base.sym_colon, 'No colon after identifier list');
 		type (tp, NIL);
+		Base.Adjust_alignment (vars_size, tp.alignment);
 		IF Base.cur_lev = 0 THEN
 			WHILE first # Base.guard DO
 				first.val := vars_size;
@@ -734,6 +748,51 @@ PROCEDURE StandProc (VAR x : Base.Item);
 	VAR
 		i : INTEGER;
 		params : ARRAY 4 OF Base.Item;
+		
+	PROCEDURE SProc_GET (n : INTEGER; VAR y, z : Base.Item);
+		BEGIN
+		IF n # 2 THEN
+			Scanner.Mark ('Wrong number of parameters')
+		ELSE
+			IF (Base.Classify_item (y) = Base.csf_Integer)
+			& (z.mode IN Base.cls_Variable)
+			& (z.type.form IN Base.types_Scalar) THEN
+				Generator.SProc_GET (y, z)
+			ELSE
+				Scanner.Mark ('Invalid or incompatible parameters')
+				END
+			END
+		END SProc_GET;
+		
+	PROCEDURE SProc_PUT (n : INTEGER; VAR y, z : Base.Item);
+		BEGIN
+		IF n # 2 THEN
+			Scanner.Mark ('Wrong number of parameters')
+		ELSE
+			IF (Base.Classify_item (y) = Base.csf_Integer)
+			& (z.mode IN Base.cls_HasValue)
+			& (z.type.form IN Base.types_Scalar) THEN
+				Generator.SProc_PUT (y, z)
+			ELSE
+				Scanner.Mark ('Invalid or incompatible parameters')
+				END
+			END
+		END SProc_PUT;
+		
+	PROCEDURE SProc_COPY (n : INTEGER; VAR p1, p2, p3 : Base.Item);
+		BEGIN
+		IF n # 3 THEN
+			Scanner.Mark ('Wrong number of parameters')
+		ELSE
+			IF (Base.Classify_item (p1) = Base.csf_Integer)
+			& (Base.Classify_item (p2) = Base.csf_Integer)
+			& (Base.Classify_item (p3) = Base.csf_Integer) THEN
+				Generator.SProc_COPY (p1, p2, p3)
+			ELSE
+				Scanner.Mark ('Invalid or incompatible parameters')
+				END
+			END
+		END SProc_COPY;
 
 	PROCEDURE SProc_LoadLibrary (n : INTEGER; VAR y, z : Base.Item);
 		BEGIN
@@ -768,8 +827,11 @@ PROCEDURE StandProc (VAR x : Base.Item);
 	BEGIN (* StandProc *)
 	i := 0; SPActualParameters (params, i);
 	CASE x.a OF
-		0: SProc_LoadLibrary (i, params [0], params [1]) |
-		1: SProc_GetProcAddress (i, params [0], params [1], params [2])
+		10: SProc_GET (i, params [0], params [1]) |
+		11: SProc_PUT (i, params [0], params [1]) |
+		12: SProc_COPY (i, params [0], params [1], params [2]) |
+		13: SProc_LoadLibrary (i, params [0], params [1]) |
+		14: SProc_GetProcAddress (i, params [0], params [1], params [2])
 		END
 	END StandProc;
 	
@@ -842,6 +904,16 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 			END
 		END SFunc_ADR;
 		
+	PROCEDURE SFunc_SIZE (VAR y : Base.Item);
+		BEGIN
+		IF y.mode = Base.class_type THEN
+			Generator.Make_const (y, Base.int_type, y.type.size)
+		ELSE
+			Scanner.Mark ('Invalid or incompatible parameters');
+			Generator.Make_const (y, Base.int_type, 0)
+			END
+		END SFunc_SIZE;
+		
 	PROCEDURE SFunc_VAL (VAR y, z : Base.Item);
 		BEGIN
 		IF (y.mode IN Base.cls_HasValue)
@@ -857,8 +929,8 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 		
 	BEGIN (* StandFunc *)
 	i := 0; SPActualParameters (params, i);
-	IF (x.a < 27) & (i # 1) OR (x.a >= 27) & (x.a < 30) & (i # 2)
-	OR (x.a = 30) & (i # 1) OR (x.a = 31) & (i # 2) THEN
+	IF ((x.a < 27) OR (x.a = 30) OR (x.a = 31)) & (i # 1)
+	OR ((x.a >= 27) & (x.a < 30) OR (x.a = 33)) & (i # 2) THEN
 		Scanner.Mark ('Wrong number of parameters')
 	ELSE
 		CASE x.a OF
@@ -873,9 +945,10 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 			28: SFunc_ASR (params [0], params [1]) |
 			29: SFunc_ROR (params [0], params [1]) |*)
 			30: SFunc_ADR (params [0]) |
-			31: SFunc_VAL (params [0], params [1])
+			31: SFunc_SIZE (params [0]) |
+			33: SFunc_VAL (params [0], params [1])
 			END;
-		IF (x.a # 31) & (x.a # 20) THEN params [0].type := x.type END;
+		IF (x.a # 33) & (x.a # 20) THEN params [0].type := x.type END;
 		x := params [0]
 		END
 	END StandFunc;

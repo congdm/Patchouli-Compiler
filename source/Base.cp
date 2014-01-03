@@ -64,6 +64,7 @@ CONST
 	(* Compiler flag *)
 	array_bound_check* = 0;
 	integer_overflow_check* = 1;
+	alignment_flag* = 2;
 	
 	(* Classify *)
 	unclassified* = 0; csf_Integer* = 1; csf_Set* = 2; csf_Boolean* = 3;
@@ -92,7 +93,8 @@ TYPE
 		form* : INTEGER;
 		fields*, obj* : Object;
 		base* : Type;
-		size*, len*, tag*, num_ptr* : INTEGER
+		size*, len*, alignment* : INTEGER;
+		tag*, num_ptr* : INTEGER
 		END;
 
 	Object* = POINTER TO RECORD
@@ -429,7 +431,8 @@ PROCEDURE New_predefined_typ (VAR typ : Type; form, size : INTEGER);
 	BEGIN
 	New_typ (typ, form);
 	typ.flag := {flag_predefined};
-	typ.size := size
+	typ.size := size;
+	typ.alignment := size
 	END New_predefined_typ;
 	
 PROCEDURE Enter (cl, n : INTEGER; name : String; typ : Type);
@@ -487,6 +490,15 @@ PROCEDURE Cleanup_undefined_pointer_list*;
 		undef_ptr_list := undef_ptr_list.next
 		UNTIL undef_ptr_list = NIL
 	END Cleanup_undefined_pointer_list;
+	
+PROCEDURE Adjust_alignment* (VAR offset : INTEGER; alignment : INTEGER);
+	BEGIN
+	IF alignment_flag IN compiler_flag THEN
+		IF offset MOD alignment # 0 THEN
+			INC (offset, alignment - offset MOD alignment)
+			END
+		END
+	END Adjust_alignment;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -856,20 +868,33 @@ PROCEDURE Init* (modid : String);
 	Enter (class_type, 0, Make_string ('BYTE'), byte_type);
 	Enter (class_type, 0, Make_string ('CHAR'), char_type);
 	
-	Enter (class_sproc, 0, Make_string ('LoadLibrary'), NIL);
-	Enter (class_sproc, 1, Make_string ('GetProcAddress'), NIL);
+	Enter (class_sproc, 0, Make_string ('INC'), NIL);
+	Enter (class_sproc, 1, Make_string ('DEC'), NIL);
+	Enter (class_sproc, 2, Make_string ('INCL'), NIL);
+	Enter (class_sproc, 3, Make_string ('EXCL'), NIL);
+	Enter (class_sproc, 4, Make_string ('NEW'), NIL);
+	Enter (class_sproc, 5, Make_string ('ASSERT'), NIL);
+	Enter (class_sproc, 6, Make_string ('PACK'), NIL);
+	Enter (class_sproc, 7, Make_string ('UNPK'), NIL);
 	
-	Enter (class_sproc, 20, Make_string ('ABS'), NIL);
+	Enter (class_sproc, 10, Make_string ('GET'), NIL);
+	Enter (class_sproc, 11, Make_string ('PUT'), NIL);
+	Enter (class_sproc, 12, Make_string ('COPY'), NIL);
+	Enter (class_sproc, 13, Make_string ('LoadLibrary'), NIL);
+	Enter (class_sproc, 14, Make_string ('GetProcAddress'), NIL);
+	
+	Enter (class_sproc, 20, Make_string ('ABS'), int_type);
 	Enter (class_sproc, 21, Make_string ('ODD'), bool_type);
 	Enter (class_sproc, 22, Make_string ('LEN'), int_type);
-	
 	Enter (class_sproc, 25, Make_string ('ORD'), int_type);
 	Enter (class_sproc, 26, Make_string ('CHR'), char_type);
 	
 	Enter (class_sproc, 30, Make_string ('ADR'), int_type);
-	Enter (class_sproc, 31, Make_string ('VAL'), NIL);
+	Enter (class_sproc, 31, Make_string ('SIZE'), int_type);
+	Enter (class_sproc, 33, Make_string ('VAL'), int_type);
 	
-	compiler_flag := {integer_overflow_check, array_bound_check};
+	compiler_flag := {integer_overflow_check, array_bound_check,
+	                  alignment_flag};
 	END Init;
 	
 BEGIN

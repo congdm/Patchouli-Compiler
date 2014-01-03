@@ -661,7 +661,7 @@ PROCEDURE load* (VAR x : Base.Item);
 		ELSIF x.mode = Base.class_const THEN
 			x.r := reg_stack; Inc_reg_stack;
 			IF x.a # 0 THEN Emit_op_reg_imm (op_MOV, x.r, x.a)
-			ELSE Zero_clear_reg (x.a) END
+			ELSE Zero_clear_reg (x.r) END
 		ELSIF x.mode = Base.class_proc THEN
 			x.r := reg_stack; Inc_reg_stack;
 			Emit_op_reg_mem (op_LEA, x.r, x)
@@ -2007,7 +2007,7 @@ PROCEDURE SFunc_ADR* (VAR y : Base.Item);
 	
 PROCEDURE SFunc_VAL* (VAR y : Base.Item; tp : Base.Type);
 	BEGIN
-	IF y.mode = Base.class_const THEN load (y) END;
+	IF y.type.size < tp.size THEN load (y) END;
 	y.type := tp
 	END SFunc_VAL;
 
@@ -2059,6 +2059,50 @@ PROCEDURE SProc_GetProcAddress* (VAR x, y, z : Base.Item);
 	Emit_op_mem_reg (op_MOV, x, -reg_RAX);
 	IF x.mode IN Base.modes_UseReg THEN Free_reg END
 	END SProc_GetProcAddress;
+	
+PROCEDURE SProc_GET* (VAR x, y : Base.Item);
+	VAR
+		i : INTEGER;
+	BEGIN
+	load (x);
+	x.mode := Base.mode_regI; x.a := 0;
+	load (x);
+	Emit_op_mem_reg (op_MOV, y, Small_reg (x.r, y.type.size));
+	Free_reg;
+	IF y.mode IN Base.modes_UseReg THEN Free_reg END
+	END SProc_GET;
+	
+PROCEDURE SProc_PUT* (VAR x, y : Base.Item);
+	VAR
+		i : INTEGER;
+	BEGIN
+	load (x); load (y);
+	x.mode := Base.mode_regI; x.a := 0;
+	x.type := y.type;
+	Emit_op_mem_reg (op_MOV, x, Small_reg (y.r, y.type.size));
+	Free_reg; Free_reg
+	END SProc_PUT;
+	
+PROCEDURE SProc_COPY* (VAR x, y, z : Base.Item);
+	VAR
+		i : INTEGER;
+	BEGIN
+	IF (z.mode = Base.class_const)
+	& ((z.a = 1) OR (z.a = 2) OR (z.a = 4) OR (z.a = 8)) THEN
+		load (x); load (y);
+		x.mode := Base.mode_regI; x.a := 0;
+		y.mode := Base.mode_regI; y.a := 0;
+		load (x); y.type := NIL;
+		Emit_op_mem_reg (op_MOV, y, Small_reg (x.r, z.a));
+		Free_reg; Free_reg
+	ELSE
+		load (x); Emit_op_reg_reg (op_MOV, -reg_RSI, x.r); Free_reg;
+		load (y); Emit_op_reg_reg (op_MOV, -reg_RDI, y.r); Free_reg;
+		load (z); Emit_op_reg_reg (op_MOV, -reg_RCX, z.r); Free_reg;
+		Emit_op_bare (op_REP_MOVSB);
+		used_regs := used_regs + {reg_RSI, reg_RDI}
+		END
+	END SProc_COPY;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
