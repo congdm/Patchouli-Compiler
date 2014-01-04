@@ -268,21 +268,14 @@ PROCEDURE Set_mem_operand (VAR o : Operand; VAR mem : Base.Item);
 		o.form := form_mem_reg;
 		o.reg1 := Decode_reg (mem.r);
 		o.imm := mem.a
-	ELSIF Base.flag_param IN mem.flag THEN
-		o.form := form_mem_reg;
-		o.reg1 := reg_stackBase;
-		IF mem.a < 32 THEN
-			o.imm := 16 + Base.top_scope.parblksize - 32 + mem.a
-		ELSE
-			o.imm := 16 + mem.a - 32
-			END
 	ELSIF mem.mode = Base.class_proc THEN
 		o.form := form_mem_proc;
 		o.obj := mem.proc
 	ELSIF mem.lev > 0 THEN
 		o.form := form_mem_reg;
 		o.reg1 := reg_stackBase;
-		o.imm := mem.a
+		IF Base.flag_param IN mem.flag THEN o.imm := 16 + mem.a
+		ELSE o.imm := mem.a END
 	ELSE
 		o.form := form_mem_pc;
 		IF mem.lev = -1 THEN
@@ -1281,6 +1274,7 @@ PROCEDURE Field* (VAR x : Base.Item; field : Base.Object);
 	BEGIN
 	IF x.mode = Base.class_ref THEN Ref_to_regI (x) END;
 	INC (x.a, field.val);
+	x.type := field.type;
 	x.flag := x.flag - {Base.flag_varParam, Base.flag_param}
 	END Field;
 	
@@ -1573,15 +1567,11 @@ PROCEDURE Enter* (proc : Base.Object; locblksize : INTEGER);
 	stack_frame_size := locblksize;
 	
 	k := proc.parblksize DIV 8;
-	IF k <= 4 THEN
-		Base.top_scope.parblksize := 32
-	ELSE
-		Base.top_scope.parblksize := proc.parblksize;
-		k := 4;
-		END;
+	IF k <= 4 THEN Base.top_scope.parblksize := 32
+	ELSE Base.top_scope.parblksize := proc.parblksize; k := 4 END;
 		
 	par.mode := Base.class_var;
-	par.type := Base.nil_type;
+	par.type := NIL;
 	par.lev := Base.cur_lev;
 	par.flag := {Base.flag_param};
 	par.a := 0;
@@ -1632,7 +1622,7 @@ PROCEDURE Return* (proc : Base.Object; locblksize : INTEGER);
 		ELSE
 			codes [12 - reg_RDI + i].flag := {flag_skiped};
 			DEC (num_of_used_regs)
-			END;
+			END
 		END;
 	
 	Emit_op_bare (op_LEAVE);
@@ -1776,7 +1766,7 @@ PROCEDURE Normal_parameter* (VAR x, proc : Base.Item; adr : INTEGER);
 		load (x);
 		param.mode := Base.mode_regI;
 		param.r := -reg_RSP;
-		param.a := mem_stack - x.e + adr - 32;
+		param.a := mem_stack - proc.e + adr;
 		Emit_op_mem_reg (op_MOV, param, x.r);
 		Free_reg
 		END
@@ -2124,7 +2114,7 @@ PROCEDURE Init* (module_name : Base.String);
 	
 	modid := module_name;
 
-	Base.Write_string (out, 'format PE64');
+	Base.Write_string (out, 'format PE64 GUI');
 	Base.Write_newline (out);
 	Base.Write_string (out, 'entry ');
 	Base.Write_string (out, module_name.content);

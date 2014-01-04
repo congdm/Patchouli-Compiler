@@ -1,5 +1,20 @@
 MODULE Test2;
 
+CONST
+	WM_DESTROY = 2;
+	WM_CLOSE = 16;
+	
+	WS_OVERLAPPED = {};
+	WS_TILED = WS_OVERLAPPED;
+	WS_CAPTION = {22, 23};
+	WS_SYSMENU = {19};
+	WS_THICKFRAME = {18};
+	WS_MINIMIZEBOX = {17};
+	WS_MAXIMIZEBOX = {16};
+	WS_OVERLAPPEDWINDOW = WS_OVERLAPPED + WS_CAPTION + WS_SYSMENU
+	                      + WS_THICKFRAME + WS_MINIMIZEBOX + WS_MAXIMIZEBOX;
+	WS_TILEDWINDOW = WS_OVERLAPPEDWINDOW;
+
 TYPE
 	AnsiStr = ARRAY 256 OF BYTE;
 	
@@ -18,9 +33,9 @@ TYPE
 		pt : POINTrecord
 	END;
 	
-	WindowProcType = PROCEDURE(hWnd, Msg, wParam, lParam : INTEGER) : INTEGER;
+	WindowProcType = PROCEDURE (hWnd, Msg, wParam, lParam : INTEGER) : INTEGER;
 	
-	WNDCLASSWrecord = RECORD
+	WNDCLASSrecord = RECORD
 		style : Dword;
 		lpfnWndProc : WindowProcType;
 		cbClsExtra, cbWndExtra : Dword;
@@ -29,16 +44,18 @@ TYPE
 	END;
 	
 VAR
-	GetModuleHandle : PROCEDURE(lpModuleName : INTEGER) : INTEGER;
-	RegisterClassW : PROCEDURE(lpWndClass : INTEGER) : INTEGER;
-	CreateWindowW : PROCEDURE(lpClassName, lpWindowName, dwStyle, x, y,
-	                          nWidth, nHeight, hWndParent, hMenu, hInstance,
-	                          lpParam : INTEGER) : INTEGER;
-	ShowWindow : PROCEDURE(hWnd, nCmdShow : INTEGER) : INTEGER;
-	GetMessageW : PROCEDURE(lpMsg, hWnd, uMsgFilterMin, uMsgFilterMax : INTEGER) : INTEGER;
-	TranslateMessage : PROCEDURE(lpMsg : INTEGER) : INTEGER;
-	DispatchMessage : PROCEDURE(lpMsg : INTEGER) : INTEGER;
-	DefWindowProc : WindowProcType;
+	GetModuleHandleW : PROCEDURE(lpModuleName : INTEGER) : INTEGER;
+	RegisterClassW : PROCEDURE (lpWndClass : INTEGER) : INTEGER;
+	CreateWindowExW : PROCEDURE (dwExStyle, lpClassName, lpWindowName, dwStyle,
+	                             x, y, nWidth, nHeight, hWndParent, hMenu,
+	                             hInstance, lpParam : INTEGER) : INTEGER;
+	ShowWindow : PROCEDURE (hWnd, nCmdShow : INTEGER) : INTEGER;
+	GetMessageW : PROCEDURE (lpMsg, hWnd, uMsgFilterMin, uMsgFilterMax : INTEGER) : INTEGER;
+	TranslateMessage : PROCEDURE (lpMsg : INTEGER) : INTEGER;
+	DispatchMessageW : PROCEDURE (lpMsg : INTEGER) : INTEGER;
+	DefWindowProcW : WindowProcType;
+	DestroyWindow : PROCEDURE (hWnd : INTEGER) : INTEGER;
+	PostQuitMessage : PROCEDURE (nExitCode : INTEGER);
 	
 PROCEDURE MakeAnsiStr (VAR out : AnsiStr; in : ARRAY OF CHAR);
 	VAR
@@ -82,30 +99,77 @@ BEGIN
 	LoadLibrary (kernel32, 'kernel32.dll');
 	LoadLibrary (user32, 'user32.dll');
 	
-	MakeAnsiStr (s, 'GetModuleHandle');
-	GetProcAddress (GetModuleHandle, kernel32, ADR(s));
+	MakeAnsiStr (s, 'GetModuleHandleW');
+	GetProcAddress (GetModuleHandleW, kernel32, ADR(s));
 	MakeAnsiStr (s, 'RegisterClassW');
 	GetProcAddress (RegisterClassW, user32, ADR(s));
-	MakeAnsiStr (s, 'CreateWindowW');
-	GetProcAddress (CreateWindowW, user32, ADR(s));
+	MakeAnsiStr (s, 'CreateWindowExW');
+	GetProcAddress (CreateWindowExW, user32, ADR(s));
 	MakeAnsiStr (s, 'ShowWindow');
 	GetProcAddress (ShowWindow, user32, ADR(s));
 	MakeAnsiStr (s, 'GetMessageW');
 	GetProcAddress (GetMessageW, user32, ADR(s));
 	MakeAnsiStr (s, 'TranslateMessage');
 	GetProcAddress (TranslateMessage, user32, ADR(s));
-	MakeAnsiStr (s, 'DispatchMessage');
-	GetProcAddress (DispatchMessage, user32, ADR(s));
-	MakeAnsiStr (s, 'DefWindowProc');
-	GetProcAddress (DefWindowProc, user32, ADR(s))
+	MakeAnsiStr (s, 'DispatchMessageW');
+	GetProcAddress (DispatchMessageW, user32, ADR(s));
+	MakeAnsiStr (s, 'DefWindowProcW');
+	GetProcAddress (DefWindowProcW, user32, ADR(s));
+	MakeAnsiStr (s, 'DestroyWindow');
+	GetProcAddress (DestroyWindow, user32, ADR(s));
+	MakeAnsiStr (s, 'PostQuitMessage');
+	GetProcAddress (PostQuitMessage, user32, ADR(s))
 END InitLibrary;
+
+PROCEDURE WndProc (hWnd, Msg, wParam, lParam : INTEGER) : INTEGER;
+	VAR
+		r, res : INTEGER;
+BEGIN
+	r := 0;
+	IF Msg = WM_CLOSE THEN
+		res := DestroyWindow (hWnd)
+	ELSIF Msg = WM_DESTROY THEN
+		PostQuitMessage (0)
+	ELSE
+		r := DefWindowProcW (hWnd, Msg, wParam, lParam)
+	END
+RETURN r
+END WndProc;
 
 PROCEDURE Main;
 	VAR
-		s : AnsiStr;
-		winclass : WNDCLASSWrecord;
+		hInstance, className, res, res2, hWnd : INTEGER;
+		winclass : WNDCLASSrecord;
+		msg : MSGrecord;
 BEGIN
-	ZeroClearRecord (ADR(winclass), SIZE(WNDCLASSWrecord))
+	hInstance := GetModuleHandleW(0);
+	ZeroClearRecord (ADR(winclass), SIZE(WNDCLASSrecord));
+
+	className := ADR('MyClass');
+	winclass.lpfnWndProc := WndProc;
+	winclass.hInstance := hInstance;
+	winclass.lpszClassName := className;
+	winclass.hbrBackground := 1;
+	
+	res := RegisterClassW (ADR(winclass));
+	res := res MOD 65536;
+	IF res # 0 THEN
+		hWnd := CreateWindowExW (0, className, ADR('MyWindow'), ORD(WS_TILEDWINDOW),
+		                         0, 0, 640, 480, 0, 0, hInstance, 0);
+		res := hWnd
+	END;
+	
+	IF res # 0 THEN
+		res := ShowWindow (hWnd, 1);
+		REPEAT
+			res := GetMessageW (ADR(msg), 0, 0, 0);
+			IF res > 0 THEN
+				res2 := TranslateMessage (ADR(msg));
+				res2 := DispatchMessageW (ADR(msg))
+			ELSIF res < 0 THEN
+			END
+		UNTIL res <= 0
+	END
 END Main;
 
 BEGIN

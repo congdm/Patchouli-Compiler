@@ -1215,7 +1215,7 @@ PROCEDURE expression (VAR x : Base.Item);
 		ELSIF (op = Base.sym_equal) OR (op = Base.sym_not_equal) THEN
 			IF Base.Equalable (x, y) = 0 THEN Generator.Relation (op, x, y)
 			ELSE Scanner.Mark ('Invalid comparison') END
-		ELSIF (op = Base.sym_less_equal) OR (op = Base.sym_greater_equal)
+		ELSIF ((op = Base.sym_less_equal) OR (op = Base.sym_greater_equal))
 		& (x.type = Base.set_type) THEN
 			IF y.type = Base.set_type THEN Generator.Inclusion (x, y)
 			ELSE Scanner.Mark ('Expected a SET in inclusion relation') END

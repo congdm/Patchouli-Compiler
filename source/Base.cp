@@ -662,6 +662,8 @@ PROCEDURE Assignable* (dst_type : Type; VAR src : Item) : INTEGER;
 			END
 	ELSIF src_csf = csf_Procedure THEN
 		IF dst_csf # csf_Procedure THEN
+			Write_number_to_console (dst_csf);
+			Console.WriteLn;
 			result := 2
 		ELSIF src.mode = class_proc THEN
 			IF src.lev > 0 THEN

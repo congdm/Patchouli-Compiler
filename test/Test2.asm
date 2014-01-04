@@ -1,4 +1,4 @@
-format PE64
+format PE64 GUI
 entry Test2@@INIT
 
 section '.text' code readable executable
@@ -7,9 +7,9 @@ Test2@MakeAnsiStr:
 push	rbp
 mov	rbp, rsp
 sub	rsp, 24
-mov	qword [rbp + 16], rcx
-mov	qword [rbp + 24], rdx
-mov	qword [rbp + 32], r8
+mov	[rbp + 16], rcx
+mov	[rbp + 24], rdx
+mov	[rbp + 32], r8
 push	r12
 mov	r10, qword [rbp + 32]
 mov	qword [rbp + -16], r10
@@ -66,8 +66,8 @@ Test2@NullStringLen:
 push	rbp
 mov	rbp, rsp
 sub	rsp, 16
-mov	qword [rbp + 16], rcx
-mov	qword [rbp + 24], rdx
+mov	[rbp + 16], rcx
+mov	[rbp + 24], rdx
 mov	qword [rbp + -8], 0
 mov	byte [rbp + -9], 1
 Test2@NullStringLen@15:
@@ -101,8 +101,8 @@ Test2@ZeroClearRecord:
 push	rbp
 mov	rbp, rsp
 sub	rsp, 16
-mov	qword [rbp + 16], rcx
-mov	qword [rbp + 24], rdx
+mov	[rbp + 16], rcx
+mov	[rbp + 24], rdx
 mov	qword [rbp + -8], 0
 Test2@ZeroClearRecord@14:
 mov	r10, qword [rbp + -8]
@@ -141,7 +141,7 @@ mov	qword [rbp + -272], rax
 sub	rsp, 32
 lea	rcx, [rbp + -256]
 lea	rdx, [Test2@@STRING + 48]
-mov	r8, 16
+mov	r8, 17
 call	Test2@MakeAnsiStr
 add	rsp, 32
 lea	r10, [rbp + -256]
@@ -154,7 +154,7 @@ add	rsp, 32
 mov	qword [Test2@@VAR + 0], rax
 sub	rsp, 32
 lea	rcx, [rbp + -256]
-lea	rdx, [Test2@@STRING + 80]
+lea	rdx, [Test2@@STRING + 82]
 mov	r8, 15
 call	Test2@MakeAnsiStr
 add	rsp, 32
@@ -168,8 +168,8 @@ add	rsp, 32
 mov	qword [Test2@@VAR + 8], rax
 sub	rsp, 32
 lea	rcx, [rbp + -256]
-lea	rdx, [Test2@@STRING + 110]
-mov	r8, 14
+lea	rdx, [Test2@@STRING + 112]
+mov	r8, 16
 call	Test2@MakeAnsiStr
 add	rsp, 32
 lea	r10, [rbp + -256]
@@ -182,7 +182,7 @@ add	rsp, 32
 mov	qword [Test2@@VAR + 16], rax
 sub	rsp, 32
 lea	rcx, [rbp + -256]
-lea	rdx, [Test2@@STRING + 138]
+lea	rdx, [Test2@@STRING + 144]
 mov	r8, 11
 call	Test2@MakeAnsiStr
 add	rsp, 32
@@ -196,7 +196,7 @@ add	rsp, 32
 mov	qword [Test2@@VAR + 24], rax
 sub	rsp, 32
 lea	rcx, [rbp + -256]
-lea	rdx, [Test2@@STRING + 160]
+lea	rdx, [Test2@@STRING + 166]
 mov	r8, 12
 call	Test2@MakeAnsiStr
 add	rsp, 32
@@ -210,7 +210,7 @@ add	rsp, 32
 mov	qword [Test2@@VAR + 32], rax
 sub	rsp, 32
 lea	rcx, [rbp + -256]
-lea	rdx, [Test2@@STRING + 184]
+lea	rdx, [Test2@@STRING + 190]
 mov	r8, 17
 call	Test2@MakeAnsiStr
 add	rsp, 32
@@ -224,8 +224,8 @@ add	rsp, 32
 mov	qword [Test2@@VAR + 40], rax
 sub	rsp, 32
 lea	rcx, [rbp + -256]
-lea	rdx, [Test2@@STRING + 218]
-mov	r8, 16
+lea	rdx, [Test2@@STRING + 224]
+mov	r8, 17
 call	Test2@MakeAnsiStr
 add	rsp, 32
 lea	r10, [rbp + -256]
@@ -238,8 +238,8 @@ add	rsp, 32
 mov	qword [Test2@@VAR + 48], rax
 sub	rsp, 32
 lea	rcx, [rbp + -256]
-lea	rdx, [Test2@@STRING + 250]
-mov	r8, 14
+lea	rdx, [Test2@@STRING + 258]
+mov	r8, 15
 call	Test2@MakeAnsiStr
 add	rsp, 32
 lea	r10, [rbp + -256]
@@ -250,19 +250,188 @@ mov	rdx, r10
 call	[@GetProcAddress]
 add	rsp, 32
 mov	qword [Test2@@VAR + 56], rax
+sub	rsp, 32
+lea	rcx, [rbp + -256]
+lea	rdx, [Test2@@STRING + 288]
+mov	r8, 14
+call	Test2@MakeAnsiStr
+add	rsp, 32
+lea	r10, [rbp + -256]
+sub	rsp, 32
+mov	r11, qword [rbp + -272]
+mov	rcx, r11
+mov	rdx, r10
+call	[@GetProcAddress]
+add	rsp, 32
+mov	qword [Test2@@VAR + 64], rax
+sub	rsp, 32
+lea	rcx, [rbp + -256]
+lea	rdx, [Test2@@STRING + 316]
+mov	r8, 16
+call	Test2@MakeAnsiStr
+add	rsp, 32
+lea	r10, [rbp + -256]
+sub	rsp, 32
+mov	r11, qword [rbp + -272]
+mov	rcx, r11
+mov	rdx, r10
+call	[@GetProcAddress]
+add	rsp, 32
+mov	qword [Test2@@VAR + 72], rax
+leave
+ret
+
+Test2@WndProc:
+push	rbp
+mov	rbp, rsp
+sub	rsp, 16
+mov	[rbp + 16], rcx
+mov	[rbp + 24], rdx
+mov	[rbp + 32], r8
+mov	[rbp + 40], r9
+mov	qword [rbp + -8], 0
+cmp	qword [rbp + 24], 16
+jne	Test2@WndProc@23
+sub	rsp, 32
+mov	rcx, qword [rbp + 16]
+call	qword [Test2@@VAR + 64]
+add	rsp, 32
+mov	r10, rax
+mov	qword [rbp + -16], r10
+jmp	Test2@WndProc@39
+Test2@WndProc@23:
+cmp	qword [rbp + 24], 2
+jne	Test2@WndProc@30
+sub	rsp, 32
+mov	rcx, 0
+call	qword [Test2@@VAR + 72]
+add	rsp, 32
+jmp	Test2@WndProc@39
+Test2@WndProc@30:
+sub	rsp, 32
+mov	rcx, qword [rbp + 16]
+mov	rdx, qword [rbp + 24]
+mov	r8, qword [rbp + 32]
+mov	r9, qword [rbp + 40]
+call	qword [Test2@@VAR + 56]
+add	rsp, 32
+mov	r10, rax
+mov	qword [rbp + -8], r10
+Test2@WndProc@39:
+mov	rax, qword [rbp + -8]
 leave
 ret
 
 Test2@Main:
 push	rbp
 mov	rbp, rsp
-sub	rsp, 336
+sub	rsp, 160
 sub	rsp, 32
-lea	r10, [rbp + -328]
+mov	rcx, 0
+call	qword [Test2@@VAR + 0]
+add	rsp, 32
+mov	r10, rax
+mov	qword [rbp + -8], r10
+sub	rsp, 32
+lea	r10, [rbp + -112]
 mov	rcx, r10
 mov	rdx, 72
 call	Test2@ZeroClearRecord
 add	rsp, 32
+lea	r10, [Test2@@STRING + 348]
+mov	qword [rbp + -16], r10
+lea	r10, qword [Test2@WndProc]
+mov	qword [rbp + -104], r10
+mov	r10, qword [rbp + -8]
+mov	qword [rbp + -88], r10
+mov	r10, qword [rbp + -16]
+mov	qword [rbp + -48], r10
+mov	qword [rbp + -64], 1
+sub	rsp, 32
+lea	r10, [rbp + -112]
+mov	rcx, r10
+call	qword [Test2@@VAR + 8]
+add	rsp, 32
+mov	r10, rax
+mov	qword [rbp + -24], r10
+mov	r10, qword [rbp + -24]
+and	r10, 65535
+mov	qword [rbp + -24], r10
+cmp	qword [rbp + -24], 0
+je	Test2@Main@74
+sub	rsp, 96
+mov	rcx, 0
+mov	rdx, qword [rbp + -16]
+lea	r10, [Test2@@STRING + 364]
+mov	r8, r10
+mov	r9, 13565952
+xor	r10d, r10d
+mov	[rsp + 32], r10
+xor	r10d, r10d
+mov	[rsp + 40], r10
+mov	r10, 640
+mov	[rsp + 48], r10
+mov	r10, 480
+mov	[rsp + 56], r10
+xor	r10d, r10d
+mov	[rsp + 64], r10
+xor	r10d, r10d
+mov	[rsp + 72], r10
+mov	r10, qword [rbp + -8]
+mov	[rsp + 80], r10
+xor	r10d, r10d
+mov	[rsp + 88], r10
+call	qword [Test2@@VAR + 16]
+add	rsp, 96
+mov	r10, rax
+mov	qword [rbp + -40], r10
+mov	r10, qword [rbp + -40]
+mov	qword [rbp + -24], r10
+Test2@Main@74:
+cmp	qword [rbp + -24], 0
+je	Test2@Main@114
+sub	rsp, 32
+mov	rcx, qword [rbp + -40]
+mov	rdx, 1
+call	qword [Test2@@VAR + 24]
+add	rsp, 32
+mov	r10, rax
+mov	qword [rbp + -24], r10
+Test2@Main@83:
+sub	rsp, 32
+lea	r10, [rbp + -160]
+mov	rcx, r10
+mov	rdx, 0
+mov	r8, 0
+mov	r9, 0
+call	qword [Test2@@VAR + 32]
+add	rsp, 32
+mov	r10, rax
+mov	qword [rbp + -24], r10
+cmp	qword [rbp + -24], 0
+jle	Test2@Main@110
+sub	rsp, 32
+lea	r10, [rbp + -160]
+mov	rcx, r10
+call	qword [Test2@@VAR + 40]
+add	rsp, 32
+mov	r10, rax
+mov	qword [rbp + -32], r10
+sub	rsp, 32
+lea	r10, [rbp + -160]
+mov	rcx, r10
+call	qword [Test2@@VAR + 48]
+add	rsp, 32
+mov	r10, rax
+mov	qword [rbp + -32], r10
+jmp	Test2@Main@112
+Test2@Main@110:
+cmp	qword [rbp + -24], 0
+jge	Test2@Main@112
+Test2@Main@112:
+cmp	qword [rbp + -24], 0
+jg	Test2@Main@83
+Test2@Main@114:
 leave
 ret
 
@@ -308,8 +477,8 @@ call	[@ExitProcess]
 
 section '.data' data readable writable
 Test2@@TYPETAG dq 8,0,0,0,0,0,0,0,0,-1,48,0,0,0,0,0,0,0,0,-1,72,0,0,0,0,0,0,0,0,-1
-Test2@@STRING dw 107,101,114,110,101,108,51,50,46,100,108,108,0,117,115,101,114,51,50,46,100,108,108,0,71,101,116,77,111,100,117,108,101,72,97,110,100,108,101,0,82,101,103,105,115,116,101,114,67,108,97,115,115,87,0,67,114,101,97,116,101,87,105,110,100,111,119,87,0,83,104,111,119,87,105,110,100,111,119,0,71,101,116,77,101,115,115,97,103,101,87,0,84,114,97,110,115,108,97,116,101,77,101,115,115,97,103,101,0,68,105,115,112,97,116,99,104,77,101,115,115,97,103,101,0,68,101,102,87,105,110,100,111,119,80,114,111,99,0
-Test2@@VAR db 64 dup ?
+Test2@@STRING dw 107,101,114,110,101,108,51,50,46,100,108,108,0,117,115,101,114,51,50,46,100,108,108,0,71,101,116,77,111,100,117,108,101,72,97,110,100,108,101,87,0,82,101,103,105,115,116,101,114,67,108,97,115,115,87,0,67,114,101,97,116,101,87,105,110,100,111,119,69,120,87,0,83,104,111,119,87,105,110,100,111,119,0,71,101,116,77,101,115,115,97,103,101,87,0,84,114,97,110,115,108,97,116,101,77,101,115,115,97,103,101,0,68,105,115,112,97,116,99,104,77,101,115,115,97,103,101,87,0,68,101,102,87,105,110,100,111,119,80,114,111,99,87,0,68,101,115,116,114,111,121,87,105,110,100,111,119,0,80,111,115,116,81,117,105,116,77,101,115,115,97,103,101,0,77,121,67,108,97,115,115,0,77,121,87,105,110,100,111,119,0
+Test2@@VAR db 80 dup ?
 
 section '.idata' import data readable writeable
 dd 0,0,0,RVA @kernel_name,RVA @kernel_table

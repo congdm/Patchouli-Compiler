@@ -7,9 +7,9 @@ Test@MakeAnsiStr:
 push	rbp
 mov	rbp, rsp
 sub	rsp, 24
-mov	qword [rbp + 16], rcx
-mov	qword [rbp + 24], rdx
-mov	qword [rbp + 32], r8
+mov	[rbp + 16], rcx
+mov	[rbp + 24], rdx
+mov	[rbp + 32], r8
 push	r12
 mov	r10, qword [rbp + 32]
 mov	qword [rbp + -16], r10
@@ -66,8 +66,8 @@ Test@NullStringLen:
 push	rbp
 mov	rbp, rsp
 sub	rsp, 16
-mov	qword [rbp + 16], rcx
-mov	qword [rbp + 24], rdx
+mov	[rbp + 16], rcx
+mov	[rbp + 24], rdx
 mov	qword [rbp + -8], 0
 mov	byte [rbp + -9], 1
 Test@NullStringLen@15:
@@ -174,8 +174,8 @@ Test@WriteAnsiString:
 push	rbp
 mov	rbp, rsp
 sub	rsp, 16
-mov	qword [rbp + 16], rcx
-mov	qword [rbp + 24], rdx
+mov	[rbp + 16], rcx
+mov	[rbp + 24], rdx
 sub	rsp, 48
 mov	rcx, qword [Test@@VAR + 24]
 mov	r10, [rbp + 16]
@@ -194,7 +194,7 @@ mov	r8, r10
 lea	r10, qword [rbp + -16]
 mov	r9, r10
 xor	r10d, r10d
-mov	[rsp + 48], r10
+mov	[rsp + 32], r10
 call	qword [Test@@VAR + 16]
 add	rsp, 48
 mov	r10, rax
