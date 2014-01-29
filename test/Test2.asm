@@ -1,4 +1,4 @@
-format PE64 GUI
+format PE64
 entry Test2@@INIT
 
 section '.text' code readable executable
@@ -13,15 +13,16 @@ mov	[rbp + 32], r8
 push	r12
 mov	r10, qword [rbp + 32]
 mov	qword [rbp + -16], r10
-cmp	qword [rbp + -16], 256
-jle	Test2@MakeAnsiStr@18
+mov	r10, qword [rbp + -16]
+cmp	r10, 256
+jle	Test2@MakeAnsiStr@19
 mov	qword [rbp + -16], 256
-Test2@MakeAnsiStr@18:
-mov	qword [rbp + -8], 0
 Test2@MakeAnsiStr@19:
+mov	qword [rbp + -8], 0
+Test2@MakeAnsiStr@20:
 mov	r10, qword [rbp + -8]
 cmp	r10, qword [rbp + -16]
-jge	Test2@MakeAnsiStr@39
+jge	Test2@MakeAnsiStr@40
 mov	r10, [rbp + 16]
 mov	r11, qword [rbp + -8]
 cmp	r11, 256
@@ -38,8 +39,8 @@ mov	r10, qword [rbp + -8]
 add	r10, 1
 jo	INTEGER_OVERFLOW_TRAP
 mov	qword [rbp + -8], r10
-jmp	Test2@MakeAnsiStr@19
-Test2@MakeAnsiStr@39:
+jmp	Test2@MakeAnsiStr@20
+Test2@MakeAnsiStr@40:
 mov	r10, qword [rbp + -16]
 sub	r10, 1
 jo	INTEGER_OVERFLOW_TRAP
@@ -47,8 +48,9 @@ mov	r11, [rbp + 16]
 cmp	r10, 256
 jae	INVALID_ARRAY_INDEX_TRAP
 lea	r10, [r11 + r10 * 1 + 0]
-cmp	byte [r10 + 0], 0
-je	Test2@MakeAnsiStr@56
+movzx	r10, byte [r10 + 0]
+cmp	r10, 0
+je	Test2@MakeAnsiStr@58
 mov	r10, qword [rbp + -16]
 sub	r10, 1
 jo	INTEGER_OVERFLOW_TRAP
@@ -57,7 +59,7 @@ cmp	r10, 256
 jae	INVALID_ARRAY_INDEX_TRAP
 lea	r10, [r11 + r10 * 1 + 0]
 mov	byte [r10 + 0], 0
-Test2@MakeAnsiStr@56:
+Test2@MakeAnsiStr@58:
 pop	r12
 leave
 ret
@@ -73,26 +75,27 @@ mov	byte [rbp + -9], 1
 Test2@NullStringLen@15:
 mov	r10, qword [rbp + -8]
 cmp	r10, qword [rbp + 24]
-jge	Test2@NullStringLen@34
+jge	Test2@NullStringLen@35
 cmp	byte [rbp + -9], 0
-je	Test2@NullStringLen@34
+je	Test2@NullStringLen@35
 mov	r10, qword [rbp + -8]
 mov	r11, [rbp + 16]
 cmp	r10, qword [rbp + 24]
 jae	INVALID_ARRAY_INDEX_TRAP
-lea	r10, [r11 + r10 * 1 + 0]
-cmp	byte [r10 + 0], 0
-je	Test2@NullStringLen@32
+lea	r10, qword [r11 + r10 * 1 + 0]
+movzx	r10, byte [r10 + 0]
+cmp	r10, 0
+je	Test2@NullStringLen@33
 mov	r10, qword [rbp + -8]
 add	r10, 1
 jo	INTEGER_OVERFLOW_TRAP
 mov	qword [rbp + -8], r10
-jmp	Test2@NullStringLen@33
-Test2@NullStringLen@32:
-mov	byte [rbp + -9], 0
+jmp	Test2@NullStringLen@34
 Test2@NullStringLen@33:
-jmp	Test2@NullStringLen@15
+mov	byte [rbp + -9], 0
 Test2@NullStringLen@34:
+jmp	Test2@NullStringLen@15
+Test2@NullStringLen@35:
 mov	rax, qword [rbp + -8]
 leave
 ret
@@ -107,18 +110,17 @@ mov	qword [rbp + -8], 0
 Test2@ZeroClearRecord@14:
 mov	r10, qword [rbp + -8]
 cmp	r10, qword [rbp + 24]
-jge	Test2@ZeroClearRecord@27
+jge	Test2@ZeroClearRecord@26
 mov	r10, qword [rbp + 16]
 add	r10, qword [rbp + -8]
 jo	INTEGER_OVERFLOW_TRAP
-xor	r11d, r11d
-mov	byte [r10 + 0], r11l
-mov	r10, qword [rbp + -8]
-add	r10, 1
+mov	byte [r10 + 0], 0
+mov	r11, qword [rbp + -8]
+add	r11, 1
 jo	INTEGER_OVERFLOW_TRAP
-mov	qword [rbp + -8], r10
+mov	qword [rbp + -8], r11
 jmp	Test2@ZeroClearRecord@14
-Test2@ZeroClearRecord@27:
+Test2@ZeroClearRecord@26:
 leave
 ret
 
@@ -290,24 +292,26 @@ mov	[rbp + 24], rdx
 mov	[rbp + 32], r8
 mov	[rbp + 40], r9
 mov	qword [rbp + -8], 0
-cmp	qword [rbp + 24], 16
-jne	Test2@WndProc@23
+mov	r10, qword [rbp + 24]
+cmp	r10, 16
+jne	Test2@WndProc@24
 sub	rsp, 32
 mov	rcx, qword [rbp + 16]
 call	qword [Test2@@VAR + 64]
 add	rsp, 32
 mov	r10, rax
 mov	qword [rbp + -16], r10
-jmp	Test2@WndProc@39
-Test2@WndProc@23:
-cmp	qword [rbp + 24], 2
-jne	Test2@WndProc@30
+jmp	Test2@WndProc@41
+Test2@WndProc@24:
+mov	r10, qword [rbp + 24]
+cmp	r10, 2
+jne	Test2@WndProc@32
 sub	rsp, 32
 mov	rcx, 0
 call	qword [Test2@@VAR + 72]
 add	rsp, 32
-jmp	Test2@WndProc@39
-Test2@WndProc@30:
+jmp	Test2@WndProc@41
+Test2@WndProc@32:
 sub	rsp, 32
 mov	rcx, qword [rbp + 16]
 mov	rdx, qword [rbp + 24]
@@ -317,7 +321,7 @@ call	qword [Test2@@VAR + 56]
 add	rsp, 32
 mov	r10, rax
 mov	qword [rbp + -8], r10
-Test2@WndProc@39:
+Test2@WndProc@41:
 mov	rax, qword [rbp + -8]
 leave
 ret
@@ -326,6 +330,7 @@ Test2@Main:
 push	rbp
 mov	rbp, rsp
 sub	rsp, 160
+mov	qword [rbp + -104], 0
 sub	rsp, 32
 mov	rcx, 0
 call	qword [Test2@@VAR + 0]
@@ -357,8 +362,9 @@ mov	qword [rbp + -24], r10
 mov	r10, qword [rbp + -24]
 and	r10, 65535
 mov	qword [rbp + -24], r10
-cmp	qword [rbp + -24], 0
-je	Test2@Main@74
+mov	r10, qword [rbp + -24]
+cmp	r10, 0
+je	Test2@Main@76
 sub	rsp, 96
 mov	rcx, 0
 mov	rdx, qword [rbp + -16]
@@ -387,9 +393,10 @@ mov	r10, rax
 mov	qword [rbp + -40], r10
 mov	r10, qword [rbp + -40]
 mov	qword [rbp + -24], r10
-Test2@Main@74:
-cmp	qword [rbp + -24], 0
-je	Test2@Main@114
+Test2@Main@76:
+mov	r10, qword [rbp + -24]
+cmp	r10, 0
+je	Test2@Main@120
 sub	rsp, 32
 mov	rcx, qword [rbp + -40]
 mov	rdx, 1
@@ -397,7 +404,7 @@ call	qword [Test2@@VAR + 24]
 add	rsp, 32
 mov	r10, rax
 mov	qword [rbp + -24], r10
-Test2@Main@83:
+Test2@Main@86:
 sub	rsp, 32
 lea	r10, [rbp + -160]
 mov	rcx, r10
@@ -408,8 +415,9 @@ call	qword [Test2@@VAR + 32]
 add	rsp, 32
 mov	r10, rax
 mov	qword [rbp + -24], r10
-cmp	qword [rbp + -24], 0
-jle	Test2@Main@110
+mov	r10, qword [rbp + -24]
+cmp	r10, 0
+jle	Test2@Main@114
 sub	rsp, 32
 lea	r10, [rbp + -160]
 mov	rcx, r10
@@ -424,26 +432,28 @@ call	qword [Test2@@VAR + 48]
 add	rsp, 32
 mov	r10, rax
 mov	qword [rbp + -32], r10
-jmp	Test2@Main@112
-Test2@Main@110:
-cmp	qword [rbp + -24], 0
-jge	Test2@Main@112
-Test2@Main@112:
-cmp	qword [rbp + -24], 0
-jg	Test2@Main@83
+jmp	Test2@Main@117
 Test2@Main@114:
+mov	r10, qword [rbp + -24]
+cmp	r10, 0
+jge	Test2@Main@117
+Test2@Main@117:
+mov	r10, qword [rbp + -24]
+cmp	r10, 0
+jg	Test2@Main@86
+Test2@Main@120:
 leave
 ret
 
 Test2@@INIT:
 push	rbp
 mov	rbp, rsp
-lea	rax, [Test2@@TYPETAG + 0]
-mov	[Test2@@TYPETAG + 8], rax
-lea	rax, [Test2@@TYPETAG + 80]
-mov	[Test2@@TYPETAG + 88], rax
-lea	rax, [Test2@@TYPETAG + 160]
-mov	[Test2@@TYPETAG + 168], rax
+lea	rax, qword [Test2@@TYPEDESC + 0]
+mov	qword [Test2@@TYPEDESC + 8], rax
+lea	rax, qword [Test2@@TYPEDESC + 80]
+mov	qword [Test2@@TYPEDESC + 88], rax
+lea	rax, qword [Test2@@TYPEDESC + 160]
+mov	qword [Test2@@TYPEDESC + 168], rax
 sub	rsp, 32
 call	Test2@InitLibrary
 add	rsp, 32
@@ -476,22 +486,39 @@ mov	ecx, -4
 call	[@ExitProcess]
 
 section '.data' data readable writable
-Test2@@TYPETAG dq 8,0,0,0,0,0,0,0,0,-1,48,0,0,0,0,0,0,0,0,-1,72,0,0,0,0,0,0,0,0,-1
+Test2@@TYPEDESC dq 8,0,0,0,0,0,0,0,0,-1,48,0,0,0,0,0,0,0,0,-1,72,0,0,0,0,0,0,0,0,-1
 Test2@@STRING dw 107,101,114,110,101,108,51,50,46,100,108,108,0,117,115,101,114,51,50,46,100,108,108,0,71,101,116,77,111,100,117,108,101,72,97,110,100,108,101,87,0,82,101,103,105,115,116,101,114,67,108,97,115,115,87,0,67,114,101,97,116,101,87,105,110,100,111,119,69,120,87,0,83,104,111,119,87,105,110,100,111,119,0,71,101,116,77,101,115,115,97,103,101,87,0,84,114,97,110,115,108,97,116,101,77,101,115,115,97,103,101,0,68,105,115,112,97,116,99,104,77,101,115,115,97,103,101,87,0,68,101,102,87,105,110,100,111,119,80,114,111,99,87,0,68,101,115,116,114,111,121,87,105,110,100,111,119,0,80,111,115,116,81,117,105,116,77,101,115,115,97,103,101,0,77,121,67,108,97,115,115,0,77,121,87,105,110,100,111,119,0
 Test2@@VAR db 80 dup ?
 
 section '.idata' import data readable writeable
-dd 0,0,0,RVA @kernel_name,RVA @kernel_table
-dd 0,0,0,0,0
-@kernel_table:
-@ExitProcess dq RVA @nameofExitProcess
-@LoadLibrary dq RVA @nameofLoadLibrary
-@GetProcAddress dq RVA @nameofGetProcAddress
-dq 0
-@kernel_name db 'KERNEL32.DLL',0
-@nameofExitProcess dw 0
-db 'ExitProcess',0
-@nameofLoadLibrary dw 0
-db 'LoadLibraryW',0
-@nameofGetProcAddress dw 0
-db 'GetProcAddress',0
+	dd 0,0,0,RVA @kernel32_name,RVA @kernel32_table
+	dd 0,0,0,RVA @rtl_name,RVA @rtl_table
+	dd 0,0,0,0,0
+	
+	@kernel32_table:
+	@ExitProcess dq RVA @nameofExitProcess
+	@LoadLibrary dq RVA @nameofLoadLibrary
+	@GetProcAddress dq RVA @nameofGetProcAddress
+	dq 0
+	
+	@rtl_table:
+	@NEW dq RVA @nameofNEW
+	;@RegisterModule dq RVA @nameofRegisterModule
+	@DISPOSE dq RVA @nameofDISPOSE
+	dq 0
+	
+	@kernel32_name db 'KERNEL32.DLL',0
+	@rtl_name db 'RTL.DLL',0
+	
+	@nameofExitProcess dw 0
+	db 'ExitProcess',0
+	@nameofLoadLibrary dw 0
+	db 'LoadLibraryW',0
+	@nameofGetProcAddress dw 0
+	db 'GetProcAddress',0
+	@nameofNEW dw 0
+	db 'New',0
+	@nameofRegisterModule dw 0
+	db 'RegisterModule',0
+	@nameofDISPOSE dw 0
+	db 'Dispose',0

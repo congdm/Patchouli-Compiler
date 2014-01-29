@@ -7,10 +7,11 @@ TYPE
 	AnsiStr = ARRAY 256 OF BYTE;
 	
 VAR
-	AllocConsole : PROCEDURE() : INTEGER;
+	AllocConsole : PROCEDURE () : INTEGER;
 	GetStdHandle : PROCEDURE(nStdHandle : INTEGER) : INTEGER;
-	WriteFile : PROCEDURE(hFile, lpBuffer, nNumberOfBytesToWrite,
-	                      lpNumberOfBytesWritten, lpOverlapped : INTEGER) : INTEGER;
+	WriteFile : PROCEDURE (hFile, lpBuffer, nNumberOfBytesToWrite,
+	                       lpNumberOfBytesWritten,
+						   lpOverlapped : INTEGER) : INTEGER;
 	
 	stdout : INTEGER;
 	
@@ -55,7 +56,7 @@ PROCEDURE InitConsole;
 	VAR
 		res : INTEGER;
 BEGIN
-	res := AllocConsole();
+	res := AllocConsole ();
 	stdout := GetStdHandle(STD_OUTPUT_HANDLE)
 END InitConsole;
 
@@ -63,7 +64,7 @@ PROCEDURE WriteAnsiString (str : ARRAY OF BYTE);
 	VAR
 		res, n : INTEGER;
 BEGIN
-	res := WriteFile(stdout, ADR(str), NullStringLen(str), ADR(n), 0)
+	res := WriteFile (stdout, ADR(str), NullStringLen(str), ADR(n), 0)
 END WriteAnsiString;
 
 PROCEDURE Main;

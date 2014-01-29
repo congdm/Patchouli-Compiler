@@ -1,33 +1,37 @@
 MODULE Scanner;
 
 IMPORT
-	Console, Base;
+	Sys, Base;
+	
+CONST
+	failed = FALSE; success = TRUE;
 
 VAR
 	val* : INTEGER;
-	have_error* : BOOLEAN;
+	realval* : INTEGER;
+	have_error*, overflow* : BOOLEAN;
 	id* : Base.String;
 	
 	max_int : ARRAY 22 OF CHAR;
 	max_int_len : INTEGER;
 	
-	srcfile : Base.FileHandle;
+	srcfile : Sys.FileHandle;
 	ch : CHAR;
 	char_num : INTEGER;
 	eof : BOOLEAN;
 
-PROCEDURE Init* (VAR file : Base.FileHandle);
+PROCEDURE Init* (VAR file : Sys.FileHandle);
 	BEGIN
 	srcfile := file;
 	ch := 0X;
 	char_num := 0;
 	have_error := FALSE;
-	eof := FALSE;
+	eof := FALSE
 	END Init;
 
 PROCEDURE Read_char;
 	BEGIN
-	IF Base.Read_char (srcfile, ch) = Base.failed THEN
+	IF Sys.Read_char (srcfile, ch) = failed THEN
 		eof := TRUE;
 		ch := 0X;
 	ELSE
@@ -39,18 +43,18 @@ PROCEDURE Mark* (str : ARRAY OF CHAR);
 	VAR
 		s : ARRAY 22 OF CHAR;
 	BEGIN
-	Base.Int_to_string (char_num, s);
-	Console.WriteString (s);
-	Console.WriteString (': ');
-	Console.WriteString (str);
-	Console.WriteLn
+	Sys.Int_to_string (char_num, s);
+	Sys.Console_WriteString (s);
+	Sys.Console_WriteString (': ');
+	Sys.Console_WriteString (str);
+	Sys.Console_WriteLn
 	END Mark;
 
 PROCEDURE Skip_blank_and_comment;
 	BEGIN
 	WHILE ~ eof & (ch <= ' ') DO
-		Read_char;
-		END;
+		Read_char
+		END
 	END Skip_blank_and_comment;
 
 PROCEDURE Get_word (VAR sym : INTEGER);
@@ -85,7 +89,9 @@ PROCEDURE Get_word (VAR sym : INTEGER);
 				sym := Base.sym_array;
 				END; |
 		'B':
-			IF (i = 5) & Base.Str_equal (id, 'BEGIN') THEN
+			IF (i = 2) & (id.content [1] = 'Y') THEN
+				sym := Base.sym_by
+			ELSIF (i = 5) & Base.Str_equal (id, 'BEGIN') THEN
 				sym := Base.sym_begin;
 				END; |
 		'C':
@@ -181,28 +187,37 @@ PROCEDURE Get_word (VAR sym : INTEGER);
 		ELSE (* Do nothing *)
 		END;
 	END Get_word;
+	
+PROCEDURE Get_number2;
+	VAR
+		decimal_int, hex_int, single : INTEGER;
+		double : LONGINT;
+	BEGIN
+	int := 0; single := 0; double := 0;
+	
+	END Get_number2;
 
 PROCEDURE Get_number;
 	VAR
 		s : ARRAY 21 OF CHAR;
 		i, len : INTEGER;
-		flag : BOOLEAN;
+		overflow_flag, hex_flag : BOOLEAN;
 	BEGIN
-	i := 0;
-	flag := TRUE;
+	i := 0; overflow_flag := FALSE; hex_flag := FALSE
 	WHILE (ch = '0') DO Read_char END;
-	WHILE (ch >= '0') & (ch <= '9') DO
-		IF flag THEN
-			IF i < max_int_len THEN
+	WHILE (ch >= '0') & (ch <= '9') OR (ch >= 'A') & (ch <= 'F') DO
+		IF flag >= 0 THEN
+			IF i < LEN (s) THEN
 				s [i] := ch;
 				INC (i)
 			ELSE
 				Mark ('This number is too large to handle (compiler limit)');
-				flag := FALSE
+				flag := -1
 				END
 			END;
 		Read_char
 		END;
+	
 	val := 0;
 	IF flag THEN
 		len := i;
@@ -331,6 +346,6 @@ PROCEDURE Get* (VAR sym : INTEGER);
 	END Get;
 	
 BEGIN
-Base.Int_to_string (Base.MAX_INT, max_int);
+Sys.Int_to_string (Base.MAX_INT, max_int);
 max_int_len := Base.Str_len (max_int);
 END Scanner.

@@ -1,7 +1,7 @@
 MODULE AyaCompile;
 
 IMPORT
-	Base, Scanner, Parser, CPmain, Console, ProgArgs;
+	CPmain, Sys, Scanner, Parser, Console, ProgArgs;
 	
 VAR
 	str : ARRAY 256 OF CHAR;
@@ -9,12 +9,12 @@ VAR
 	
 PROCEDURE Compile (filename : ARRAY OF CHAR);
 	VAR
-		in : Base.FileHandle;
+		in : Sys.FileHandle;
 	BEGIN
-	Base.Open (in, filename);
+	Sys.Open (in, filename);
 	Scanner.Init (in);
 	Parser.Module;
-	Base.Close (in)
+	Sys.Close (in)
 	END Compile;
 	
 PROCEDURE Valid_filename (filename : ARRAY OF CHAR) : BOOLEAN;

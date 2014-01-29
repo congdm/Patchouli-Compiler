@@ -1,7 +1,7 @@
 MODULE GeneratorWin64;
 
 IMPORT
-	SYSTEM, Base, Scanner;
+	SYSTEM, Sys, Base, Scanner;
 	
 CONST
 	MAX_INT32 = 2147483647;
@@ -17,7 +17,8 @@ CONST
 	
 	op_NOP = 0;
 	op_MOV = 1; op_MOVSX = 2; op_MOVZX = 3; op_LEA = 4; op_PUSH = 5; op_POP = 6;
-	op_XCHG = 7; op_CQO = 8; op_REP_MOVSB = 9;
+	op_XCHG = 7; op_CQO = 8; op_REP_MOVSB = 9; op_REP_STOSQ = 10;
+	op_REP_STOSB = 11;
 	
 	op_ADD = 20; op_SUB = 21; op_IMUL = 22; op_IDIV = 23; op_NEG = 24;
 	op_AND = 25; op_OR = 26; op_XOR = 27; op_NOT = 28; op_CMP = 29;
@@ -86,16 +87,16 @@ VAR
 	reg_table : ARRAY 256, 6 OF CHAR;
 	sym_array_index_trap, sym_integer_overflow_trap : Base.String;
 	sym_invalid_divisor_trap, sym_type_check_trap : Base.String;
-	sym_varbase, sym_stringbase, sym_tagbase : Base.String;
+	sym_varbase, sym_stringbase, sym_tdbase : Base.String;
 
-	out : Base.FileHandle;
+	out, datafile : Sys.FileHandle;
 	codes : ARRAY 20000 OF Instruction;
 	strings : ARRAY 131072 OF CHAR;
-	record_type_list : ARRAY Base.max_number_record_types OF Base.Type;
+	type_desc_list : ARRAY Base.max_number_record_types OF Base.Type;
 	modid : Base.String;
 	
 	pc* : INTEGER;
-	str_offset, tag_offset, record_no : INTEGER;
+	str_offset, td_offset, record_no : INTEGER;
 	reg_stack, mem_stack, param_regs_usage : INTEGER;
 	used_regs : SET;
 	stack_frame_usage, stack_frame_size : INTEGER;
@@ -107,10 +108,10 @@ PROCEDURE Write_scope_name (scope : Base.Object);
 	BEGIN
 	IF scope.dsc # NIL THEN
 		Write_scope_name (scope.dsc);
-		Base.Write_char (out, '@');
-		Base.Write_string (out, scope.name.content)
+		Sys.Write_char (out, '@');
+		Sys.Write_string (out, scope.name.content)
 	ELSE
-		Base.Write_string (out, scope.name.content)
+		Sys.Write_string (out, scope.name.content)
 		END
 	END Write_scope_name;
 	
@@ -122,81 +123,81 @@ PROCEDURE Write_instruction (VAR inst : Instruction);
 			BEGIN
 			CASE mem.size OF
 				0: (* Do nothing *) |
-				1: Base.Write_string (out, 'byte ') |
-				2: Base.Write_string (out, 'word ') |
-				4: Base.Write_string (out, 'dword ') |
-				8: Base.Write_string (out, 'qword ')
+				1: Sys.Write_string (out, 'byte ') |
+				2: Sys.Write_string (out, 'word ') |
+				4: Sys.Write_string (out, 'dword ') |
+				8: Sys.Write_string (out, 'qword ')
 				END
 			END Write_mem_prefix;
 	
 		BEGIN (* Write_operand *)
 		CASE op.form OF
 			form_reg:
-				Base.Write_string (out, reg_table [op.reg1]) |
+				Sys.Write_string (out, reg_table [op.reg1]) |
 			form_imm:
-				Base.Write_number (out, op.imm) |
+				Sys.Write_number (out, op.imm) |
 			form_mem_reg:
 				Write_mem_prefix (op);
-				Base.Write_char (out, '[');
-				Base.Write_string (out, reg_table [op.reg1]);
-				Base.Write_string (out, ' + ');
-				Base.Write_number (out, op.imm);
-				Base.Write_char (out, ']') |
+				Sys.Write_char (out, '[');
+				Sys.Write_string (out, reg_table [op.reg1]);
+				Sys.Write_string (out, ' + ');
+				Sys.Write_number (out, op.imm);
+				Sys.Write_char (out, ']') |
 			form_mem_pc:
 				Write_mem_prefix (op);
-				Base.Write_char (out, '[');
+				Sys.Write_char (out, '[');
 				Write_scope_name (Base.universe);
-				Base.Write_string (out, '@@');
-				Base.Write_string (out, op.sym.content);
-				Base.Write_string (out, ' + ');
-				Base.Write_number (out, op.imm);
-				Base.Write_char (out, ']') |
+				Sys.Write_string (out, '@@');
+				Sys.Write_string (out, op.sym.content);
+				Sys.Write_string (out, ' + ');
+				Sys.Write_number (out, op.imm);
+				Sys.Write_char (out, ']') |
 			form_mem_scale:
 				Write_mem_prefix (op);
-				Base.Write_char (out, '[');
-				Base.Write_string (out, reg_table [op.reg1]);
-				Base.Write_string (out, ' + ');
-				Base.Write_string (out, reg_table [op.reg2]);
-				Base.Write_string (out, ' * ');
-				Base.Write_number (out, op.scale);
-				Base.Write_string (out, ' + ');
-				Base.Write_number (out, op.imm);
-				Base.Write_char (out, ']') |
+				Sys.Write_char (out, '[');
+				Sys.Write_string (out, reg_table [op.reg1]);
+				Sys.Write_string (out, ' + ');
+				Sys.Write_string (out, reg_table [op.reg2]);
+				Sys.Write_string (out, ' * ');
+				Sys.Write_number (out, op.scale);
+				Sys.Write_string (out, ' + ');
+				Sys.Write_number (out, op.imm);
+				Sys.Write_char (out, ']') |
 			form_mem_proc:
 				Write_mem_prefix (op);
-				Base.Write_char (out, '[');
+				Sys.Write_char (out, '[');
 				Write_scope_name (op.obj.scope);
-				Base.Write_char (out, '@');
-				Base.Write_string (out, op.obj.name.content);
-				Base.Write_char (out, ']') |
+				Sys.Write_char (out, '@');
+				Sys.Write_string (out, op.obj.name.content);
+				Sys.Write_char (out, ']') |
 			form_proc_name:
 				Write_scope_name (op.obj.scope);
-				Base.Write_char (out, '@');
-				Base.Write_string (out, op.obj.name.content) |
+				Sys.Write_char (out, '@');
+				Sys.Write_string (out, op.obj.name.content) |
 			form_label:
 				Write_scope_name (Base.top_scope);
-				Base.Write_char (out, '@');
-				Base.Write_number (out, op.imm) |
+				Sys.Write_char (out, '@');
+				Sys.Write_number (out, op.imm) |
 			form_sym:
-				Base.Write_string (out, op.sym.content)
+				Sys.Write_string (out, op.sym.content)
 			END
 		END Write_operand;
 
 	BEGIN (* Write_instruction *)
-	Base.Write_string (out, op_table [inst.op]);
+	Sys.Write_string (out, op_table [inst.op]);
 	IF inst.operands [0].form # form_nothing THEN
-		Base.Write_char (out, 9X);
+		Sys.Write_char (out, 9X);
 		Write_operand (inst.operands [0]);
 		IF inst.operands [1].form # form_nothing THEN
-			Base.Write_string (out, ', ');
+			Sys.Write_string (out, ', ');
 			Write_operand (inst.operands [1]);
 			IF inst.operands [2].form # form_nothing THEN
-				Base.Write_string (out, ', ');
+				Sys.Write_string (out, ', ');
 				Write_operand (inst.operands [2])
 				END
 			END
 		END;
-	Base.Write_newline (out)
+	Sys.Write_newline (out)
 	END Write_instruction;
 	
 PROCEDURE Inc_program_counter;
@@ -215,23 +216,23 @@ PROCEDURE Write_codes_to_file;
 	BEGIN
 	Write_scope_name (Base.top_scope);
 	IF Base.top_scope = Base.universe THEN
-		Base.Write_string (out, '@@INIT')
+		Sys.Write_string (out, '@@INIT')
 		END;
-	Base.Write_char (out, ':');
-	Base.Write_newline (out);
+	Sys.Write_char (out, ':');
+	Sys.Write_newline (out);
 	FOR i := 0 TO pc - 1 DO
 		IF ~ (flag_skiped IN codes [i].flag) THEN
 			IF flag_hasLabel IN codes [i].flag THEN
 				Write_scope_name (Base.top_scope);
-				Base.Write_char (out, '@');
-				Base.Write_number (out, i);
-				Base.Write_char (out, ':');
-				Base.Write_newline (out)
+				Sys.Write_char (out, '@');
+				Sys.Write_number (out, i);
+				Sys.Write_char (out, ':');
+				Sys.Write_newline (out)
 				END;
 			Write_instruction (codes [i])
 			END
 		END;
-	Base.Write_newline (out);
+	Sys.Write_newline (out);
 	
 	pc := -1;
 	Inc_program_counter
@@ -276,24 +277,24 @@ PROCEDURE Set_mem_operand (VAR o : Operand; VAR mem : Base.Item);
 		o.reg1 := reg_stackBase;
 		IF Base.flag_param IN mem.flag THEN o.imm := 16 + mem.a
 		ELSE o.imm := mem.a END
-	ELSE
+	ELSIF mem.lev = 0 THEN
 		o.form := form_mem_pc;
-		IF mem.lev = -1 THEN
-			o.sym := sym_tagbase
-		ELSIF mem.type.form = Base.type_string THEN
-			o.sym := sym_stringbase
-		ELSIF mem.lev = 0 THEN
-			o.sym := sym_varbase
-			END;
+		IF Base.flag_typeDesc IN mem.flag THEN o.sym := sym_tdbase
+		ELSIF mem.type.form = Base.type_string THEN o.sym := sym_stringbase
+		ELSE o.sym := sym_varbase END;
 		o.imm := mem.a
 		END;
 		
 	IF (mem.mode = Base.class_ref) OR (mem.type = NIL) THEN
 		o.size := 0
-	ELSIF mem.type.form IN Base.types_Scalar THEN
-		o.size := SHORT (SHORT (mem.type.size))
 	ELSE
-		o.size := 0
+		CASE mem.type.size OF
+			1: o.size := 1 |
+			2: o.size := 2 |
+			4: o.size := 4 |
+			8: o.size := 8
+			ELSE o.size := 0
+			END
 		END
 	END Set_mem_operand;
 	
@@ -425,25 +426,6 @@ PROCEDURE Emit_op_mem_imm (op : INTEGER; VAR mem : Base.Item; imm : INTEGER);
 	Inc_program_counter
 	END Emit_op_mem_imm;
 	
-PROCEDURE Emit_op_reg_reg_imm (op, r1, r2, imm : INTEGER);
-	BEGIN
-	codes [pc].op := op;
-	Set_reg_operand (codes [pc].operands [0], r1);
-	Set_reg_operand (codes [pc].operands [1], r2);
-	Set_imm_operand (codes [pc].operands [2], imm);
-	Inc_program_counter
-	END Emit_op_reg_reg_imm;
-	
-PROCEDURE Emit_op_reg_mem_imm
-(op, r : INTEGER; VAR mem : Base.Item; imm : INTEGER);
-	BEGIN
-	codes [pc].op := op;
-	Set_reg_operand (codes [pc].operands [0], r);
-	Set_mem_operand (codes [pc].operands [1], mem);
-	Set_imm_operand (codes [pc].operands [2], imm);
-	Inc_program_counter
-	END Emit_op_reg_mem_imm;
-	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
@@ -548,13 +530,14 @@ PROCEDURE Make_string* (VAR x : Base.Item; str : Base.String);
 	INC (str_offset, str.len + 1)
 	END Make_string;
 	
-PROCEDURE Make_tag_item (VAR x : Base.Item; typ : Base.Type);
+PROCEDURE Make_type_desc_item (VAR x : Base.Item; typ : Base.Type);
 	BEGIN
-	x.flag := {};
+	x.flag := {Base.flag_typeDesc};
 	x.mode := Base.class_var;
-	x.lev := -1;
-	x.a := typ.tag
-	END Make_tag_item;
+	x.type := Base.nil_type;
+	x.lev := 0;
+	x.a := typ.obj.val
+	END Make_type_desc_item;
 	
 PROCEDURE Make_len_item (VAR x : Base.Item; len_offset : INTEGER);
 	BEGIN
@@ -565,17 +548,20 @@ PROCEDURE Make_len_item (VAR x : Base.Item; len_offset : INTEGER);
 	x.lev := Base.cur_lev;
 	END Make_len_item;
 	
-PROCEDURE Alloc_type_tag* (typ : Base.Type);
+PROCEDURE Alloc_type_desc* (typ : Base.Type);
+	VAR
+		td_size : INTEGER;
 	BEGIN
-	IF record_no >= LEN (record_type_list) THEN
+	IF record_no >= LEN (type_desc_list) THEN
 		Scanner.Mark ('Too many record types (compiler limit)')
 	ELSE
-		record_type_list [record_no] := typ;
+		type_desc_list [record_no] := typ;
 		INC (record_no)
 		END;
-	typ.tag := tag_offset;
-	INC (tag_offset, 16 + 8 * (Base.type_extension_limit + 1) + 8 * typ.num_ptr)
-	END Alloc_type_tag;
+	typ.obj.val := td_offset;
+	td_size := 16 + 8 * (Base.type_extension_limit + 1) + 8 * typ.num_ptr;
+	INC (td_offset, td_size)
+	END Alloc_type_desc;
 	
 PROCEDURE Set_cond (VAR x : Base.Item; n : INTEGER);
 	BEGIN
@@ -666,7 +652,7 @@ PROCEDURE load* (VAR x : Base.Item);
 PROCEDURE Load_adr (VAR x : Base.Item);
 	BEGIN
 	IF x.mode = Base.mode_regI THEN
-		Emit_op_reg_mem (op_LEA, x.r, x)
+		IF x.a # 0 THEN Emit_op_reg_mem (op_LEA, x.r, x) END
 	ELSE
 		x.r := reg_stack;
 		Inc_reg_stack;
@@ -711,12 +697,15 @@ PROCEDURE Store* (VAR x, y : Base.Item);
 		y.a := ORD (strings [y.a DIV Base.char_type.size]) 
 		END;
 	
-	IF x.type.form IN Base.types_Scalar THEN
+	IF (x.type.size > 0) & (x.type.size <= 8)
+	& (x.type.size IN {1, 2, 4, 8}) THEN
 		IF y.mode # Base.class_const THEN
 			load (y);
 			Emit_op_mem_reg (op_MOV, x, Small_reg (y.r, x.type.size))
 		ELSE
-			Emit_op_mem_imm (op_MOV, x, y.a)
+			IF (x.type = Base.byte_type) & ((y.a < 0) OR (y.a > 255)) THEN
+				Scanner.Mark ('Const value out of BYTE range')
+			ELSE Emit_op_mem_imm (op_MOV, x, y.a) END
 			END
 	ELSIF x.type.form = Base.type_array THEN
 		Emit_op_reg_mem (op_LEA, -reg_RSI, y);
@@ -1308,7 +1297,7 @@ PROCEDURE Open_array_index (VAR x, y : Base.Item);
 			ELSIF e > 0 THEN
 				Emit_op_reg_imm (op_SHL, y.r, e)
 			ELSE
-				Emit_op_reg_reg_imm (op_IMUL, y.r, y.r, size)
+				Emit_op_reg_imm (op_IMUL, y.r, size)
 				END;
 		ELSE
 			ASSERT (typ.base.form = Base.type_array);
@@ -1348,7 +1337,7 @@ PROCEDURE Open_array_index (VAR x, y : Base.Item);
 			ELSE
 				e := Base.Integer_binary_logarithm (size);
 				IF e < 0 THEN
-					Emit_op_reg_reg_imm (op_IMUL, y.r, y.r, size); scale := 0
+					Emit_op_reg_imm (op_IMUL, y.r, size); scale := 0
 				ELSIF e > 3 THEN
 					Emit_op_reg_imm (op_SHL, y.r, e); scale := 0
 				ELSE scale := size END;
@@ -1389,7 +1378,7 @@ PROCEDURE Index* (VAR x, y : Base.Item);
 			size := x.type.base.size;
 			e := Base.Integer_binary_logarithm (size);
 			IF e < 0 THEN
-				Emit_op_reg_reg_imm (op_IMUL, y.r, y.r, size); scale := 0
+				Emit_op_reg_imm (op_IMUL, y.r, size); scale := 0
 			ELSIF e > 3 THEN
 				Emit_op_reg_imm (op_SHL, y.r, e); scale := 0
 			ELSE scale := size END;
@@ -1412,35 +1401,35 @@ PROCEDURE Type_guard* (VAR x : Base.Item; typ : Base.Type);
 		tag1, tag2 : Base.Item;
 	BEGIN
 	IF x.type # typ THEN
-		Make_tag_item (tag2, typ);
-		Emit_op_reg_mem (op_LEA, -reg_RAX, tag2);
-		
 		IF x.type.form = Base.type_pointer THEN
 			load (x);
 			tag1.flag := {};
 			tag1.mode := Base.mode_regI;
-			tag1.type := Base.int_type;
+			tag1.type := Base.nil_type;
 			tag1.r := x.r;
 			tag1.a := -8;
 			Inc_reg_stack;
 			Emit_op_reg_mem (op_MOV, reg_stack - 1, tag1);
 			tag1.r := reg_stack - 1;
+			tag1.a := 8 + typ.base.len * 8;
+			Make_type_desc_item (tag2, typ.base)
 		ELSE
 			(* x is record variable parameter *)
 			tag1.flag := {Base.flag_param};
 			tag1.mode := Base.class_ref;
-			tag1.type := Base.int_type;
+			tag1.type := Base.nil_type;
 			tag1.lev := x.lev;
 			tag1.a := x.a + 8;
-			Ref_to_regI (tag1)
-			END;
-			
-		tag1.a := 8 + typ.len * 8;
+			Ref_to_regI (tag1);
+			tag1.a := 8 + typ.len * 8;
+			Make_type_desc_item (tag2, typ)
+			END;	
+		Emit_op_reg_mem (op_LEA, -reg_RAX, tag2);
 		Emit_op_reg_mem (op_CMP, -reg_RAX, tag1);
 		Emit_op_sym (op_JNE, sym_type_check_trap);
 		Free_reg;
-		x.type := typ;
-		END;
+		x.type := typ
+		END
 	END Type_guard;
 	
 (* -------------------------------------------------------------------------- *)
@@ -1450,17 +1439,12 @@ PROCEDURE Scalar_comparison (op : INTEGER; VAR x, y : Base.Item);
 	VAR
 		r1, r2 : INTEGER;
 	BEGIN
-	IF x.mode = Base.class_ref THEN Ref_to_regI (x)
-	ELSIF x.mode = Base.class_proc THEN load (y)
+	IF x.mode = Base.class_proc THEN load (y)
 	ELSIF x.mode = Base.class_const THEN Check_const (x) END;
 	
 	IF y.mode = Base.class_ref THEN Ref_to_regI (y)
 	ELSIF (y.mode IN {Base.class_proc, Base.mode_cond}) THEN load (y)
 	ELSIF y.mode = Base.class_const THEN Check_const (y) END;
-	
-	IF (x.mode IN Base.cls_Variable) & (y.mode IN Base.cls_Variable) THEN
-		load (x)
-		END;
 	
 	IF x.mode = Base.mode_reg THEN
 		IF y.mode = Base.class_const THEN
@@ -1470,14 +1454,8 @@ PROCEDURE Scalar_comparison (op : INTEGER; VAR x, y : Base.Item);
 			Emit_op_reg_mem (op_CMP, r1, y)
 		ELSIF y.mode = Base.mode_reg THEN
 			Emit_op_reg_reg (op_CMP, x.r, y.r)
-			END
-	ELSIF x.mode IN Base.cls_Variable THEN
-		IF y.mode = Base.class_const THEN
-			Emit_op_mem_imm (op_CMP, x, y.a)
-		ELSIF y.mode = Base.mode_reg THEN
-			r2 := Small_reg (y.r, y.type.size);
-			Emit_op_mem_imm (op_CMP, x, r2)
-			END
+			END;
+		Free_reg
 	ELSIF x.mode = Base.class_const THEN
 		IF y.mode = Base.mode_reg THEN
 			Emit_op_reg_imm (op_CMP, y.r, x.a)
@@ -1491,8 +1469,7 @@ PROCEDURE Scalar_comparison (op : INTEGER; VAR x, y : Base.Item);
 			ELSIF op = Base.sym_greater_equal THEN op := Base.sym_less_equal END
 			END
 		END;
-	IF y.mode IN Base.modes_UseReg THEN Free_reg END;
-	IF x.mode IN Base.modes_UseReg THEN Free_reg END
+	IF y.mode IN Base.modes_UseReg THEN Free_reg END
 	END Scalar_comparison;
 	
 PROCEDURE String_comparison (op : INTEGER; VAR x, y : Base.Item);
@@ -1520,27 +1497,104 @@ PROCEDURE Relation* (op : INTEGER; VAR x, y : Base.Item);
 		ELSIF op = Base.sym_less THEN IF x.a < y.a THEN x.a := 1 ELSE x.a := 0 END
 		ELSIF op = Base.sym_less_equal THEN IF x.a <= y.a THEN x.a := 1 ELSE x.a := 0 END END;
 	ELSIF (x.mode = Base.class_proc) OR (x.type.form IN Base.types_Scalar) THEN
-		Scalar_comparison (op, x, y)
+		Scalar_comparison (op, x, y);
+		Set_cond (x, op - Base.sym_equal + op_JE)
 	ELSE
-		String_comparison (op, x, y)
+		String_comparison (op, x, y);
+		Set_cond (x, op - Base.sym_equal + op_JE)
 		END;
-	x.type := Base.bool_type;
-	Set_cond (x, op - Base.sym_equal + op_JE)
+	x.type := Base.bool_type
 	END Relation;
 	
 PROCEDURE Membership* (VAR x, y : Base.Item);
+	VAR
+		s : SET;
 	BEGIN
-	(* Implement later *)
+	IF (x.mode = Base.class_const) & (y.mode = Base.class_const) THEN
+		s := {}; SYSTEM.PUT (SYSTEM.ADR (s), y.a);
+		IF x.a IN s THEN x.a := 1 ELSE x.a := 0 END
+	ELSE
+		IF y.mode = Base.class_const THEN load (y)
+		ELSIF y.mode = Base.class_ref THEN Ref_to_regI (y) END;
+		
+		IF x.mode = Base.mode_reg THEN
+			IF y.mode = Base.mode_reg THEN Emit_op_reg_reg (op_BT, y.r, x.r)
+			ELSE Emit_op_mem_reg (op_BT, y, x.r) END;
+			Free_reg
+		ELSIF x.mode = Base.class_const THEN
+			IF y.mode = Base.mode_reg THEN Emit_op_reg_imm (op_BT, y.r, x.a)
+			ELSE Emit_op_mem_imm (op_BT, y, x.a) END
+			END;
+		IF y.mode IN Base.modes_UseReg THEN Free_reg END;
+		Set_cond (x, op_JC)
+		END;
+	x.type := Base.bool_type
 	END Membership;
 	
-PROCEDURE Inclusion* (VAR x, y : Base.Item);
+PROCEDURE Inclusion* (op : INTEGER; VAR x, y : Base.Item);
+	VAR
+		s1, s2 : SET;
 	BEGIN
-	(* Implement later *)
+	IF (x.mode = Base.class_const) & (y.mode = Base.class_const) THEN
+		s1 := {}; SYSTEM.PUT (SYSTEM.ADR (s1), x.a);
+		s2 := {}; SYSTEM.PUT (SYSTEM.ADR (s2), y.a);
+		IF op = Base.sym_less_equal THEN
+			IF s1 - s2 = {} THEN x.a := 1 ELSE x.a := 0 END
+		ELSE
+			IF s2 - s1 = {} THEN x.a := 1 ELSE x.a := 0 END
+			END
+	ELSE
+		IF op = Base.sym_less_equal THEN
+			IF x.mode = Base.class_const THEN Check_const (x) END;
+			load (y); Emit_op_reg (op_NOT, y.r);
+			IF x.mode = Base.class_const THEN Emit_op_reg_imm (op_AND, y.r, x.a)
+			ELSE Emit_op_reg_reg (op_AND, y.r, x.r); Free_reg END;
+			Free_reg;
+		ELSE
+			load (x); Emit_op_reg (op_NOT, x.r);
+			IF y.mode = Base.class_const THEN Check_const (y)
+			ELSIF y.mode = Base.class_ref THEN Ref_to_regI (y) END;
+			CASE y.mode OF
+				Base.mode_reg: Emit_op_reg_reg (op_AND, x.r, y.r); Free_reg |
+				Base.class_const: Emit_op_reg_imm (op_AND, x.r, y.a) |
+				Base.class_var: Emit_op_reg_mem (op_AND, x.r, y) |
+				Base.mode_regI: Emit_op_reg_mem (op_AND, x.r, y); Free_reg
+				END
+			END;
+		Set_cond (x, op_JE)
+		END;
+	x.type := Base.bool_type
 	END Inclusion;
 	
 PROCEDURE Type_test* (VAR x : Base.Item; typ : Base.Type);
+	VAR
+		tag : Base.Item;
 	BEGIN
-	(* Implement later *)
+	IF x.type # typ THEN
+		IF x.type.form = Base.type_pointer THEN
+			load (x);
+			x.mode := Base.mode_regI;
+			x.a := -8;
+			load (x);
+			x.mode := Base.mode_regI;
+			x.a := 8 + typ.base.len * 8;
+			Make_type_desc_item (tag, typ.base)
+		ELSE
+			(* x is record variable parameter *)
+			INC (x.a, 8);
+			Ref_to_regI (x);
+			x.type := Base.nil_type;
+			x.a := 8 + typ.len * 8;
+			Make_type_desc_item (tag, typ)
+			END;
+		Emit_op_reg_mem (op_LEA, -reg_RAX, tag);
+		Emit_op_reg_mem (op_CMP, -reg_RAX, x);
+		Free_reg;
+		Set_cond (x, op_JE);
+		x.type := Base.bool_type
+	ELSE
+		Make_const (x, Base.bool_type, 1)
+		END
 	END Type_test;
 	
 (* -------------------------------------------------------------------------- *)
@@ -1553,11 +1607,44 @@ PROCEDURE Inc_stack_frame_usage (amount : INTEGER);
 		stack_frame_size := stack_frame_usage
 		END
 	END Inc_stack_frame_usage;
+	
+PROCEDURE Init_local_variable (tp : Base.Type; adr : INTEGER);
+	VAR
+		par : Base.Item;
+		field : Base.Object;
+		i : INTEGER;
+	BEGIN
+	IF tp.form IN {Base.type_pointer, Base.type_procedure} THEN
+		par.mode := Base.class_var;
+		par.type := Base.nil_type; par.flag := {}; par.lev := 1; par.a := adr;
+		Emit_op_mem_imm (op_MOV, par, 0)
+	ELSIF tp.form = Base.type_record THEN
+		field := tp.fields;
+		WHILE field # Base.guard DO
+			Init_local_variable (field.type, adr + field.val);
+			field := field.next
+			END
+	ELSIF tp.form = Base.type_array THEN
+		IF tp.base.form IN {Base.type_pointer, Base.type_procedure} THEN
+			par.mode := Base.class_var;
+			par.type := NIL; par.flag := {}; par.lev := 1; par.a := adr;
+			Emit_op_reg_mem (op_LEA, -reg_RSI, par);
+			Emit_op_reg_imm (op_MOV, -reg_RCX, par.type.len);
+			Emit_op_reg_reg (op_XOR, -reg_EAX, -reg_EAX);
+			Emit_op_bare (op_REP_STOSQ)
+		ELSIF tp.base.form IN {Base.type_record, Base.type_array} THEN
+			FOR i := 0 TO tp.len - 1 DO
+				Init_local_variable (tp.base, adr + i * tp.base.size)
+				END
+			END
+		END
+	END Init_local_variable;
 
 PROCEDURE Enter* (proc : Base.Object; locblksize : INTEGER);
 	VAR
 		i, k : INTEGER;
 		par : Base.Item;
+		obj : Base.Object;
 	BEGIN
 	Emit_op_reg (op_PUSH, -reg_RBP); (* Instruction no. 0 *)
 	Emit_op_reg_reg (op_MOV, -reg_RBP, -reg_RSP); (* No. 1 *)
@@ -1584,6 +1671,15 @@ PROCEDURE Enter* (proc : Base.Object; locblksize : INTEGER);
 	
 	FOR i := reg_R12 TO reg_RDI DO
 		Emit_op_reg (op_PUSH, -i)	(* No. 7 to 12 *)
+		END;
+		
+	(* Init pointers value to 0 *)
+	obj := Base.top_scope.next;
+	WHILE obj # Base.guard DO
+		IF (obj.class = Base.class_var) & ~ (Base.flag_param IN obj.flag) THEN
+			Init_local_variable (obj.type, obj.val)
+			END;
+		obj := obj.next
 		END;
 	
 	reg_stack := 0;
@@ -1802,7 +1898,7 @@ PROCEDURE Record_variable_parameter* (VAR x, proc : Base.Item; adr : INTEGER);
 		tag.lev := x.lev;
 		tag.a := x.a + 8
 	ELSE
-		Make_tag_item (tag, x.type)
+		Make_type_desc_item (tag, x.type)
 		END;
 	Reference_parameter (x, proc, adr);
 	Reference_parameter (tag, proc, adr + 8)
@@ -1856,7 +1952,40 @@ PROCEDURE String_parameter* (VAR x, proc : Base.Item; par : Base.Object);
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE Init_type_tag;
+PROCEDURE Begin_FOR*
+(VAR x, beg, end, rel : Base.Item; VAR L : INTEGER; inc : INTEGER);
+	VAR
+		t : Base.Item;
+		i : INTEGER;
+	BEGIN
+	t := x; Store (t, beg);
+	
+	i := stack_frame_usage; Inc_stack_frame_usage (8);
+	t.mode := Base.class_var; t.lev := 1; t.type := Base.int_type; t.a := i;
+	Store (t, end);
+	end.mode := Base.class_var; end.lev := 1; end.type := Base.int_type;
+	end.a := i;
+	
+	L := pc; rel := x;
+	t.mode := Base.class_var; t.lev := 1; t.type := Base.int_type; t.a := i;
+	IF inc >= 0 THEN Relation (Base.sym_less_equal, rel, t)
+	ELSE Relation (Base.sym_greater_equal, rel, t) END;
+	CFJump (rel)
+	END Begin_FOR;
+	
+PROCEDURE End_FOR* (VAR x, rel, inc : Base.Item; L : INTEGER);
+	BEGIN
+	Check_const (inc);
+	IF inc.mode = Base.mode_reg THEN
+		Emit_op_mem_reg (op_ADD, x, inc.r); Free_reg
+	ELSE Emit_op_mem_imm (op_ADD, x, inc.a) END;
+	BJump (L); Fix_link (rel.a)
+	END End_FOR;
+	
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+
+PROCEDURE Init_type_desc;
 	VAR
 		i, j : INTEGER;
 		tp : Base.Type;
@@ -1864,8 +1993,8 @@ PROCEDURE Init_type_tag;
 		dtag, tag : Base.Item;
 	BEGIN
 	FOR i := 0 TO record_no - 1 DO
-		tp := record_type_list [i];
-		Make_tag_item (dtag, tp);
+		tp := type_desc_list [i];
+		Make_type_desc_item (dtag, type_desc_list [i]);
 		INC (dtag.a, 8);
 		basetps [tp.len] := tp;
 		
@@ -1876,18 +2005,18 @@ PROCEDURE Init_type_tag;
 		j := 0;
 		WHILE j <= Base.type_extension_limit DO
 			IF basetps [j] # NIL THEN
-				Make_tag_item (tag, basetps [j]);
+				Make_type_desc_item (tag, basetps [j]);
 				Emit_op_reg_mem (op_LEA, -reg_RAX, tag);
 				Emit_op_mem_reg (op_MOV, dtag, -reg_RAX);
 				INC (dtag.a, 8);
 				basetps [j] := NIL;
 				INC (j)
 			ELSE
-				j := Base.type_extension_limit + 1
+				j := Base.type_extension_limit + 1 (* exit loop *)
 				END
 			END
 		END
-	END Init_type_tag;
+	END Init_type_desc;
 
 PROCEDURE Module_init*;
 	BEGIN
@@ -1895,7 +2024,7 @@ PROCEDURE Module_init*;
 	Emit_op_reg_reg (op_MOV, -reg_RBP, -reg_RSP);
 	Emit_op_reg_imm (op_SUB, -reg_RSP, 0);
 	
-	Init_type_tag;
+	Init_type_desc;
 	
 	stack_frame_usage := 0;
 	stack_frame_size := 0;
@@ -1995,10 +2124,19 @@ PROCEDURE SFunc_ADR* (VAR y : Base.Item);
 	Load_adr (y)
 	END SFunc_ADR;
 	
-PROCEDURE SFunc_VAL* (VAR y : Base.Item; tp : Base.Type);
+PROCEDURE SFunc_VAL* (VAR y, z : Base.Item);
 	BEGIN
-	IF y.type.size < tp.size THEN load (y) END;
-	y.type := tp
+	IF z.mode = Base.class_const THEN
+		IF Base.Size_of_const (z.a) > y.type.size THEN
+			Scanner.Mark ('Const too big for casting')
+			END;
+		Check_const (z)
+		END;
+	IF (z.mode IN Base.cls_Variable) & (z.type.size < y.type.size) THEN
+		load (z)
+		END;
+	z.type := y.type;
+	y := z
 	END SFunc_VAL;
 
 PROCEDURE SProc_LoadLibrary* (VAR x, y : Base.Item);
@@ -2066,10 +2204,10 @@ PROCEDURE SProc_PUT* (VAR x, y : Base.Item);
 	VAR
 		i : INTEGER;
 	BEGIN
-	load (x); load (y);
-	x.mode := Base.mode_regI; x.a := 0;
-	x.type := y.type;
-	Emit_op_mem_reg (op_MOV, x, Small_reg (y.r, y.type.size));
+	IF y.mode = Base.class_const THEN Check_const (y) ELSE load (y) END;
+	load (x); x.mode := Base.mode_regI; x.a := 0; x.type := y.type;
+	IF y.mode = Base.class_const THEN Emit_op_mem_imm (op_MOV, x, y.a)
+	ELSE Emit_op_mem_reg (op_MOV, x, Small_reg (y.r, y.type.size)) END;
 	Free_reg; Free_reg
 	END SProc_PUT;
 	
@@ -2093,6 +2231,26 @@ PROCEDURE SProc_COPY* (VAR x, y, z : Base.Item);
 		used_regs := used_regs + {reg_RSI, reg_RDI}
 		END
 	END SProc_COPY;
+	
+PROCEDURE SProc_NEW* (VAR x : Base.Item);
+	VAR
+		td : Base.Item;
+	BEGIN
+	IF x.mode = Base.class_ref THEN Emit_op_reg_mem (op_MOV, -reg_RCX, x)
+	ELSE Emit_op_reg_mem (op_LEA, -reg_RCX, x) END;
+	Make_type_desc_item (td, x.type);
+	Emit_op_reg_mem (op_LEA, -reg_RDX, td);
+	Emit_op_sym (op_CALL, Base.Make_string ('[@NEW]'));
+	IF x.mode IN Base.modes_UseReg THEN Free_reg END
+	END SProc_NEW;
+	
+PROCEDURE SProc_DISPOSE* (VAR x : Base.Item);
+	BEGIN
+	IF x.mode = Base.class_ref THEN Emit_op_reg_mem (op_MOV, -reg_RCX, x)
+	ELSE Emit_op_reg_mem (op_LEA, -reg_RCX, x) END;
+	Emit_op_sym (op_CALL, Base.Make_string ('[@DISPOSE]'));
+	IF x.mode IN Base.modes_UseReg THEN Free_reg END
+	END SProc_DISPOSE;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -2100,30 +2258,38 @@ PROCEDURE SProc_COPY* (VAR x, y, z : Base.Item);
 PROCEDURE Init* (module_name : Base.String);
 	VAR
 		i : INTEGER;
-		filename : ARRAY 256 OF CHAR;
+		filename : ARRAY 512 OF CHAR;
+		path : ARRAY 1024 OF CHAR;
 	BEGIN
-	FOR i := 0 TO module_name.len DO
-		filename [i] := module_name.content [i]
+	i := 0; Sys.Get_executable_path (path, i);
+	path [i] := 'd'; path [i + 1] := 'a'; path [i + 2] := 't';
+	path [i + 3] := 'a'; path [i + 4] := '.'; path [i + 5] := 'd';
+	path [i + 6] := 'a'; path [i + 7] := 't';
+	Sys.Open (datafile, path);
+	
+	i := 0;
+	WHILE i < module_name.len DO
+		filename [i] := module_name.content [i];
+		INC (i)
 		END;
-	i := module_name.len;
 	filename [i] := '.';
 	filename [i + 1] := 'a';
 	filename [i + 2] := 's';
 	filename [i + 3] := 'm';
-	Base.Rewrite (out, filename);
+	Sys.Rewrite (out, filename);
 	
 	modid := module_name;
 
-	Base.Write_string (out, 'format PE64 GUI');
-	Base.Write_newline (out);
-	Base.Write_string (out, 'entry ');
-	Base.Write_string (out, module_name.content);
-	Base.Write_string (out, '@@INIT');
-	Base.Write_newline (out);
-	Base.Write_newline (out);
-	Base.Write_string (out, "section '.text' code readable executable");
-	Base.Write_newline (out);
-	Base.Write_newline (out)
+	Sys.Write_string (out, 'format PE64');
+	Sys.Write_newline (out);
+	Sys.Write_string (out, 'entry ');
+	Sys.Write_string (out, module_name.content);
+	Sys.Write_string (out, '@@INIT');
+	Sys.Write_newline (out);
+	Sys.Write_newline (out);
+	Sys.Write_string (out, "section '.text' code readable executable");
+	Sys.Write_newline (out);
+	Sys.Write_newline (out)
 	END Init;
 	
 PROCEDURE Generate_trap_section;
@@ -2132,31 +2298,31 @@ PROCEDURE Generate_trap_section;
 	BEGIN
 	FOR i := 1 TO 4 DO
 		CASE i OF
-			1: Base.Write_string (out, sym_array_index_trap.content) |
-			2: Base.Write_string (out, sym_integer_overflow_trap.content) |
-			3: Base.Write_string (out, sym_invalid_divisor_trap.content) |
-			4: Base.Write_string (out, sym_type_check_trap.content)
+			1: Sys.Write_string (out, sym_array_index_trap.content) |
+			2: Sys.Write_string (out, sym_integer_overflow_trap.content) |
+			3: Sys.Write_string (out, sym_invalid_divisor_trap.content) |
+			4: Sys.Write_string (out, sym_type_check_trap.content)
 			END;
-		Base.Write_char (out, ':');
-		Base.Write_newline (out);
-		Base.Write_string (out, 'and	rsp, -16');
-		Base.Write_newline (out);
-		Base.Write_string (out, 'sub	rsp, 32');
-		Base.Write_newline (out);
-		Base.Write_string (out, 'mov	ecx, -');
-		Base.Write_number (out, i);
-		Base.Write_newline (out);
-		Base.Write_string (out, 'call	[@ExitProcess]');
-		Base.Write_newline (out);
+		Sys.Write_char (out, ':');
+		Sys.Write_newline (out);
+		Sys.Write_string (out, 'and	rsp, -16');
+		Sys.Write_newline (out);
+		Sys.Write_string (out, 'sub	rsp, 32');
+		Sys.Write_newline (out);
+		Sys.Write_string (out, 'mov	ecx, -');
+		Sys.Write_number (out, i);
+		Sys.Write_newline (out);
+		Sys.Write_string (out, 'call	[@ExitProcess]');
+		Sys.Write_newline (out);
 		END;
-	Base.Write_newline (out)
+	Sys.Write_newline (out)
 	END Generate_trap_section;
 	
-PROCEDURE Generate_tag_section;
+PROCEDURE Generate_type_desc_section;
 	VAR
 		i : INTEGER;
 		
-	PROCEDURE Emit_record_tag (typ : Base.Type);
+	PROCEDURE Emit_record_tdesc (typ : Base.Type);
 		VAR
 			i : INTEGER;
 			
@@ -2166,8 +2332,8 @@ PROCEDURE Generate_tag_section;
 				n : INTEGER;
 			BEGIN
 			IF typ.form = Base.type_pointer THEN
-				Base.Write_char (out, ',');
-				Base.Write_number (out, offset)
+				Sys.Write_char (out, ',');
+				Sys.Write_number (out, offset)
 			ELSIF typ.form = Base.type_record THEN
 				n := typ.num_ptr;
 				IF (typ.base # NIL) & (typ.base.num_ptr > 0) THEN
@@ -2191,59 +2357,59 @@ PROCEDURE Generate_tag_section;
 				END
 			END Emit_pointer_offset;	
 			
-		BEGIN (* Emit_record_tag *)
-		Base.Write_number (out, typ.size);
+		BEGIN (* Emit_record_tdesc *)
+		Sys.Write_number (out, typ.size);
 		FOR i := 0 TO Base.type_extension_limit DO
-			Base.Write_string (out, ',0')
+			Sys.Write_string (out, ',0')
 			END;
 		IF typ.num_ptr > 0 THEN
 			Emit_pointer_offset (typ, 0)
 			END;
-		Base.Write_string (out, ',-1')
-		END Emit_record_tag;
+		Sys.Write_string (out, ',-1')
+		END Emit_record_tdesc;
 		
-	BEGIN (* Generate_tag_section *)
-	Base.Write_string (out, modid.content);
-	Base.Write_string (out, '@@');
-	Base.Write_string (out, sym_tagbase.content);
-	Base.Write_string (out, ' dq ');
-	Emit_record_tag (record_type_list [0]);
+	BEGIN (* Generate_type_desc_section *)
+	Sys.Write_string (out, modid.content);
+	Sys.Write_string (out, '@@');
+	Sys.Write_string (out, sym_tdbase.content);
+	Sys.Write_string (out, ' dq ');
+	Emit_record_tdesc (type_desc_list [0]);
 	i := 1;
 	WHILE i < record_no DO
-		Base.Write_char (out, ',');
-		Emit_record_tag (record_type_list [i]);
+		Sys.Write_char (out, ',');
+		Emit_record_tdesc (type_desc_list [i]);
 		INC (i)
 		END;
-	Base.Write_newline (out)
-	END Generate_tag_section;
+	Sys.Write_newline (out)
+	END Generate_type_desc_section;
 	
 PROCEDURE Generate_string_section;
 	VAR
 		i : INTEGER;
 	BEGIN
-	Base.Write_string (out, modid.content);
-	Base.Write_string (out, '@@');
-	Base.Write_string (out, sym_stringbase.content);
-	Base.Write_string (out, ' dw ');
-	Base.Write_number (out, ORD (strings [0]));
+	Sys.Write_string (out, modid.content);
+	Sys.Write_string (out, '@@');
+	Sys.Write_string (out, sym_stringbase.content);
+	Sys.Write_string (out, ' dw ');
+	Sys.Write_number (out, ORD (strings [0]));
 	i := 1;
 	WHILE i < str_offset DO
-		Base.Write_char (out, ',');
-		Base.Write_number (out, ORD (strings [i]));
+		Sys.Write_char (out, ',');
+		Sys.Write_number (out, ORD (strings [i]));
 		INC (i)
 		END;
-	Base.Write_newline (out)
+	Sys.Write_newline (out)
 	END Generate_string_section;
 	
 PROCEDURE Generate_variable_section (vars_size : INTEGER);
 	BEGIN
-	Base.Write_string (out, modid.content);
-	Base.Write_string (out, '@@');
-	Base.Write_string (out, sym_varbase.content);
-	Base.Write_string (out, ' db ');
-	Base.Write_number (out, vars_size);
-	Base.Write_string (out, ' dup ?');
-	Base.Write_newline (out)
+	Sys.Write_string (out, modid.content);
+	Sys.Write_string (out, '@@');
+	Sys.Write_string (out, sym_varbase.content);
+	Sys.Write_string (out, ' db ');
+	Sys.Write_number (out, vars_size);
+	Sys.Write_string (out, ' dup ?');
+	Sys.Write_newline (out)
 	END Generate_variable_section;
 	
 PROCEDURE Finish* (vars_size : INTEGER);
@@ -2251,45 +2417,17 @@ PROCEDURE Finish* (vars_size : INTEGER);
 		i : INTEGER;
 	BEGIN
 	Generate_trap_section;	
-	Base.Write_string (out, "section '.data' data readable writable");
-	Base.Write_newline (out);
-	IF tag_offset > 0 THEN Generate_tag_section END;
+	Sys.Write_string (out, "section '.data' data readable writable");
+	Sys.Write_newline (out);
+	IF td_offset > 0 THEN Generate_type_desc_section END;
 	IF str_offset > 0 THEN Generate_string_section END;
 	IF vars_size > 0 THEN Generate_variable_section (vars_size) END;
-	Base.Write_newline (out);
+	Sys.Write_newline (out);
 	
-	Base.Write_string (out, "section '.idata' import data readable writeable");
-	Base.Write_newline (out);
-	Base.Write_string (out, 'dd 0,0,0,RVA @kernel_name,RVA @kernel_table');
-	Base.Write_newline (out);
-	Base.Write_string (out, 'dd 0,0,0,0,0');
-	Base.Write_newline (out);
-	Base.Write_string (out, '@kernel_table:');
-	Base.Write_newline (out);
-	Base.Write_string (out, '@ExitProcess dq RVA @nameofExitProcess');
-	Base.Write_newline (out);
-	Base.Write_string (out, '@LoadLibrary dq RVA @nameofLoadLibrary');
-	Base.Write_newline (out);
-	Base.Write_string (out, '@GetProcAddress dq RVA @nameofGetProcAddress');
-	Base.Write_newline (out);
-	Base.Write_string (out, 'dq 0');
-	Base.Write_newline (out);
-	Base.Write_string (out, "@kernel_name db 'KERNEL32.DLL',0");
-	Base.Write_newline (out);
-	Base.Write_string (out, '@nameofExitProcess dw 0');
-	Base.Write_newline (out);
-	Base.Write_string (out, "db 'ExitProcess',0");
-	Base.Write_newline (out);
-	Base.Write_string (out, '@nameofLoadLibrary dw 0');
-	Base.Write_newline (out);
-	Base.Write_string (out, "db 'LoadLibraryW',0");
-	Base.Write_newline (out);
-	Base.Write_string (out, '@nameofGetProcAddress dw 0');
-	Base.Write_newline (out);
-	Base.Write_string (out, "db 'GetProcAddress',0");
-	Base.Write_newline (out);
+	Sys.Copy_file (out, datafile, 781);
 	
-	Base.Close (out)
+	Sys.Close (datafile);
+	Sys.Close (out)
 	END Finish;
 	
 PROCEDURE Init_optable;
@@ -2305,6 +2443,7 @@ PROCEDURE Init_optable;
 	op_table [op_XCHG] := 'xchg';
 	op_table [op_CQO] := 'cqo';
 	op_table [op_REP_MOVSB] := 'rep movsb';
+	op_table [op_REP_STOSQ] := 'rep stosq';
 	
 	op_table [op_ADD] := 'add';
 	op_table [op_SUB] := 'sub';
@@ -2425,7 +2564,7 @@ PROCEDURE Init_symbols;
 	
 	sym_varbase := Base.Make_string ('VAR');
 	sym_stringbase := Base.Make_string ('STRING');
-	sym_tagbase := Base.Make_string ('TYPETAG')
+	sym_tdbase := Base.Make_string ('TYPEDESC')
 	END Init_symbols;
 	
 BEGIN

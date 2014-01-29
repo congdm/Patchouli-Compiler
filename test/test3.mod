@@ -1,18 +1,21 @@
 MODULE Test3;
 
+TYPE
+	Node = POINTER TO RECORD
+		x : INTEGER;
+		next : Node
+	END;
+
 VAR
-	x : SET;
-	y, z : INTEGER;
-	a, b : INT8;
+	node : Node;
+	
+PROCEDURE New() : Node;
+BEGIN
+	NEW (node)
+	RETURN node
+END New;
 
 BEGIN
-	x := {y, z};
-	x := x / {3, 4};
-	y := y + a;
-	IF a IN x THEN
-		y := ORD (x);
-	END;
-	IF x <= x THEN
-		x := x + {1};
-	END;
+	node := New();
+	node := New()
 END Test3.

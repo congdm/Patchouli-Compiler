@@ -1,9 +1,7 @@
 MODULE Base;
 
 IMPORT
-	System := "[mscorlib]System",
-	IO := "[mscorlib]System.IO",
-	Console;
+	Sys;
 
 CONST
 	success* = TRUE; failed* = FALSE;
@@ -29,7 +27,7 @@ CONST
 	sym_lparen* = 29; sym_lbrak* = 30; sym_lbrace* = 31;
 	sym_not* = 32; sym_becomes* = 33;
 	sym_number* = 34; sym_nil* = 35; sym_true* = 36; sym_false* = 37;
-	sym_string* = 38; sym_ident* = 39;	
+	sym_string* = 38; sym_ident* = 39; sym_by* = 40;
 	sym_semicolon* = 50; sym_end* = 51; sym_else* = 52;
 	sym_elsif* = 53; sym_until* = 54;
 	sym_if* = 55; sym_while* = 56; sym_repeat* = 57; sym_for* = 58;
@@ -50,16 +48,16 @@ CONST
 
 	(* Type form *)
 	type_integer* = 0; type_boolean* = 1; type_set* = 2; type_char* = 3;
-	type_pointer* = 4; type_procedure* = 5;
-	type_array* = 6; type_record* = 7; type_string* = 8;
+	type_real* = 4; type_pointer* = 5; type_procedure* = 6;
+	type_array* = 7; type_record* = 8; type_string* = 9;
 	
-	types_Scalar* = {type_integer, type_boolean, type_set,
+	types_Scalar* = {type_integer, type_boolean, type_set, type_real
 					type_char, type_pointer, type_procedure};
 
 	(* Object/Item/Type flag *)
 	flag_param* = 0; flag_export* = 1; flag_import* = 2; flag_used* = 3;
 	flag_readOnly* = 4; flag_predefined* = 5; flag_varParam* = 6;
-	flag_hasExtension* = 7;
+	flag_hasExtension* = 7; flag_hasName* = 8; flag_typeDesc* = 9;
 	
 	(* Compiler flag *)
 	array_bound_check* = 0;
@@ -70,9 +68,10 @@ CONST
 	unclassified* = 0; csf_Integer* = 1; csf_Set* = 2; csf_Boolean* = 3;
 	csf_Char* = 4; csf_Array* = 5; csf_CharArray* = 6; csf_String* = 7;
 	csf_Record* = 8; csf_Pointer* = 9; csf_Nil* = 10; csf_Procedure* = 11;
-	csf_Type* = 12;
+	csf_Type* = 12; csf_Real* = 13;
 	
-	csf_HasOrderRelation* = {csf_Integer, csf_Char, csf_CharArray, csf_String};
+	csf_HasOrderRelation* = {csf_Integer, csf_Real, csf_Char,
+	                         csf_CharArray, csf_String};
 	csf_HasEqualRelation* = csf_HasOrderRelation
 		+ {csf_Set, csf_Boolean, csf_Pointer, csf_Procedure, csf_Nil};
 
@@ -81,12 +80,6 @@ TYPE
 		content* : ARRAY max_str_len + 1 OF CHAR;
 		len* : INTEGER;
 		END;
-		
-	FileHandle* = RECORD
-		f : IO.FileStream;
-		r : IO.StreamReader;
-		w : IO.StreamWriter;
-		END;
 
 	Type* = POINTER TO RECORD
 		flag* : SET;
@@ -94,7 +87,7 @@ TYPE
 		fields*, obj* : Object;
 		base* : Type;
 		size*, len*, alignment* : INTEGER;
-		tag*, num_ptr* : INTEGER
+		num_ptr*, exportno* : INTEGER
 		END;
 
 	Object* = POINTER TO RECORD
@@ -126,129 +119,19 @@ VAR
 	cur_lev* : INTEGER;
 	
 	(* predefined type *)
-	int_type*, bool_type*, set_type*, char_type*, byte_type* : Type;
+	int_type*, bool_type*, set_type*, char_type*, byte_type*, real_type* : Type;
 	nilrecord_type*, nil_type* : Type;
+	
+	exportno : INTEGER;
+	symfile : Sys.FileHandle;
 	
 	compiler_flag* : SET;
 	
+	(* Forward decl procedure *)
+	_Export_type : PROCEDURE (typ : Type);
+	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
-
-PROCEDURE Show_error* (msg : ARRAY OF CHAR);
-	BEGIN
-	Console.WriteString ('ERROR: ');
-	Console.WriteString (msg);
-	Console.WriteLn;
-	END Show_error;
-
-PROCEDURE Open* (VAR file : FileHandle; filename : ARRAY OF CHAR);
-	BEGIN
-	IF IO.File.Exists (MKSTR (filename)) THEN
-		file.f := IO.File.OpenRead (MKSTR (filename));
-		file.r := IO.StreamReader.init (file.f);
-	ELSE
-		Show_error ('File not existed!');
-		END;
-	END Open;
-	
-PROCEDURE Rewrite* (VAR file : FileHandle; filename : ARRAY OF CHAR);
-	BEGIN
-	file.f := IO.File.Create (MKSTR (filename));
-	file.w := IO.StreamWriter.init (file.f)
-	END Rewrite;
-
-PROCEDURE Close* (VAR file : FileHandle);
-	BEGIN
-	IF file.f # NIL THEN
-		IF file.w # NIL THEN file.w.Flush; END;
-		file.f.Close;
-		file.f := NIL;
-		file.w := NIL;
-		file.r := NIL
-		END
-	END Close;
-
-PROCEDURE Read_char* (VAR file : FileHandle; VAR c : CHAR) : BOOLEAN;
-	VAR
-		i : INTEGER;
-		result : BOOLEAN;
-	BEGIN
-	i := file.r.Read ();
-	IF i = -1 THEN
-		result := failed
-	ELSE
-		c := System.Convert.ToChar (i);
-		result := success
-		END;
-	RETURN result
-	END Read_char;
-	
-PROCEDURE Write_string* (VAR file : FileHandle; str : ARRAY OF CHAR);
-	BEGIN
-	file.w.Write (MKSTR (str))
-	END Write_string;
-	
-PROCEDURE Write_newline* (VAR file : FileHandle);
-	BEGIN
-	file.w.WriteLine
-	END Write_newline;
-	
-PROCEDURE Int_to_string* (x : INTEGER; VAR str : ARRAY OF CHAR);
-	VAR
-		negative : BOOLEAN;
-		s : ARRAY 20 OF CHAR;
-		i, j : INTEGER;
-	BEGIN
-	IF x = MIN_INT THEN
-		str := '-2147483648'
-	ELSE
-		IF x < 0 THEN
-			negative := TRUE;
-			x := -x
-		ELSE
-			negative := FALSE
-			END;
-		i := 0;
-		REPEAT
-			s [i] := CHR (x MOD 10 + ORD ('0'));
-			INC (i);
-			x := x DIV 10
-			UNTIL x = 0;
-		IF negative THEN
-			str [0] := '-';
-			FOR j := 0 TO i - 1 DO
-				str [j + 1] := s [i - 1 - j]
-				END;
-			str [i + 1] := 0X
-		ELSE
-			FOR j := 0 TO i - 1 DO
-				str [j] := s [i - 1 - j]
-				END;
-			str [i] := 0X
-			END
-		END
-	END Int_to_string;
-	
-PROCEDURE Write_number* (VAR file : FileHandle; x : INTEGER);
-	VAR
-		s : ARRAY 22 OF CHAR;
-	BEGIN
-	Int_to_string (x, s);
-	file.w.Write (MKSTR (s))
-	END Write_number;
-	
-PROCEDURE Write_char* (VAR file : FileHandle; ch : CHAR);
-	BEGIN
-	file.w.Write (ch)
-	END Write_char;
-	
-PROCEDURE Write_number_to_console* (x : INTEGER);
-	VAR
-		a : ARRAY 21 OF CHAR;
-	BEGIN
-	Int_to_string (x, a);
-	Console.WriteString (a)
-	END Write_number_to_console;
 	
 PROCEDURE Str_len* (s : ARRAY OF CHAR) : INTEGER;
 	VAR
@@ -303,9 +186,7 @@ PROCEDURE Make_string* (const_str : ARRAY OF CHAR) : String;
 	BEGIN
 	NEW (s);
 	s.len := LEN (const_str) - 1;
-	FOR i := 0 TO s.len DO
-		s.content [i] := const_str [i]
-		END;
+	FOR i := 0 TO s.len DO s.content [i] := const_str [i] END;
 	RETURN s
 	END Make_string;
 	
@@ -332,6 +213,16 @@ PROCEDURE Integer_binary_logarithm* (a : INTEGER) : INTEGER;
 		END;
 	RETURN e
 	END Integer_binary_logarithm;
+	
+PROCEDURE Size_of_const* (n : INTEGER) : INTEGER;
+	VAR
+		res : INTEGER;
+	BEGIN
+	IF ASH (n, -16) > 0 THEN res := 4
+	ELSIF ASH (n, -8) > 0 THEN res := 2
+	ELSE res := 1 END;
+	RETURN res
+	END Size_of_const;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -393,19 +284,17 @@ PROCEDURE Find_field* (VAR obj : Object; name : String; rec_typ : Type);
 		END
 	END Find_field;
 
-PROCEDURE New_obj* (VAR obj : Object; name : String; class : INTEGER) : BOOLEAN;
+PROCEDURE New_obj* (VAR obj : Object; name : String; class : INTEGER);
 	VAR
 		result : BOOLEAN;
 	BEGIN
 	IF class = class_field THEN	Find_obj_in_scope (obj, name, top_scope)
 	ELSE Find_obj (obj, name) END;
 	IF obj # guard THEN
-		result := failed
+		obj := guard
 	ELSE
 		obj := top_scope;
-		WHILE obj.next # guard DO
-			obj := obj.next
-			END;
+		WHILE obj.next # guard DO obj := obj.next END;
 		NEW (obj.next);
 		obj := obj.next;
 		obj.name := name;
@@ -413,10 +302,8 @@ PROCEDURE New_obj* (VAR obj : Object; name : String; class : INTEGER) : BOOLEAN;
 		obj.next := guard;
 		obj.flag := {};
 		obj.lev := cur_lev;
-		obj.scope := top_scope;
-		result := success
-		END;
-	RETURN result
+		obj.scope := top_scope
+		END
 	END New_obj;
 
 PROCEDURE New_typ* (VAR typ : Type; form : INTEGER);
@@ -504,73 +391,60 @@ PROCEDURE Adjust_alignment* (VAR offset : INTEGER; alignment : INTEGER);
 (* -------------------------------------------------------------------------- *)
 	
 PROCEDURE Is_extension_type* (ext, bas : Type) : BOOLEAN;
-	VAR
-		result : BOOLEAN;
 	BEGIN
-	IF (ext.form = type_pointer) & (bas.form = type_pointer) THEN
-		ext := ext.base;
-		bas := bas.base
-		END;
-	WHILE (ext # bas) & (ext # NIL) DO
-		ext := ext.base
-		END;
-	IF ext = NIL THEN
-		result := FALSE
-	ELSE
-		result := TRUE
-		END;
-	RETURN result
+	IF ext.form = type_pointer THEN ext := ext.base END;
+	IF bas.form = type_pointer THEN bas := bas.base END;
+	RETURN (ext = bas) OR (ext.base # NIL) & Is_extension_type (ext.base, bas)
 	END Is_extension_type;
 	
-PROCEDURE Is_compatible_open_array* (typ1, typ2 : Type) : BOOLEAN;
-	VAR
-		result : BOOLEAN;
+PROCEDURE Compatible_open_array* (typ1, typ2 : Type) : BOOLEAN;
 	BEGIN
-	IF typ1.base = typ2.base THEN
-		result := TRUE
-	ELSIF (typ1.base.form = type_array) & (typ2.base.form = type_array)
-	& (typ1.base.len = -1) & (typ2.base.len = -1) THEN
-		result := Is_compatible_open_array (typ1, typ2)
-	ELSE
-		result := FALSE
-		END;
-	RETURN result
-	END Is_compatible_open_array;
+	RETURN (typ1.base = typ2.base) OR (typ1.base.form = type_array)
+	& (typ2.base.form = type_array) & (typ1.base.len < 0) & (typ2.base.len < 0)
+	& Compatible_open_array (typ1, typ2)
+	END Compatible_open_array;
 	
-PROCEDURE Is_compatible_proc*
-(par_list1, par_list2 : Object; result_typ1, result_typ2 : Type) : BOOLEAN;
+PROCEDURE Same_parlist (parlist1, parlist2 : Object) : BOOLEAN;
 	VAR
 		result : BOOLEAN;
 		typ1, typ2 : Type;
 	BEGIN
-	IF result_typ1 # result_typ2 THEN
-		result := FALSE
-	ELSE
-		result := TRUE;
-		WHILE (flag_param IN par_list1.flag) & result DO
-			typ1 := par_list1.type;
-			typ2 := par_list2.type;
-			IF ~ (flag_param IN par_list2.flag) 
-			OR (par_list1.class # par_list2.class) 
-			OR (flag_readOnly IN par_list1.flag / par_list2.flag) THEN
-				result := FALSE
-			ELSIF (typ1.form = type_array) & (typ2.form = type_array)
-			& (typ1.len = -1) & (typ1.len = -1)
-			& ~ Is_compatible_open_array (typ1, typ2) THEN
-				result := FALSE
-			ELSIF typ1 # typ2 THEN
-				result := FALSE
-			ELSE
-				par_list1 := par_list1.next;
-				par_list2 := par_list2.next
+	result := TRUE;
+	WHILE (flag_param IN parlist1.flag) & result DO
+		result := FALSE;
+		IF (flag_param IN parlist2.flag) & (parlist1.class = parlist2.class) 
+		& ~ (flag_readOnly IN parlist1.flag / parlist2.flag) THEN
+			typ1 := parlist1.type;
+			typ2 := parlist2.type;
+			IF (typ1 = typ2) OR (typ1.form = type_array) & (typ1.len < 0)
+			& (typ2.form = type_array) & (typ1.len < 0)
+			& Compatible_open_array (typ1, typ2) THEN
+				result := TRUE;
+				parlist1 := parlist1.next;
+				parlist2 := parlist2.next
 				END
-			END;
-		IF flag_param IN par_list2.flag THEN
-			result := FALSE
 			END
 		END;
-	RETURN result
-	END Is_compatible_proc;
+	RETURN result & ~ (flag_param IN parlist2.flag) 
+	END Same_parlist;
+	
+PROCEDURE Compatible_proc1 (proc1, proc2 : Object) : BOOLEAN;
+	BEGIN
+	RETURN (proc1.type = proc2.type) & (proc1.parblksize = proc2.parblksize)
+	& Same_parlist (proc1.dsc, proc2.dsc)
+	END Compatible_proc1;
+	
+PROCEDURE Compatible_proc2 (proc : Object; proctyp : Type) : BOOLEAN;
+	BEGIN
+	RETURN (proc.type = proctyp.base) & (proc.parblksize = proctyp.len)
+	& Same_parlist (proc.dsc, proctyp.fields)
+	END Compatible_proc2;
+	
+PROCEDURE Compatible_proc3 (proctyp1, proctyp2 : Type) : BOOLEAN;
+	BEGIN
+	RETURN (proctyp1.base = proctyp2.base) & (proctyp1.len = proctyp2.len)
+	& Same_parlist (proctyp1.fields, proctyp2.fields)
+	END Compatible_proc3;
 	
 PROCEDURE Classify_type* (tp : Type) : INTEGER;
 	VAR
@@ -662,19 +536,15 @@ PROCEDURE Assignable* (dst_type : Type; VAR src : Item) : INTEGER;
 			END
 	ELSIF src_csf = csf_Procedure THEN
 		IF dst_csf # csf_Procedure THEN
-			Write_number_to_console (dst_csf);
-			Console.WriteLn;
 			result := 2
 		ELSIF src.mode = class_proc THEN
 			IF src.lev > 0 THEN
 				result := 4
-			ELSIF ~ Is_compatible_proc (dst_type.fields, src.proc.dsc,
-			dst_type.base, src.proc.type) THEN
+			ELSIF ~ Compatible_proc2 (src.proc, dst_type) THEN
 				result := 5
 				END
 		ELSE
-			IF ~ Is_compatible_proc (dst_type.fields, src.type.fields,
-			dst_type.base, src.type.base) THEN
+			IF ~ Compatible_proc3 (src.type, dst_type) THEN
 				result := 5
 				END
 			END
@@ -751,13 +621,13 @@ PROCEDURE Equalable* (VAR x, y : Item) : INTEGER;
 			OR (y.mode = class_proc) & (y.lev > 0) THEN
 				result := 2
 			ELSE
-				IF x.mode = class_proc THEN parlist1 := x.proc.dsc; restp1 := x.proc.type
-				ELSE parlist1 := x.type.fields; restp1 := x.type.base END;
-				IF y.mode = class_proc THEN parlist2 := y.proc.dsc; restp2 := y.proc.type
-				ELSE parlist2 := y.type.fields; restp2 := y.type.base END;
-				IF ~ Is_compatible_proc (parlist1, parlist2, restp1, restp2) THEN
-					result := 3
-					END
+				IF (x.mode = class_proc)
+				& ((y.mode = class_proc) & ~ Compatible_proc1 (x.proc, y.proc)
+				OR (y.mode # class_proc) & ~ Compatible_proc2 (x.proc, y.type))
+				OR (x.mode # class_proc)
+				& ((y.mode = class_proc) & ~ Compatible_proc2 (y.proc, x.type)
+				OR (y.mode # class_proc) & ~ Compatible_proc3 (x.type, y.type))
+				THEN result := 3 END
 				END
 		ELSE result := 1 END
 	ELSIF csf1 = csf_String THEN
@@ -777,18 +647,9 @@ PROCEDURE Equalable* (VAR x, y : Item) : INTEGER;
 	END Equalable;
 	
 PROCEDURE Is_matching_array* (typ1, typ2 : Type) : BOOLEAN;
-	VAR
-		result : BOOLEAN;
 	BEGIN
-	IF typ1.base = typ2.base THEN
-		result := TRUE
-	ELSIF (typ1.base.form # type_array)
-	OR (typ2.base.form # type_array) THEN
-		result := FALSE
-	ELSE
-		result := Is_matching_array (typ1.base, typ2.base)
-		END;
-	RETURN result
+	RETURN (typ1.base = typ2.base) OR (typ1.base.form = type_array)
+	& (typ2.base.form = type_array) & Is_matching_array (typ1.base, typ2.base)
 	END Is_matching_array;
 	
 (* Result codes for procedure Check_parameter: *)
@@ -805,7 +666,6 @@ PROCEDURE Is_matching_array* (typ1, typ2 : Type) : BOOLEAN;
 PROCEDURE Check_parameter* (formal : Object; VAR actual : Item) : INTEGER;
 	VAR
 		result : INTEGER;
-		is_var_param : BOOLEAN;
 	BEGIN
 	IF (flag_readOnly IN actual.flag) & (flag_varParam IN formal.flag) THEN
 		result := 4
@@ -831,8 +691,6 @@ PROCEDURE Check_parameter* (formal : Object; VAR actual : Item) : INTEGER;
 				result := 6
 			ELSIF ~ Is_extension_type (actual.type, formal.type) THEN
 				result := 8
-			ELSIF flag_hasExtension IN formal.type.flag THEN
-				result := 3
 			ELSE
 				result := 2
 				END
@@ -855,6 +713,95 @@ PROCEDURE Check_parameter* (formal : Object; VAR actual : Item) : INTEGER;
 	RETURN result
 	END Check_parameter;
 	
+PROCEDURE Detect_type (typ : Type);
+	BEGIN
+	IF typ = NIL THEN Sys.Write_2bytes (symfile, 0)
+	ELSIF typ.exportno > 0 THEN Sys.Write_2bytes (symfile, typ.exportno)
+	ELSE _Export_type (typ) END
+	END Detect_type;
+	
+PROCEDURE Export_type (typ : Type);
+	VAR
+		field : Object;
+	BEGIN
+	INC (exportno); typ.exportno := exportno;
+	Sys.Write_byte (symfile, typ.form);
+	
+	IF typ.form = type_record THEN
+		Detect_type (typ.base);
+		Sys.Write_byte (symfile, typ.len);
+		Sys.Write_8bytes (symfile, typ.size);
+		Sys.Write_8bytes (symfile, typ.num_ptr);
+		
+		field := typ.fields;
+		WHILE field # guard DO
+			IF (flag_export IN field.flag) OR (field.type.num_ptr > 0) THEN
+				Sys.Write_byte (symfile, class_field);
+				IF ~(flag_export IN field.flag) THEN Sys.Write_string (symfile, '1')
+				ELSE Sys.Write_string (symfile, field.name.content) END;
+				Sys.Write_8bytes (symfile, field.val);
+				Detect_type (field.type)
+				END;
+			field := field.next
+			END;
+	ELSIF typ.form = type_array THEN
+		Sys.Write_8bytes (symfile, typ.len);
+		Detect_type (typ.base)
+	ELSIF typ.form = type_pointer THEN
+		Detect_type (typ.base)
+		END
+	END Export_type;
+	
+PROCEDURE Export_var (var : Object);
+	BEGIN
+	Sys.Write_byte (symfile, var.class);
+	Sys.Write_string (symfile, var.name.content);
+	Detect_type (var.type)
+	END Export_var;
+	
+PROCEDURE Export_proc (proc : Object);
+	VAR
+		par : Object;
+	BEGIN
+	Sys.Write_byte (symfile, class_proc);
+	Sys.Write_string (symfile, proc.name.content);
+	Detect_type (proc.type);
+	Sys.Write_8bytes (symfile, proc.parblksize);
+	par := proc.dsc;
+	WHILE flag_param IN par.flag DO Export_var (par); par := par.next END
+	END Export_proc;
+	
+PROCEDURE Export_const (const : Object);
+	BEGIN
+	Sys.Write_byte (symfile, class_const);
+	Sys.Write_string (symfile, const.name.content);
+	Sys.Write_8bytes (symfile, const.val);
+	Detect_type (const.type)
+	END Export_const;
+	
+PROCEDURE Write_symbols_file;
+	VAR
+		obj : Object;
+	BEGIN
+	obj := universe.next;
+	WHILE obj # guard DO
+		IF flag_export IN obj.flag THEN
+			IF obj.class = class_proc THEN
+				Export_proc (obj)
+			ELSIF obj.class = class_type THEN
+				Sys.Write_byte (symfile, class_type);
+				Sys.Write_string (symfile, obj.name.content);
+				Detect_type (obj.type)
+			ELSIF obj.class = class_const THEN
+				Export_const (obj)
+			ELSIF obj.class = class_var THEN
+				Export_var (obj)
+				END
+			END;
+		obj := obj.next
+		END
+	END Write_symbols_file;
+	
 PROCEDURE Init* (modid : String);
 	BEGIN
 	NEW (universe);
@@ -869,6 +816,7 @@ PROCEDURE Init* (modid : String);
 	Enter (class_type, 0, Make_string ('SET'), set_type);
 	Enter (class_type, 0, Make_string ('BYTE'), byte_type);
 	Enter (class_type, 0, Make_string ('CHAR'), char_type);
+	Enter (class_type, 0, Make_string ('REAL'), real_type);
 	
 	Enter (class_sproc, 0, Make_string ('INC'), NIL);
 	Enter (class_sproc, 1, Make_string ('DEC'), NIL);
@@ -878,6 +826,7 @@ PROCEDURE Init* (modid : String);
 	Enter (class_sproc, 5, Make_string ('ASSERT'), NIL);
 	Enter (class_sproc, 6, Make_string ('PACK'), NIL);
 	Enter (class_sproc, 7, Make_string ('UNPK'), NIL);
+	Enter (class_sproc, 8, Make_string ('DISPOSE'), NIL);
 	
 	Enter (class_sproc, 10, Make_string ('GET'), NIL);
 	Enter (class_sproc, 11, Make_string ('PUT'), NIL);
@@ -895,11 +844,15 @@ PROCEDURE Init* (modid : String);
 	Enter (class_sproc, 31, Make_string ('SIZE'), int_type);
 	Enter (class_sproc, 33, Make_string ('VAL'), int_type);
 	
+	exportno := 0;
+	
 	compiler_flag := {integer_overflow_check, array_bound_check,
 	                  alignment_flag};
 	END Init;
 	
 BEGIN
+_Export_type := Export_type;
+
 NEW (guard);
 guard.class := class_head;
 
@@ -908,5 +861,6 @@ New_predefined_typ (bool_type, type_boolean, 1);
 New_predefined_typ (set_type, type_set, Word_size);
 New_predefined_typ (byte_type, type_integer, 1);
 New_predefined_typ (char_type, type_char, 2);
-New_predefined_typ (nil_type, type_pointer, Word_size)
+New_predefined_typ (nil_type, type_pointer, Word_size);
+New_predefined_typ (real_type, type_real, 4)
 END Base.

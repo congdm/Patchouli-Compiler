@@ -1,0 +1,32 @@
+section '.idata' import data readable writeable
+	dd 0,0,0,RVA @kernel32_name,RVA @kernel32_table
+	dd 0,0,0,RVA @rtl_name,RVA @rtl_table
+	dd 0,0,0,0,0
+	
+	@kernel32_table:
+	@ExitProcess dq RVA @nameofExitProcess
+	@LoadLibrary dq RVA @nameofLoadLibrary
+	@GetProcAddress dq RVA @nameofGetProcAddress
+	dq 0
+	
+	@rtl_table:
+	@NEW dq RVA @nameofNEW
+	;@RegisterModule dq RVA @nameofRegisterModule
+	@DISPOSE dq RVA @nameofDISPOSE
+	dq 0
+	
+	@kernel32_name db 'KERNEL32.DLL',0
+	@rtl_name db 'RTL.DLL',0
+	
+	@nameofExitProcess dw 0
+	db 'ExitProcess',0
+	@nameofLoadLibrary dw 0
+	db 'LoadLibraryW',0
+	@nameofGetProcAddress dw 0
+	db 'GetProcAddress',0
+	@nameofNEW dw 0
+	db 'New',0
+	@nameofRegisterModule dw 0
+	db 'RegisterModule',0
+	@nameofDISPOSE dw 0
+	db 'Dispose',0

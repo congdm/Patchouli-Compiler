@@ -13,15 +13,16 @@ mov	[rbp + 32], r8
 push	r12
 mov	r10, qword [rbp + 32]
 mov	qword [rbp + -16], r10
-cmp	qword [rbp + -16], 256
-jle	Test@MakeAnsiStr@18
+mov	r10, qword [rbp + -16]
+cmp	r10, 256
+jle	Test@MakeAnsiStr@19
 mov	qword [rbp + -16], 256
-Test@MakeAnsiStr@18:
-mov	qword [rbp + -8], 0
 Test@MakeAnsiStr@19:
+mov	qword [rbp + -8], 0
+Test@MakeAnsiStr@20:
 mov	r10, qword [rbp + -8]
 cmp	r10, qword [rbp + -16]
-jge	Test@MakeAnsiStr@39
+jge	Test@MakeAnsiStr@40
 mov	r10, [rbp + 16]
 mov	r11, qword [rbp + -8]
 cmp	r11, 256
@@ -38,8 +39,8 @@ mov	r10, qword [rbp + -8]
 add	r10, 1
 jo	INTEGER_OVERFLOW_TRAP
 mov	qword [rbp + -8], r10
-jmp	Test@MakeAnsiStr@19
-Test@MakeAnsiStr@39:
+jmp	Test@MakeAnsiStr@20
+Test@MakeAnsiStr@40:
 mov	r10, qword [rbp + -16]
 sub	r10, 1
 jo	INTEGER_OVERFLOW_TRAP
@@ -47,8 +48,9 @@ mov	r11, [rbp + 16]
 cmp	r10, 256
 jae	INVALID_ARRAY_INDEX_TRAP
 lea	r10, [r11 + r10 * 1 + 0]
-cmp	byte [r10 + 0], 0
-je	Test@MakeAnsiStr@56
+movzx	r10, byte [r10 + 0]
+cmp	r10, 0
+je	Test@MakeAnsiStr@58
 mov	r10, qword [rbp + -16]
 sub	r10, 1
 jo	INTEGER_OVERFLOW_TRAP
@@ -57,7 +59,7 @@ cmp	r10, 256
 jae	INVALID_ARRAY_INDEX_TRAP
 lea	r10, [r11 + r10 * 1 + 0]
 mov	byte [r10 + 0], 0
-Test@MakeAnsiStr@56:
+Test@MakeAnsiStr@58:
 pop	r12
 leave
 ret
@@ -73,26 +75,27 @@ mov	byte [rbp + -9], 1
 Test@NullStringLen@15:
 mov	r10, qword [rbp + -8]
 cmp	r10, qword [rbp + 24]
-jge	Test@NullStringLen@34
+jge	Test@NullStringLen@35
 cmp	byte [rbp + -9], 0
-je	Test@NullStringLen@34
+je	Test@NullStringLen@35
 mov	r10, qword [rbp + -8]
 mov	r11, [rbp + 16]
 cmp	r10, qword [rbp + 24]
 jae	INVALID_ARRAY_INDEX_TRAP
-lea	r10, [r11 + r10 * 1 + 0]
-cmp	byte [r10 + 0], 0
-je	Test@NullStringLen@32
+lea	r10, qword [r11 + r10 * 1 + 0]
+movzx	r10, byte [r10 + 0]
+cmp	r10, 0
+je	Test@NullStringLen@33
 mov	r10, qword [rbp + -8]
 add	r10, 1
 jo	INTEGER_OVERFLOW_TRAP
 mov	qword [rbp + -8], r10
-jmp	Test@NullStringLen@33
-Test@NullStringLen@32:
-mov	byte [rbp + -9], 0
+jmp	Test@NullStringLen@34
 Test@NullStringLen@33:
-jmp	Test@NullStringLen@15
+mov	byte [rbp + -9], 0
 Test@NullStringLen@34:
+jmp	Test@NullStringLen@15
+Test@NullStringLen@35:
 mov	rax, qword [rbp + -8]
 leave
 ret
@@ -262,17 +265,34 @@ Test@@STRING dw 107,101,114,110,101,108,51,50,46,100,108,108,0,65,108,108,111,99
 Test@@VAR db 32 dup ?
 
 section '.idata' import data readable writeable
-dd 0,0,0,RVA @kernel_name,RVA @kernel_table
-dd 0,0,0,0,0
-@kernel_table:
-@ExitProcess dq RVA @nameofExitProcess
-@LoadLibrary dq RVA @nameofLoadLibrary
-@GetProcAddress dq RVA @nameofGetProcAddress
-dq 0
-@kernel_name db 'KERNEL32.DLL',0
-@nameofExitProcess dw 0
-db 'ExitProcess',0
-@nameofLoadLibrary dw 0
-db 'LoadLibraryW',0
-@nameofGetProcAddress dw 0
-db 'GetProcAddress',0
+	dd 0,0,0,RVA @kernel32_name,RVA @kernel32_table
+	dd 0,0,0,RVA @rtl_name,RVA @rtl_table
+	dd 0,0,0,0,0
+	
+	@kernel32_table:
+	@ExitProcess dq RVA @nameofExitProcess
+	@LoadLibrary dq RVA @nameofLoadLibrary
+	@GetProcAddress dq RVA @nameofGetProcAddress
+	dq 0
+	
+	@rtl_table:
+	@NEW dq RVA @nameofNEW
+	;@RegisterModule dq RVA @nameofRegisterModule
+	@DISPOSE dq RVA @nameofDISPOSE
+	dq 0
+	
+	@kernel32_name db 'KERNEL32.DLL',0
+	@rtl_name db 'RTL.DLL',0
+	
+	@nameofExitProcess dw 0
+	db 'ExitProcess',0
+	@nameofLoadLibrary dw 0
+	db 'LoadLibraryW',0
+	@nameofGetProcAddress dw 0
+	db 'GetProcAddress',0
+	@nameofNEW dw 0
+	db 'New',0
+	@nameofRegisterModule dw 0
+	db 'RegisterModule',0
+	@nameofDISPOSE dw 0
+	db 'Dispose',0

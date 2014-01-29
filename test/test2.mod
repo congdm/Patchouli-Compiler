@@ -86,7 +86,7 @@ PROCEDURE ZeroClearRecord (adr, size : INTEGER);
 BEGIN
 	i := 0;
 	WHILE i < size DO
-		PUT (adr + i, VAL(0, BYTE));
+		PUT (adr + i, VAL(BYTE, 0));
 		i := i + 1
 	END
 END ZeroClearRecord;
@@ -173,6 +173,6 @@ BEGIN
 END Main;
 
 BEGIN
-InitLibrary;
-Main
+	InitLibrary;
+	Main
 END Test2.
