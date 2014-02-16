@@ -72,7 +72,7 @@ PROCEDURE Check_operator (op : INTEGER; VAR x : Base.Item);
 PROCEDURE Check_set_element (VAR x : Base.Item);
 	BEGIN
 	IF (x.mode = Base.class_const) & (x.type.form = Base.type_integer) THEN
-		IF (x.a < 0) OR (x.a >= Base.set_size_limit) THEN
+		IF (x.a < 0) OR (x.a >= Base.Word_size * 8) THEN
 			Scanner.Mark ('This number is not in SET type range');
 			x.a := 0
 			END
@@ -891,7 +891,7 @@ PROCEDURE StandProc (VAR x : Base.Item);
 
 	BEGIN (* StandProc *)
 	i := 0; SPActualParameters (params, i);
-	CASE x.a OF
+	CASE SHORT (x.a) OF
 		4: SProc_NEW (i, params [0]) |
 		8: SProc_DISPOSE (i, params [0]) |
 		10: SProc_GET (i, params [0], params [1]) |
@@ -998,7 +998,7 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 	OR ((x.a >= 27) & (x.a < 30) OR (x.a = 33)) & (i # 2) THEN
 		Scanner.Mark ('Wrong number of parameters')
 	ELSE
-		CASE x.a OF
+		CASE SHORT (x.a) OF
 			20: SFunc_ABS (params [0]) |
 			21: SFunc_ODD (params [0]) |
 			22: SFunc_LEN (params [0]) |

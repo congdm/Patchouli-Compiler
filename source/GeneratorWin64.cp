@@ -6,7 +6,7 @@ IMPORT
 CONST
 	MAX_INT32 = 2147483647;
 	MIN_INT32 = -MAX_INT32 - 1;
-	MAX_INT = MAX_INT32;
+	MAX_INT = 9223372036854775807;
 	MIN_INT = -MAX_INT - 1;
 
 	form_nothing = 0; form_reg = 1; form_imm = 2; form_mem_reg = 3;
@@ -71,9 +71,10 @@ CONST
 TYPE
 	Operand = RECORD
 		form, scale, size : BYTE;
-		reg1, reg2, imm : INTEGER;
+		reg1, reg2 : INTEGER;
 		obj : Base.Object;
-		sym : Base.String
+		sym : Base.String;
+		imm : LONGINT
 		END;
 	
 	Instruction = RECORD
@@ -298,7 +299,8 @@ PROCEDURE Set_mem_operand (VAR o : Operand; VAR mem : Base.Item);
 		END
 	END Set_mem_operand;
 	
-PROCEDURE Set_memX_operand (VAR o : Operand; bReg, iReg, scale, imm : INTEGER);
+PROCEDURE Set_memX_operand
+(VAR o : Operand; bReg, iReg, scale : INTEGER; imm : LONGINT);
 	BEGIN
 	o.form := form_mem_scale;
 	o.reg1 := Decode_reg (bReg);
@@ -313,7 +315,7 @@ PROCEDURE Set_reg_operand (VAR o : Operand; r : INTEGER);
 	o.reg1 := Decode_reg (r)
 	END Set_reg_operand;
 	
-PROCEDURE Set_imm_operand (VAR o : Operand; imm : INTEGER);
+PROCEDURE Set_imm_operand (VAR o : Operand; imm : LONGINT);
 	BEGIN
 	o.form := form_imm;
 	o.imm := imm
@@ -394,7 +396,7 @@ PROCEDURE Emit_op_reg_mem (op, r : INTEGER; VAR mem : Base.Item);
 	Inc_program_counter
 	END Emit_op_reg_mem;
 	
-PROCEDURE Emit_op_reg_memX (op, r, bReg, iReg, scale, imm : INTEGER);
+PROCEDURE Emit_op_reg_memX (op, r, bReg, iReg, scale : INTEGER; imm : LONGINT);
 	BEGIN
 	codes [pc].op := op;
 	Set_reg_operand (codes [pc].operands [0], r);
@@ -402,7 +404,7 @@ PROCEDURE Emit_op_reg_memX (op, r, bReg, iReg, scale, imm : INTEGER);
 	Inc_program_counter
 	END Emit_op_reg_memX;
 	
-PROCEDURE Emit_op_reg_imm (op, r, imm : INTEGER);
+PROCEDURE Emit_op_reg_imm (op, r : INTEGER; imm : LONGINT);
 	BEGIN
 	codes [pc].op := op;
 	Set_reg_operand (codes [pc].operands [0], r);
@@ -418,7 +420,7 @@ PROCEDURE Emit_op_mem_reg (op : INTEGER; VAR mem : Base.Item; r : INTEGER);
 	Inc_program_counter
 	END Emit_op_mem_reg;
 	
-PROCEDURE Emit_op_mem_imm (op : INTEGER; VAR mem : Base.Item; imm : INTEGER);
+PROCEDURE Emit_op_mem_imm (op : INTEGER; VAR mem : Base.Item; imm : LONGINT);
 	BEGIN
 	codes [pc].op := op;
 	Set_mem_operand (codes [pc].operands [0], mem);
@@ -429,7 +431,7 @@ PROCEDURE Emit_op_mem_imm (op : INTEGER; VAR mem : Base.Item; imm : INTEGER);
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE Safe_to_add (x, y : INTEGER) : BOOLEAN;
+PROCEDURE Safe_to_add (x, y : LONGINT) : BOOLEAN;
 	VAR
 		result : BOOLEAN;
 	BEGIN
@@ -446,7 +448,7 @@ PROCEDURE Safe_to_add (x, y : INTEGER) : BOOLEAN;
 	RETURN result
 	END Safe_to_add;
 	
-PROCEDURE Safe_to_subtract (x, y : INTEGER) : BOOLEAN;
+PROCEDURE Safe_to_subtract (x, y : LONGINT) : BOOLEAN;
 	VAR
 		result : BOOLEAN;
 	BEGIN
@@ -463,10 +465,10 @@ PROCEDURE Safe_to_subtract (x, y : INTEGER) : BOOLEAN;
 	RETURN result
 	END Safe_to_subtract;
 	
-PROCEDURE Safe_to_multiply (x, y : INTEGER) : BOOLEAN;
+PROCEDURE Safe_to_multiply (x, y : LONGINT) : BOOLEAN;
 	VAR
 		result : BOOLEAN;
-		q, r : INTEGER;
+		q, r : LONGINT;
 	BEGIN
 	result := TRUE;
 	IF (x < 0) & (y >= 0) THEN
@@ -490,7 +492,7 @@ PROCEDURE Safe_to_multiply (x, y : INTEGER) : BOOLEAN;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE Make_const* (VAR x : Base.Item; typ : Base.Type; val : INTEGER);
+PROCEDURE Make_const* (VAR x : Base.Item; typ : Base.Type; val : LONGINT);
 	BEGIN
 	x.flag := {};
 	x.mode := Base.class_const;
@@ -865,9 +867,9 @@ PROCEDURE negated (c : INTEGER) : INTEGER;
 	RETURN r
 	END negated;
 	
-PROCEDURE merged (L0, L1 : INTEGER) : INTEGER;
+PROCEDURE merged (L0, L1 : LONGINT) : INTEGER;
 	VAR
-		L2, L3 : INTEGER;
+		L2, L3 : LONGINT;
 	BEGIN
     IF L0 # 0 THEN
 		L3 := L0;
@@ -2221,7 +2223,7 @@ PROCEDURE SProc_COPY* (VAR x, y, z : Base.Item);
 		x.mode := Base.mode_regI; x.a := 0;
 		y.mode := Base.mode_regI; y.a := 0;
 		load (x); y.type := NIL;
-		Emit_op_mem_reg (op_MOV, y, Small_reg (x.r, z.a));
+		Emit_op_mem_reg (op_MOV, y, Small_reg (x.r, SHORT (z.a)));
 		Free_reg; Free_reg
 	ELSE
 		load (x); Emit_op_reg_reg (op_MOV, -reg_RSI, x.r); Free_reg;

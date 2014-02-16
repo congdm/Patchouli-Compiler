@@ -7,7 +7,7 @@ CONST
 	success* = TRUE; failed* = FALSE;
 
 	Word_size* = 8;
-	MAX_INT* = 2147483647;
+	MAX_INT* = 9223372036854775807;
 	MIN_INT* = -MAX_INT - 1;
 	MAX_CHAR* = 65535;
 	max_str_len* = 255;
@@ -51,7 +51,7 @@ CONST
 	type_real* = 4; type_pointer* = 5; type_procedure* = 6;
 	type_array* = 7; type_record* = 8; type_string* = 9;
 	
-	types_Scalar* = {type_integer, type_boolean, type_set, type_real
+	types_Scalar* = {type_integer, type_boolean, type_set, type_real,
 					type_char, type_pointer, type_procedure};
 
 	(* Object/Item/Type flag *)
@@ -92,19 +92,20 @@ TYPE
 
 	Object* = POINTER TO RECORD
 		flag* : SET;
-		class*, lev* : INTEGER;
+		class*, lev*, parblksize* : INTEGER;
 		name* : String;
 		type* : Type;
 		next*, dsc*, scope* : Object;
-		val*, parblksize* : INTEGER
+		val* : LONGINT
 		END;
 
 	Item* = RECORD
 		flag* : SET;
 		mode*, lev* : INTEGER;
 		type* : Type;
-		a*, b*, c*, d*, e*, r* : INTEGER;
-		proc* : Object
+		b*, c*, d*, e*, r* : INTEGER;
+		proc* : Object;
+		a* : LONGINT
 		END;
 		
 	UndefPtrList* = POINTER TO RECORD
@@ -120,7 +121,7 @@ VAR
 	
 	(* predefined type *)
 	int_type*, bool_type*, set_type*, char_type*, byte_type*, real_type* : Type;
-	nilrecord_type*, nil_type* : Type;
+	longreal_type*, nilrecord_type*, nil_type* : Type;
 	
 	exportno : INTEGER;
 	symfile : Sys.FileHandle;
@@ -193,7 +194,7 @@ PROCEDURE Make_string* (const_str : ARRAY OF CHAR) : String;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 	
-PROCEDURE Integer_binary_logarithm* (a : INTEGER) : INTEGER;
+PROCEDURE Integer_binary_logarithm* (a : LONGINT) : INTEGER;
 	VAR
 		e : INTEGER;
 	BEGIN
@@ -202,25 +203,21 @@ PROCEDURE Integer_binary_logarithm* (a : INTEGER) : INTEGER;
 	ELSE
 		e := 0;
 		WHILE a > 1 DO
-			IF a MOD 2 = 0 THEN
-				INC (e);
-				a := a DIV 2
-			ELSE
-				e := -1;
-				a := 1
-				END
+			IF a MOD 2 = 0 THEN INC (e); a := a DIV 2
+			ELSE e := -1; a := 1 END
 			END
 		END;
 	RETURN e
 	END Integer_binary_logarithm;
 	
-PROCEDURE Size_of_const* (n : INTEGER) : INTEGER;
+PROCEDURE Size_of_const* (n : LONGINT) : INTEGER;
 	VAR
 		res : INTEGER;
 	BEGIN
-	IF ASH (n, -16) > 0 THEN res := 4
-	ELSIF ASH (n, -8) > 0 THEN res := 2
-	ELSE res := 1 END;
+	IF (n >= 0) & (n < 256) THEN res := 1
+	ELSIF (n >= 0) & (n < 65536) THEN res := 2
+	ELSIF (n >= 0) & (n < 4294967296) THEN res := 4
+	ELSE res := 8 END;
 	RETURN res
 	END Size_of_const;
 	
@@ -817,6 +814,7 @@ PROCEDURE Init* (modid : String);
 	Enter (class_type, 0, Make_string ('BYTE'), byte_type);
 	Enter (class_type, 0, Make_string ('CHAR'), char_type);
 	Enter (class_type, 0, Make_string ('REAL'), real_type);
+	Enter (class_type, 0, Make_string ('LONGREAL'), longreal_type);
 	
 	Enter (class_sproc, 0, Make_string ('INC'), NIL);
 	Enter (class_sproc, 1, Make_string ('DEC'), NIL);
@@ -862,5 +860,6 @@ New_predefined_typ (set_type, type_set, Word_size);
 New_predefined_typ (byte_type, type_integer, 1);
 New_predefined_typ (char_type, type_char, 2);
 New_predefined_typ (nil_type, type_pointer, Word_size);
-New_predefined_typ (real_type, type_real, 4)
+New_predefined_typ (real_type, type_real, 4);
+New_predefined_typ (longreal_type, type_real, 8)
 END Base.

@@ -82,7 +82,7 @@ BEGIN
 	file.w.WriteLine
 END Write_newline;
 	
-PROCEDURE Int_to_string* (x : INTEGER; VAR str : ARRAY OF CHAR);
+PROCEDURE Int_to_string* (x : LONGINT; VAR str : ARRAY OF CHAR);
 	VAR
 		negative : BOOLEAN;
 		s : ARRAY 20 OF CHAR;
@@ -111,7 +111,7 @@ BEGIN
 	END
 END Int_to_string;
 	
-PROCEDURE Write_number* (VAR file : FileHandle; x : INTEGER);
+PROCEDURE Write_number* (VAR file : FileHandle; x : LONGINT);
 	VAR
 		s : ARRAY 22 OF CHAR;
 BEGIN
@@ -136,7 +136,7 @@ PROCEDURE Write_4bytes* (VAR file : FileHandle; n : INTEGER);
 BEGIN
 END Write_4bytes;
 	
-PROCEDURE Write_8bytes* (VAR file : FileHandle; n : INTEGER);
+PROCEDURE Write_8bytes* (VAR file : FileHandle; n : LONGINT);
 BEGIN
 END Write_8bytes;
 	

@@ -7,9 +7,8 @@ CONST
 	failed = FALSE; success = TRUE;
 
 VAR
-	val* : INTEGER;
-	realval* : INTEGER;
-	have_error*, overflow* : BOOLEAN;
+	val* : LONGINT;
+	have_error* : BOOLEAN;
 	id* : Base.String;
 	
 	max_int : ARRAY 22 OF CHAR;
@@ -188,13 +187,133 @@ PROCEDURE Get_word (VAR sym : INTEGER);
 		END;
 	END Get_word;
 	
-PROCEDURE Get_number2;
+PROCEDURE Get_hex_number (hex_int : LONGINT; hex_overflow : BOOLEAN);
+	CONST
+		MAX_INT = 9223372036854775807; (* 64-bits integer *)
 	VAR
-		decimal_int, hex_int, single : INTEGER;
-		double : LONGINT;
+		x : INTEGER;
 	BEGIN
-	int := 0; single := 0; double := 0;
+	WHILE (ch >= 'A') & (ch <= 'F') OR (ch >= '0') & (ch <= '9') DO
+		IF ~ hex_overflow THEN
+			x := ORD (ch) - ORD ('0'); IF x > 9 THEN DEC (x, 7) END;
+			IF hex_int <= MAX_INT DIV 16 THEN
+				hex_int := hex_int * 16;
+				IF hex_int <= MAX_INT - x THEN INC (hex_int, x)
+				ELSE hex_overflow := TRUE END
+			ELSE hex_overflow := TRUE END
+			END;
+		Read_char
+		END;
+	val := hex_int; 
+	IF ch = 'H' THEN
+		val := hex_int;
+		IF hex_overflow THEN
+			Mark ('This number is too large (compiler limit)')
+			END;
+		Read_char
+	ELSE Mark ('Hexadecimal number without suffix') END
+	END Get_hex_number;
 	
+PROCEDURE Get_bit_count (n : LONGINT) : INTEGER;
+	VAR
+		r : INTEGER;
+	BEGIN
+	WHILE n > 0 DO INC (r); r := r DIV 2 END
+	END Get_bit_count;
+	
+PROCEDURE Get_real_number
+(real : LONGINT; exponent : INTEGER; real_overflow : BOOLEAN);
+	CONST
+		MAX_INT = 9223372036854775807; (* 64-bits integer *)
+		MAX_MANTISSA = 18014398509481983; (* 54-bits mantissa *)
+		SINGLE_MANTISSA = 16777215; (* 24-bits mantissa *)
+		MAX_EXPONENT = 1023;
+	VAR
+		fraction, k : LONGINT;
+		x, j : INTEGER;
+	BEGIN
+	fraction := 0; k := 1;
+	WHILE (ch = '0') & (ch <= '9') DO
+		x := ORD (ch) - ORD ('0');
+		k := k * 10; fraction := fraction * 10 + x;
+		Read_char
+		END;
+	WHILE fraction > 0 DO
+		INC (fraction, fraction);
+		IF fraction >= k THEN
+			fraction := fraction - k;
+			INC (real, real + 1)
+		ELSE
+			INC (real, real)
+			END;
+		END;
+	IF real = 0 THEN
+		val := 0
+	ELSE
+		INC 
+		END;
+	WHILE fraction <= SINGLE_MANTISSA DO
+		fraction := fraction * 2;
+		
+		END;
+	END Get_real_number;
+	
+PROCEDURE Get_number2;
+	CONST
+		MAX_INT = 9223372036854775807; (* 64-bits integer *)
+		MAX_MANTISSA = 18014398509481983; (* 54-bits mantissa *)
+		MAX_EXPONENT = 1023;
+	VAR
+		decimal_int, hex_int, real : LONGINT;
+		x, exponent : INTEGER;
+		decimal_overflow, hex_overflow, real_overflow : BOOLEAN;
+	BEGIN
+	decimal_int := 0; hex_int := 0; real := 0; exponent := 0;
+	decimal_overflow := FALSE; hex_overflow := FALSE; real_overflow := FALSE;
+	WHILE ch = '0' DO Read_char END;
+	WHILE (ch >= '0') & (ch <= '9') DO
+		x := ORD (ch) - ORD ('0');
+		IF ~ decimal_overflow THEN
+			IF decimal_int <= MAX_INT DIV 10 THEN
+				decimal_int := decimal_int * 10;
+				IF decimal_int <= MAX_INT - x THEN INC (decimal_int, x)
+				ELSE decimal_overflow := TRUE END
+			ELSE decimal_overflow := TRUE END
+			END;
+		IF ~ hex_overflow THEN
+			IF hex_int <= MAX_INT DIV 16 THEN
+				hex_int := hex_int * 16;
+				IF hex_int <= MAX_INT - x THEN INC (hex_int, x)
+				ELSE hex_overflow := TRUE END
+			ELSE hex_overflow := TRUE END
+			END;
+		real := real * 10 + x;
+		WHILE real > MAX_MANTISSA DO
+			x := real MOD 2;
+			real := real DIV 2;
+			IF exponent < MAX_EXPONENT THEN INC (exponent)
+			ELSE real_overflow := TRUE END
+			END;
+		IF x = 0 THEN INC (real) END;
+		Read_char
+		END;
+	IF ch = 'H' THEN
+		val := hex_int;
+		IF hex_overflow THEN
+			Mark ('This number is too large (compiler limit)')
+			END;
+		Read_char
+	ELSIF (ch >= 'A') & (ch <= 'F') THEN
+		Get_hex_number (hex_int, hex_overflow)
+	ELSIF ch = '.' THEN
+		Read_char; Get_real_number (real, exponent, real_overflow)
+	ELSE
+		val := decimal_int;
+		IF decimal_overflow THEN
+			Mark ('This number is too large (compiler limit)')
+			END;
+		Read_char
+		END
 	END Get_number2;
 
 PROCEDURE Get_number;
