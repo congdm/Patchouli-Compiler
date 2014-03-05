@@ -315,7 +315,7 @@ PROCEDURE ArrayType (VAR typ : Base.Type);
 		expression (len);
 		IF len.mode = Base.class_const THEN
 			IF len.a > 0 THEN
-				typ.len := len.a
+				typ.len := SHORT (len.a)
 			ELSE
 				Scanner.Mark ('Non-positive array length is not allowed');
 				typ.len := 1
@@ -714,10 +714,10 @@ PROCEDURE ActualParameters (VAR x : Base.Item);
 		BEGIN
 		expression (y);
 		CASE Base.Check_parameter (param, y) OF
-			0: Generator.Normal_parameter (y, proc, param.val) |
+			0: Generator.Normal_parameter (y, proc, SHORT (param.val)) |
 			1: Generator.Open_array_parameter (y, proc, param) |
-			2: Generator.Reference_parameter (y, proc, param.val) |
-			3: Generator.Record_variable_parameter (y, proc, param.val) |
+			2: Generator.Reference_parameter (y, proc, SHORT (param.val)) |
+			3: Generator.Record_variable_parameter (y, proc, SHORT (param.val)) |
 			9: Generator.String_parameter (y, proc, param) |
 			4: Scanner.Mark ('Formal parameter is variable but actual is read-only') |
 			5: Scanner.Mark ('Formal parameter is variable but actual is not') |
@@ -1312,7 +1312,7 @@ PROCEDURE IfStatement;
 	StatementSequence;
 	
 	WHILE sym = Base.sym_elsif DO
-		Generator.FJump (L); Generator.Fix_link (x.a);
+		Generator.FJump (L); Generator.Fix_link (SHORT (x.a));
 		Scanner.Get (sym);
 		expression (x); Check_bool (x); Generator.CFJump (x);
 		Check (Base.sym_then, 'No THEN after ELSIF condition');
@@ -1320,11 +1320,11 @@ PROCEDURE IfStatement;
 		END;
 		
 	IF sym = Base.sym_else THEN
-		Generator.FJump (L); Generator.Fix_link (x.a);
+		Generator.FJump (L); Generator.Fix_link (SHORT (x.a));
 		Scanner.Get (sym);
 		StatementSequence
 	ELSE
-		Generator.Fix_link (x.a)
+		Generator.Fix_link (SHORT (x.a))
 		END;
 		
 	Generator.Fix_link (L);
@@ -1343,14 +1343,14 @@ PROCEDURE WhileStatement;
 	StatementSequence;
 	
 	WHILE sym = Base.sym_elsif DO
-		Generator.BJump (L); Generator.Fix_link (x.a);
+		Generator.BJump (L); Generator.Fix_link (SHORT (x.a));
 		Scanner.Get (sym);
 		expression (x); Check_bool (x); Generator.CFJump (x);
 		Check (Base.sym_do, 'No DO after ELSIF condition');
 		StatementSequence
 		END;
 		
-	Generator.BJump (L); Generator.Fix_link (x.a);
+	Generator.BJump (L); Generator.Fix_link (SHORT (x.a));
 	Check (Base.sym_end, 'No END for WHILE statement')
 	END WhileStatement;
 	
@@ -1399,7 +1399,7 @@ PROCEDURE ForStatement;
 	IF flag THEN Generator.Make_const (inc, Base.int_type, 1) END;
 	
 	Check (Base.sym_do, 'No DO in FOR statement');
-	L := 0; Generator.Begin_FOR (x, beg, end, rel, L, inc.a);
+	L := 0; Generator.Begin_FOR (x, beg, end, rel, L, SHORT (inc.a));
 	StatementSequence;
 	Check (Base.sym_end, 'No END for FOR statement');
 	Generator.End_FOR (x, rel, inc, L)

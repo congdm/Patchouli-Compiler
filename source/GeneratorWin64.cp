@@ -667,7 +667,7 @@ PROCEDURE Load_adr (VAR x : Base.Item);
 PROCEDURE Convert_to_cond (VAR x : Base.Item);
 	BEGIN
 	IF x.mode = Base.class_const THEN
-		Set_cond (x, vop_NJMP - x.a)
+		Set_cond (x, vop_NJMP - SHORT (x.a))
 	ELSIF x.mode = Base.mode_reg THEN
 		Emit_op_reg_reg (op_TEST, x.r, x.r);
 		Set_cond (x, op_JNE);
@@ -794,7 +794,7 @@ PROCEDURE Set3* (VAR x, y, z : Base.Item);
 			Emit_op_reg_reg (op_SHL, dr, -reg_CL)
 			END P1;
 			
-		PROCEDURE P2 (imm, dr, i, val : INTEGER);
+		PROCEDURE P2 (imm : LONGINT; dr, i, val : INTEGER);
 			BEGIN
 			IF imm < 32 THEN
 				Emit_op_reg_imm (op_XOR, dr, val)
@@ -877,7 +877,7 @@ PROCEDURE merged (L0, L1 : LONGINT) : INTEGER;
 		codes [L2].operands [0].imm := L1;
 		L1 := L0
 		END;
-    RETURN L1
+    RETURN SHORT (L1)
 	END merged;
 	
 PROCEDURE Fix_link* (L : INTEGER);
@@ -886,7 +886,7 @@ PROCEDURE Fix_link* (L : INTEGER);
 	BEGIN
 	IF L # 0 THEN
 		REPEAT
-			L1 := codes [L].operands [0].imm;
+			L1 := SHORT (codes [L].operands [0].imm);
 			codes [L].operands [0].imm := pc;
 			L := L1
 			UNTIL L = 0;
@@ -907,7 +907,7 @@ PROCEDURE CFJump* (VAR x : Base.Item);
 	IF x.mode # Base.mode_cond THEN Convert_to_cond (x) END;
 	op := negated (x.r);
 	IF op # vop_NJMP THEN
-		Emit_op_label (op, x.a);
+		Emit_op_label (op, SHORT (x.a));
 		x.a := pc - 1
 		END;
 	Fix_link (x.b)
@@ -943,7 +943,7 @@ PROCEDURE Op1* (op : INTEGER; VAR x : Base.Item);
 		ELSE
 			IF x.mode # Base.mode_cond THEN Convert_to_cond (x) END;
 			x.r := negated (x.r);
-			t := x.a; x.a := x.b; x.b := t
+			t := SHORT (x.a); x.a := x.b; x.b := t
 			END
 	ELSIF op = Base.sym_minus THEN
 		IF x.mode = Base.class_const THEN
@@ -972,12 +972,14 @@ PROCEDURE Op1* (op : INTEGER; VAR x : Base.Item);
 	ELSIF op = Base.sym_and THEN
 		IF x.mode # Base.mode_cond THEN Convert_to_cond (x) END;
 		op := negated (x.r);
-		IF op # vop_NJMP THEN Emit_op_label (op, x.a); x.a := pc - 1 END;
+		IF op # vop_NJMP THEN
+			Emit_op_label (op, SHORT (x.a)); x.a := pc - 1
+			END;
 		Fix_link (x.b); x.b := 0
 	ELSIF op = Base.sym_or THEN
 		IF x.mode # Base.mode_cond THEN Convert_to_cond (x) END;
 		IF x.r # vop_NJMP THEN Emit_op_label (x.r, x.b); x.b := pc - 1 END;
-		Fix_link (x.a); x.a := 0
+		Fix_link (SHORT (x.a)); x.a := 0
 		END
 	END Op1;
 	
@@ -1051,7 +1053,7 @@ PROCEDURE Subtract (VAR x, y : Base.Item);
 		END
 	END Subtract;
 	
-PROCEDURE Multiply_by_const (VAR x : Base.Item; const : INTEGER);
+PROCEDURE Multiply_by_const (VAR x : Base.Item; const : LONGINT);
 	BEGIN
 	IF const = 0 THEN
 		Zero_clear_reg (x.r)
@@ -1101,7 +1103,7 @@ PROCEDURE Multiply (VAR x, y : Base.Item);
 	END Multiply;
 	
 PROCEDURE Divide_by_const
-(VAR x : Base.Item; const : INTEGER; is_modulo : BOOLEAN; VAR result : BOOLEAN);
+(VAR x : Base.Item; const : LONGINT; is_modulo : BOOLEAN; VAR result : BOOLEAN);
 	VAR
 		e : INTEGER;
 	BEGIN
@@ -1362,7 +1364,7 @@ PROCEDURE Index* (VAR x, y : Base.Item);
 		scale, e, size : INTEGER;
 	BEGIN
 	IF x.type.len < 0 THEN
-		IF x.b = 0 THEN x.b := x.a + 8 END;
+		IF x.b = 0 THEN x.b := SHORT (x.a) + 8 END;
 		Open_array_index (x, y)
 	ELSE
 		IF x.mode = Base.class_ref THEN	Ref_to_regI (x) END;
@@ -1623,7 +1625,7 @@ PROCEDURE Init_local_variable (tp : Base.Type; adr : INTEGER);
 	ELSIF tp.form = Base.type_record THEN
 		field := tp.fields;
 		WHILE field # Base.guard DO
-			Init_local_variable (field.type, adr + field.val);
+			Init_local_variable (field.type, adr + SHORT (field.val));
 			field := field.next
 			END
 	ELSIF tp.form = Base.type_array THEN
@@ -1679,7 +1681,7 @@ PROCEDURE Enter* (proc : Base.Object; locblksize : INTEGER);
 	obj := Base.top_scope.next;
 	WHILE obj # Base.guard DO
 		IF (obj.class = Base.class_var) & ~ (Base.flag_param IN obj.flag) THEN
-			Init_local_variable (obj.type, obj.val)
+			Init_local_variable (obj.type, SHORT (obj.val))
 			END;
 		obj := obj.next
 		END;
@@ -1912,7 +1914,7 @@ PROCEDURE Open_array_parameter* (VAR x, proc : Base.Item; par : Base.Object);
 		tp, formal_type : Base.Type;
 		adr : INTEGER;
 	BEGIN
-	adr := par.val;
+	adr := SHORT (par.val);
 	temp := x;
 	Reference_parameter (temp, proc, adr);
 	
@@ -1921,7 +1923,7 @@ PROCEDURE Open_array_parameter* (VAR x, proc : Base.Item; par : Base.Object);
 	WHILE (formal_type.form = Base.type_array) & (formal_type.len < 0) DO
 		INC (adr, 8);
 		IF (tp.form = Base.type_array) & (tp.len < 0) THEN
-			IF x.b = 0 THEN x.b := x.a + 8 END;
+			IF x.b = 0 THEN x.b := SHORT (x.a) + 8 END;
 			Make_len_item (len, x.b);
 			INC (x.b, 8)
 		ELSE
@@ -1948,7 +1950,7 @@ PROCEDURE String_parameter* (VAR x, proc : Base.Item; par : Base.Object);
 	Inc_stack_frame_usage (temp_array.type.size);
 	
 	Store (temp_array, x);
-	Reference_parameter (temp_array, proc, par.val)
+	Reference_parameter (temp_array, proc, SHORT (par.val))
 	END String_parameter;
 	
 (* -------------------------------------------------------------------------- *)
@@ -1981,7 +1983,7 @@ PROCEDURE End_FOR* (VAR x, rel, inc : Base.Item; L : INTEGER);
 	IF inc.mode = Base.mode_reg THEN
 		Emit_op_mem_reg (op_ADD, x, inc.r); Free_reg
 	ELSE Emit_op_mem_imm (op_ADD, x, inc.a) END;
-	BJump (L); Fix_link (rel.a)
+	BJump (L); Fix_link (SHORT (rel.a))
 	END End_FOR;
 	
 (* -------------------------------------------------------------------------- *)
@@ -2090,7 +2092,7 @@ PROCEDURE SFunc_ODD* (VAR y : Base.Item);
 PROCEDURE SFunc_LEN* (VAR y : Base.Item);
 	BEGIN
 	IF y.type.len < 0 THEN
-		IF y.b = 0 THEN y.b := y.a + 8 END;
+		IF y.b = 0 THEN y.b := SHORT (y.a) + 8 END;
 		Make_len_item (y, y.b)
 	ELSE
 		Make_const (y, Base.int_type, y.type.len)
@@ -2346,7 +2348,8 @@ PROCEDURE Generate_type_desc_section;
 					field := typ.fields;
 					WHILE n > 0 DO
 						IF field.type.num_ptr > 0 THEN
-							Emit_pointer_offset (field.type, offset + field.val);
+							Emit_pointer_offset
+							(field.type, offset + SHORT(field.val));
 							DEC (n, field.type.num_ptr)
 							END;
 						field := field.next
