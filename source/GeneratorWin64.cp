@@ -13,6 +13,8 @@ CONST
 	form_mem_pc = 4; form_mem_scale = 5; form_proc_name = 6; form_sym = 7;
 	form_label = 8; form_mem_proc = 9; form_xreg = 10;
 	
+	forms_Memory = {form_mem_reg, form_mem_pc, form_mem_scale, form_mem_proc};
+	
 	flag_hasLabel = 0; flag_skiped = 1;
 	
 	op_NOP = 0;
@@ -84,13 +86,13 @@ TYPE
 		obj : Base.Object;
 		sym : Base.String;
 		imm : LONGINT
-		END;
+	END;
 	
 	Instruction = RECORD
 		flag : SET;
 		op : INTEGER;
 		operands : ARRAY 3 OF Operand
-		END;
+	END;
 	
 VAR
 	op_table : ARRAY 256, 10 OF CHAR;
@@ -116,87 +118,79 @@ VAR
 (* -------------------------------------------------------------------------- *)
 	
 PROCEDURE Write_scope_name (scope : Base.Object);
-	BEGIN
+BEGIN
 	IF scope.dsc # NIL THEN
 		Write_scope_name (scope.dsc);
 		Sys.Write_char (out, '@');
 		Sys.Write_string (out, scope.name.content)
 	ELSE
 		Sys.Write_string (out, scope.name.content)
-		END
-	END Write_scope_name;
+	END
+END Write_scope_name;
+
+PROCEDURE Write_mem_prefix (VAR mem : Operand);
+BEGIN
+	CASE mem.size OF
+		0: (* Do nothing *) |
+		1: Sys.Write_string (out, 'byte ') |
+		2: Sys.Write_string (out, 'word ') |
+		4: Sys.Write_string (out, 'dword ') |
+		8: Sys.Write_string (out, 'qword ')
+	END
+END Write_mem_prefix;
+
+PROCEDURE Write_operand (VAR op : Operand);
+BEGIN
+	IF op.form IN forms_Memory THEN
+		Write_mem_prefix (op);
+		Sys.Write_char (out, '[')
+	END;
+	CASE op.form OF
+		form_reg:
+			Sys.Write_string (out, reg_table [op.reg1]) |
+		form_xreg:
+			Sys.Write_string (out, xreg_table [op.reg1]) |
+		form_imm:
+			Sys.Write_number (out, op.imm) |
+		form_mem_reg:
+			Sys.Write_string (out, reg_table [op.reg1]);
+			Sys.Write_string (out, ' + ');
+			Sys.Write_number (out, op.imm) |
+		form_mem_pc:
+			Write_scope_name (Base.universe);
+			Sys.Write_string (out, '@@');
+			Sys.Write_string (out, op.sym.content);
+			Sys.Write_string (out, ' + ');
+			Sys.Write_number (out, op.imm) |
+		form_mem_scale:
+			Sys.Write_string (out, reg_table [op.reg1]);
+			Sys.Write_string (out, ' + ');
+			Sys.Write_string (out, reg_table [op.reg2]);
+			Sys.Write_string (out, ' * ');
+			Sys.Write_number (out, op.scale);
+			Sys.Write_string (out, ' + ');
+			Sys.Write_number (out, op.imm) |
+		form_mem_proc:
+			Write_scope_name (op.obj.scope);
+			Sys.Write_char (out, '@');
+			Sys.Write_string (out, op.obj.name.content) |
+		form_proc_name:
+			Write_scope_name (op.obj.scope);
+			Sys.Write_char (out, '@');
+			Sys.Write_string (out, op.obj.name.content) |
+		form_label:
+			Write_scope_name (Base.top_scope);
+			Sys.Write_char (out, '@');
+			Sys.Write_number (out, op.imm) |
+		form_sym:
+			Sys.Write_string (out, op.sym.content)
+	END;
+	IF op.form IN forms_Memory THEN Sys.Write_char (out, ']')
+	END;
+END Write_operand;
 	
 PROCEDURE Write_instruction (VAR inst : Instruction);
-
-	PROCEDURE Write_operand (VAR op : Operand);
-	
-		PROCEDURE Write_mem_prefix (VAR mem : Operand);
-			BEGIN
-			CASE mem.size OF
-				0: (* Do nothing *) |
-				1: Sys.Write_string (out, 'byte ') |
-				2: Sys.Write_string (out, 'word ') |
-				4: Sys.Write_string (out, 'dword ') |
-				8: Sys.Write_string (out, 'qword ')
-				END
-			END Write_mem_prefix;
-	
-		BEGIN (* Write_operand *)
-		CASE op.form OF
-			form_reg:
-				Sys.Write_string (out, reg_table [op.reg1]) |
-			form_xreg:
-				Sys.Write_string (out, xreg_table [op.reg1]) |
-			form_imm:
-				Sys.Write_number (out, op.imm) |
-			form_mem_reg:
-				Write_mem_prefix (op);
-				Sys.Write_char (out, '[');
-				Sys.Write_string (out, reg_table [op.reg1]);
-				Sys.Write_string (out, ' + ');
-				Sys.Write_number (out, op.imm);
-				Sys.Write_char (out, ']') |
-			form_mem_pc:
-				Write_mem_prefix (op);
-				Sys.Write_char (out, '[');
-				Write_scope_name (Base.universe);
-				Sys.Write_string (out, '@@');
-				Sys.Write_string (out, op.sym.content);
-				Sys.Write_string (out, ' + ');
-				Sys.Write_number (out, op.imm);
-				Sys.Write_char (out, ']') |
-			form_mem_scale:
-				Write_mem_prefix (op);
-				Sys.Write_char (out, '[');
-				Sys.Write_string (out, reg_table [op.reg1]);
-				Sys.Write_string (out, ' + ');
-				Sys.Write_string (out, reg_table [op.reg2]);
-				Sys.Write_string (out, ' * ');
-				Sys.Write_number (out, op.scale);
-				Sys.Write_string (out, ' + ');
-				Sys.Write_number (out, op.imm);
-				Sys.Write_char (out, ']') |
-			form_mem_proc:
-				Write_mem_prefix (op);
-				Sys.Write_char (out, '[');
-				Write_scope_name (op.obj.scope);
-				Sys.Write_char (out, '@');
-				Sys.Write_string (out, op.obj.name.content);
-				Sys.Write_char (out, ']') |
-			form_proc_name:
-				Write_scope_name (op.obj.scope);
-				Sys.Write_char (out, '@');
-				Sys.Write_string (out, op.obj.name.content) |
-			form_label:
-				Write_scope_name (Base.top_scope);
-				Sys.Write_char (out, '@');
-				Sys.Write_number (out, op.imm) |
-			form_sym:
-				Sys.Write_string (out, op.sym.content)
-			END
-		END Write_operand;
-
-	BEGIN (* Write_instruction *)
+BEGIN
 	Sys.Write_string (out, op_table [inst.op]);
 	IF inst.operands [0].form # form_nothing THEN
 		Sys.Write_char (out, 9X);
@@ -207,32 +201,32 @@ PROCEDURE Write_instruction (VAR inst : Instruction);
 			IF inst.operands [2].form # form_nothing THEN
 				Sys.Write_string (out, ', ');
 				Write_operand (inst.operands [2])
-				END
 			END
-		END;
+		END
+	END;
 	Sys.Write_newline (out)
-	END Write_instruction;
+END Write_instruction;
 	
 PROCEDURE Inc_program_counter;
-	BEGIN
+BEGIN
 	INC (pc);
 	codes [pc].op := op_NOP;
 	codes [pc].flag := {};
 	codes [pc].operands [0].form := form_nothing;
 	codes [pc].operands [1].form := form_nothing;
 	codes [pc].operands [2].form := form_nothing
-	END Inc_program_counter;
+END Inc_program_counter;
 	
 PROCEDURE Write_codes_to_file;
 	VAR
 		i : INTEGER;
-	BEGIN
+BEGIN
 	Write_scope_name (Base.top_scope);
-	IF Base.top_scope = Base.universe THEN
-		Sys.Write_string (out, '@@INIT')
-		END;
+	IF Base.top_scope = Base.universe THEN Sys.Write_string (out, '@@INIT')
+	END;
 	Sys.Write_char (out, ':');
 	Sys.Write_newline (out);
+	
 	FOR i := 0 TO pc - 1 DO
 		IF ~ (flag_skiped IN codes [i].flag) THEN
 			IF flag_hasLabel IN codes [i].flag THEN
@@ -241,32 +235,32 @@ PROCEDURE Write_codes_to_file;
 				Sys.Write_number (out, i);
 				Sys.Write_char (out, ':');
 				Sys.Write_newline (out)
-				END;
+			END;
 			Write_instruction (codes [i])
-			END
-		END;
-	Sys.Write_newline (out);
+		END
+	END;
 	
+	Sys.Write_newline (out);
 	pc := -1;
 	Inc_program_counter
-	END Write_codes_to_file;
+END Write_codes_to_file;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 	
 PROCEDURE Small_reg (r, size : INTEGER) : INTEGER;
-	BEGIN
+BEGIN
 	CASE size OF
 		1: INC (r, 48) |
 		2: INC (r, 32) |
 		4: INC (r, 16) |
 		8: (* Do nothing *)
-		END;
-	RETURN -r
-	END Small_reg;
+	END;
+	RETURN r
+END Small_reg;
 
 PROCEDURE Set_mem_operand (VAR o : Operand; VAR mem : Base.Item);
-	BEGIN
+BEGIN
 	IF mem.mode = Base.mode_regI THEN
 		o.form := form_mem_reg;
 		o.reg1 := mem.r;
@@ -275,17 +269,26 @@ PROCEDURE Set_mem_operand (VAR o : Operand; VAR mem : Base.Item);
 		o.form := form_mem_proc;
 		o.obj := mem.proc
 	ELSIF mem.lev > 0 THEN
+		(* Local variable *)
 		o.form := form_mem_reg;
 		o.reg1 := reg_stackBase;
-		IF Base.flag_param IN mem.flag THEN o.imm := 16 + mem.a
-		ELSE o.imm := mem.a END
+		IF Base.flag_param IN mem.flag THEN
+			o.imm := 16 + mem.a
+		ELSE
+			o.imm := mem.a
+		END
 	ELSIF mem.lev = 0 THEN
+		(* Global variable *)
 		o.form := form_mem_pc;
-		IF Base.flag_typeDesc IN mem.flag THEN o.sym := sym_tdbase
-		ELSIF mem.type.form = Base.type_string THEN o.sym := sym_stringbase
-		ELSE o.sym := sym_varbase END;
-		o.imm := mem.a
+		IF Base.flag_typeDesc IN mem.flag THEN
+			o.sym := sym_tdbase
+		ELSIF mem.type.form = Base.type_string THEN
+			o.sym := sym_stringbase
+		ELSE
+			o.sym := sym_varbase
 		END;
+		o.imm := mem.a
+	END;
 		
 	IF (mem.mode = Base.class_ref) OR (mem.type = NIL) THEN
 		o.size := 0
@@ -295,188 +298,188 @@ PROCEDURE Set_mem_operand (VAR o : Operand; VAR mem : Base.Item);
 			2: o.size := 2 |
 			4: o.size := 4 |
 			8: o.size := 8
-			ELSE o.size := 0
-			END
+		ELSE o.size := 0
 		END
-	END Set_mem_operand;
+	END
+END Set_mem_operand;
 	
 PROCEDURE Set_memX_operand
 (VAR o : Operand; bReg, iReg, scale : INTEGER; imm : LONGINT);
-	BEGIN
+BEGIN
 	o.form := form_mem_scale;
 	o.reg1 := bReg;
 	o.reg2 := iReg;
 	o.scale := SHORT (SHORT (scale));
 	o.imm := imm
-	END Set_memX_operand;
+END Set_memX_operand;
 	
 PROCEDURE Set_reg_operand (VAR o : Operand; r : INTEGER);
-	BEGIN
+BEGIN
 	o.form := form_reg;
 	o.reg1 := r
-	END Set_reg_operand;
+END Set_reg_operand;
 	
 PROCEDURE Set_imm_operand (VAR o : Operand; imm : LONGINT);
-	BEGIN
+BEGIN
 	o.form := form_imm;
 	o.imm := imm
-	END Set_imm_operand;
+END Set_imm_operand;
 	
 PROCEDURE Set_proc_operand (VAR o : Operand; proc : Base.Object);
-	BEGIN
+BEGIN
 	o.form := form_proc_name;
 	o.obj := proc
-	END Set_proc_operand;
+END Set_proc_operand;
 	
 PROCEDURE Set_sym_operand (VAR o : Operand; sym : Base.String);
-	BEGIN
+BEGIN
 	o.form := form_sym;
 	o.sym := sym
-	END Set_sym_operand;
+END Set_sym_operand;
 	
 PROCEDURE Set_label_operand (VAR o : Operand; label_num : INTEGER);
-	BEGIN
+BEGIN
 	o.form := form_label;
 	o.imm := label_num;
-	END Set_label_operand;
+END Set_label_operand;
 	
 PROCEDURE Set_xreg_operand (VAR o : Operand; xreg : INTEGER);
-	BEGIN
+BEGIN
 	o.form := form_xreg;
 	o.reg1 := xreg
-	END Set_xreg_operand;
+END Set_xreg_operand;
 	
 (* -------------------------------------------------------------------------- *)
 	
 PROCEDURE Emit_op_bare (op : INTEGER);
-	BEGIN
+BEGIN
 	codes [pc].op := op;
 	Inc_program_counter
-	END Emit_op_bare;
+END Emit_op_bare;
 	
 PROCEDURE Emit_op_reg (op, r : INTEGER);
-	BEGIN
+BEGIN
 	codes [pc].op := op;
 	Set_reg_operand (codes [pc].operands [0], r);
 	Inc_program_counter
-	END Emit_op_reg;
+END Emit_op_reg;
 	
 PROCEDURE Emit_op_imm (op : INTEGER; imm : LONGINT);
-	BEGIN
+BEGIN
 	codes [pc].op := op;
 	Set_imm_operand (codes [pc].operands [0], imm);
 	Inc_program_counter
-	END Emit_op_imm;
+END Emit_op_imm;
 	
 PROCEDURE Emit_op_proc (op : INTEGER; proc : Base.Object);
-	BEGIN
+BEGIN
 	codes [pc].op := op;
 	Set_proc_operand (codes [pc].operands [0], proc);
 	Inc_program_counter
-	END Emit_op_proc;
+END Emit_op_proc;
 	
 PROCEDURE Emit_op_mem (op : INTEGER; mem : Base.Item);
-	BEGIN
+BEGIN
 	codes [pc].op := op;
 	Set_mem_operand (codes [pc].operands [0], mem);
 	Inc_program_counter
-	END Emit_op_mem;
+END Emit_op_mem;
 	
 PROCEDURE Emit_op_sym (op : INTEGER; sym : Base.String);
-	BEGIN
+BEGIN
 	codes [pc].op := op;
 	Set_sym_operand (codes [pc].operands [0], sym);
 	Inc_program_counter
-	END Emit_op_sym;
+END Emit_op_sym;
 	
 PROCEDURE Emit_op_label (op, label_num : INTEGER);
-	BEGIN
+BEGIN
 	codes [pc].op := op;
 	Set_label_operand (codes [pc].operands [0], label_num);
 	Inc_program_counter
-	END Emit_op_label;
+END Emit_op_label;
 	
 (* -------------------------------------------------------------------------- *)
 	
 PROCEDURE Emit_op_reg_reg (op, r1, r2 : INTEGER);
-	BEGIN
+BEGIN
 	codes [pc].op := op;
 	Set_reg_operand (codes [pc].operands [0], r1);
 	Set_reg_operand (codes [pc].operands [1], r2);
 	Inc_program_counter
-	END Emit_op_reg_reg;
+END Emit_op_reg_reg;
 
 PROCEDURE Emit_op_reg_mem (op, r : INTEGER; VAR mem : Base.Item);
-	BEGIN
+BEGIN
 	codes [pc].op := op;
 	Set_reg_operand (codes [pc].operands [0], r);
 	Set_mem_operand (codes [pc].operands [1], mem);
 	Inc_program_counter
-	END Emit_op_reg_mem;
+END Emit_op_reg_mem;
 	
 PROCEDURE Emit_op_reg_memX (op, r, bReg, iReg, scale : INTEGER; imm : LONGINT);
-	BEGIN
+BEGIN
 	codes [pc].op := op;
 	Set_reg_operand (codes [pc].operands [0], r);
 	Set_memX_operand (codes [pc].operands [1], bReg, iReg, scale, imm);
 	Inc_program_counter
-	END Emit_op_reg_memX;
+END Emit_op_reg_memX;
 	
 PROCEDURE Emit_op_reg_imm (op, r : INTEGER; imm : LONGINT);
-	BEGIN
+BEGIN
 	codes [pc].op := op;
 	Set_reg_operand (codes [pc].operands [0], r);
 	Set_imm_operand (codes [pc].operands [1], imm);
 	Inc_program_counter
-	END Emit_op_reg_imm;
+END Emit_op_reg_imm;
 	
 PROCEDURE Emit_op_mem_reg (op : INTEGER; VAR mem : Base.Item; r : INTEGER);
-	BEGIN
+BEGIN
 	codes [pc].op := op;
 	Set_mem_operand (codes [pc].operands [0], mem);
 	Set_reg_operand (codes [pc].operands [1], r);
 	Inc_program_counter
-	END Emit_op_mem_reg;
+END Emit_op_mem_reg;
 	
 PROCEDURE Emit_op_mem_imm (op : INTEGER; VAR mem : Base.Item; imm : LONGINT);
-	BEGIN
+BEGIN
 	codes [pc].op := op;
 	Set_mem_operand (codes [pc].operands [0], mem);
 	Set_imm_operand (codes [pc].operands [1], imm);
 	Inc_program_counter
-	END Emit_op_mem_imm;
+END Emit_op_mem_imm;
 	
 PROCEDURE Emit_op_mem_xreg (op : INTEGER; VAR mem : Base.Item; xreg : INTEGER);
-	BEGIN
+BEGIN
 	codes[pc].op := op;
 	Set_mem_operand (codes[pc].operands[0], mem);
 	Set_xreg_operand (codes[pc].operands[1], xreg);
 	Inc_program_counter
-	END Emit_op_mem_xreg;
+END Emit_op_mem_xreg;
 	
 PROCEDURE Emit_op_xreg_mem (op, xreg : INTEGER; VAR mem : Base.Item);
-	BEGIN
+BEGIN
 	codes[pc].op := op;
 	Set_xreg_operand (codes[pc].operands[0], xreg);
 	Set_mem_operand (codes[pc].operands[1], mem);
 	Inc_program_counter
-	END Emit_op_xreg_mem;
+END Emit_op_xreg_mem;
 	
 PROCEDURE Emit_op_xreg_xreg (op, xreg1, xreg2 : INTEGER);
-	BEGIN
+BEGIN
 	codes[pc].op := op;
 	Set_xreg_operand (codes[pc].operands[0], xreg1);
 	Set_xreg_operand (codes[pc].operands[1], xreg2);
 	Inc_program_counter
-	END Emit_op_xreg_xreg;
+END Emit_op_xreg_xreg;
 	
 PROCEDURE Emit_op_xreg_reg (op, xreg, reg : INTEGER);
-	BEGIN
+BEGIN
 	codes[pc].op := op;
 	Set_xreg_operand (codes[pc].operands[0], xreg);
 	Set_reg_operand (codes[pc].operands[1], reg);
 	Inc_program_counter
-	END Emit_op_xreg_reg;
+END Emit_op_xreg_reg;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -484,60 +487,63 @@ PROCEDURE Emit_op_xreg_reg (op, xreg, reg : INTEGER);
 PROCEDURE Safe_to_add (x, y : LONGINT) : BOOLEAN;
 	VAR
 		result : BOOLEAN;
-	BEGIN
+BEGIN
 	result := TRUE;
 	IF (x >= 0) & (y >= 0) THEN
-		IF y > MAX_INT - x THEN
-			result := FALSE
-			END;
-	ELSIF (x < 0) & (y < 0) THEN
-		IF y < MIN_INT - x THEN
-			result := FALSE
-			END
+		IF y > MAX_INT - x THEN result := FALSE
 		END;
+	ELSIF (x < 0) & (y < 0) THEN
+		IF y < MIN_INT - x THEN result := FALSE
+		END
+	END;
 	RETURN result
-	END Safe_to_add;
+END Safe_to_add;
 	
 PROCEDURE Safe_to_subtract (x, y : LONGINT) : BOOLEAN;
 	VAR
 		result : BOOLEAN;
-	BEGIN
+BEGIN
 	result := TRUE;
 	IF (x >= 0) & (y < 0) THEN
-		IF x > MAX_INT + y THEN
-			result := FALSE
-			END;
-	ELSIF (x < 0) & (y >= 0) THEN
-		IF x < MIN_INT + y THEN
-			result := FALSE
-			END
+		IF x > MAX_INT + y THEN result := FALSE
 		END;
+	ELSIF (x < 0) & (y >= 0) THEN
+		IF x < MIN_INT + y THEN result := FALSE
+		END
+	END;
 	RETURN result
-	END Safe_to_subtract;
+END Safe_to_subtract;
 	
 PROCEDURE Safe_to_multiply (x, y : LONGINT) : BOOLEAN;
 	VAR
 		result : BOOLEAN;
 		q, r : LONGINT;
-	BEGIN
+BEGIN
 	result := TRUE;
 	IF (x < 0) & (y >= 0) THEN
 		q := x;	x := y; y := q (* swap *)
 	ELSIF (x < 0) & (y < 0) THEN
 		IF (x = MIN_INT) OR (y = MIN_INT) THEN result := FALSE
-		ELSE x := -x; y := -y END
-		END;
+		ELSE x := -x; y := -y
+		END
+	END;
 	IF x > 0 THEN
 		IF y > 0 THEN
-			IF x > MAX_INT / y THEN result := FALSE END
+			IF x > MAX_INT / y THEN result := FALSE
+			END
 		ELSIF y < 0 THEN
 			q := MIN_INT DIV y; r := MIN_INT MOD y;
-			IF r = 0 THEN IF x > q THEN result := FALSE END
-			ELSE IF x >= q THEN result := FALSE END END
+			IF r = 0 THEN
+				IF x > q THEN result := FALSE
+				END
+			ELSE
+				IF x >= q THEN result := FALSE
+				END
 			END
-		END;
+		END
+	END;
 	RETURN result
-	END Safe_to_multiply;
+END Safe_to_multiply;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
