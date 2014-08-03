@@ -85,7 +85,7 @@ END Write_newline;
 PROCEDURE Int_to_string* (x : LONGINT; VAR str : ARRAY OF CHAR);
 	VAR
 		negative : BOOLEAN;
-		s : ARRAY 20 OF CHAR;
+		s : ARRAY 32 OF CHAR;
 		i, j : INTEGER;
 BEGIN
 	IF x = MIN_INT THEN
@@ -154,7 +154,7 @@ BEGIN
 	END
 END Copy_file;
 	
-PROCEDURE Console_WriteInt* (x : INTEGER);
+PROCEDURE Console_WriteInt* (x : LONGINT);
 	VAR
 		a : ARRAY 21 OF CHAR;
 BEGIN
