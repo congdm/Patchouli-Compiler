@@ -30,6 +30,11 @@ BEGIN
 			4: Scanner.Mark ('Assignment source is non-global procedure') |
 			5: Scanner.Mark ('Assignment with incompatible procedure') |
 			6: Scanner.Mark ('Assignment source string is oversized')
+		END;
+		IF (result = 0) & (x.type = Base.byte_type) & (y.mode = Base.class_const)
+		& ((y.a < 0) OR (y.a > 255)) THEN
+			Scanner.Mark ('Const value out of BYTE range');
+			y.a := 0
 		END
 	END;
 	RETURN result
@@ -39,33 +44,33 @@ PROCEDURE Check_operator (op : INTEGER; VAR x : Base.Item);
 BEGIN
 	IF ~ (x.mode IN Base.cls_HasValue) THEN
 		Scanner.Mark ('Operator and object are not compatible');
-		Generator.Cleanup_item (x);
+		Generator.Free_item (x);
 		Generator.Make_const (x, Base.int_type, 0)
 	END;
 	IF (op = Base.sym_plus) OR (op = Base.sym_minus)
 	OR (op = Base.sym_times) THEN
 		IF ~ (x.type.form IN {Base.type_integer, Base.type_set, Base.type_real}) THEN
 			Scanner.Mark ('+, - and * only compatible with numberic types and SET');
-			Generator.Cleanup_item (x);
+			Generator.Free_item (x);
 			Generator.Make_const (x, Base.int_type, 0)
 		END
 	ELSIF op = Base.sym_slash THEN
 		IF ~ (x.type.form IN {Base.type_set, Base.type_real}) THEN
 			Scanner.Mark ('/ only compatible with REAL and SET');
-			Generator.Cleanup_item (x);
+			Generator.Free_item (x);
 			Generator.Make_const (x, Base.set_type, 0)
 		END
 	ELSIF (op = Base.sym_div) OR (op = Base.sym_mod) THEN
 		IF ~ (x.type.form = Base.type_integer) THEN
 			Scanner.Mark ('DIV and MOD only compatible with INTEGER');
-			Generator.Cleanup_item (x);
+			Generator.Free_item (x);
 			Generator.Make_const (x, Base.int_type, 0)
 		END
 	ELSIF (op = Base.sym_not) OR (op = Base.sym_or)
 	OR (op = Base.sym_and) THEN
 		IF ~ (x.type.form = Base.type_boolean) THEN
 			Scanner.Mark ('~, & and OR only compatible with BOOLEAN');
-			Generator.Cleanup_item (x);
+			Generator.Free_item (x);
 			Generator.Make_const (x, Base.bool_type, 0)
 		END
 	END
@@ -75,7 +80,7 @@ PROCEDURE Check_int (VAR x : Base.Item);
 BEGIN
 	IF ~ (x.mode IN Base.cls_HasValue) OR (x.type.form # Base.type_integer) THEN
 		Scanner.Mark ('Expect a integer expression');
-		Generator.Cleanup_item (x);
+		Generator.Free_item (x);
 		Generator.Make_const (x, Base.int_type, 0)
 	END
 END Check_int;
@@ -84,7 +89,7 @@ PROCEDURE Check_bool (VAR x : Base.Item);
 BEGIN
 	IF ~ (x.mode IN Base.cls_HasValue) OR (x.type # Base.bool_type) THEN
 		Scanner.Mark ('Expect a BOOLEAN expression');
-		Generator.Cleanup_item (x);
+		Generator.Free_item (x);
 		Generator.Make_const (x, Base.bool_type, 0)
 	END
 END Check_bool;
@@ -93,7 +98,7 @@ PROCEDURE Check_set (VAR x : Base.Item);
 BEGIN
 	IF ~ (x.mode IN Base.cls_HasValue) OR (x.type # Base.set_type) THEN
 		Scanner.Mark ('Expect a SET expression');
-		Generator.Cleanup_item (x);
+		Generator.Free_item (x);
 		Generator.Make_const (x, Base.set_type, 0)
 	END
 END Check_set;
@@ -116,7 +121,7 @@ BEGIN
 	IF (rel = Base.sym_equal) & (rel = Base.sym_not_equal) THEN
 		IF ~ Base.Equality_applied (x) THEN
 			Scanner.Mark ('Invalid operand');
-			Generator.Cleanup_item (x);
+			Generator.Free_item (x);
 			Generator.Make_const (x, Base.int_type, 0)
 		END
 	ELSIF (rel >= Base.sym_less) & (rel <= Base.sym_less_equal) THEN
@@ -127,13 +132,13 @@ BEGIN
 			(* Ok *)
 		ELSE
 			Scanner.Mark ('Invalid operand');
-			Generator.Cleanup_item (x);
+			Generator.Free_item (x);
 			Generator.Make_const (x, Base.int_type, 0)
 		END
 	ELSIF rel = Base.sym_is THEN
 		IF ~ Base.Type_test_applied (x) THEN
 			Scanner.Mark ('Expected a pointer or record var-param in type test');
-			Generator.Cleanup_item (x);
+			Generator.Free_item (x);
 			Generator.Make_const (x, Base.nil_type, 0)
 		END
 	ELSIF rel = Base.sym_in THEN
@@ -154,8 +159,8 @@ BEGIN
 		fail := FALSE
 	END;
 	IF fail THEN
-		Generator.Cleanup_item (x);
-		Generator.Cleanup_item (y);
+		Generator.Free_item (x);
+		Generator.Free_item (y);
 		Generator.Make_const (x, Base.nil_type, 0);
 		y.mode := Base.class_type;
 		y.type := Base.nil_type
@@ -176,8 +181,8 @@ BEGIN
 		fail := FALSE
 	END;
 	IF fail THEN
-		Generator.Cleanup_item (x);
-		Generator.Cleanup_item (y);
+		Generator.Free_item (x);
+		Generator.Free_item (y);
 		Generator.Make_const (x, Base.int_type, 0);
 		Generator.Make_const (y, Base.int_type, 0)
 	END
@@ -197,8 +202,8 @@ BEGIN
 		fail := FALSE
 	END;
 	IF fail THEN
-		Generator.Cleanup_item (x);
-		Generator.Cleanup_item (y);
+		Generator.Free_item (x);
+		Generator.Free_item (y);
 		Generator.Make_const (x, Base.int_type, 0);
 		Generator.Make_const (y, Base.int_type, 0)
 	END
@@ -1042,7 +1047,7 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 		IF ~ (x.mode IN Base.cls_HasValue)
 		OR ~ (x.type.form IN Base.types_Numberic) THEN
 			Scanner.Mark ('Expect a numberic value');
-			Generator.Cleanup_item (x);
+			Generator.Free_item (x);
 			Generator.Make_const (x, Base.int_type, 0)
 		END;
 		Generator.SFunc_ABS (x)
@@ -1134,7 +1139,7 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 		
 		IF ~ (y.mode IN Base.cls_HasValue) THEN
 			Scanner.Mark ('Expect a value');
-			Generator.Cleanup_item (y);
+			Generator.Free_item (y);
 			Generator.Make_const (y, Base.int_type, 0)
 		END;
 		
@@ -1206,7 +1211,7 @@ PROCEDURE selector (VAR x : Base.Item);
 			REPEAT
 				Scanner.Get (sym);
 				expression (y);
-				Generator.Cleanup_item (y)
+				Generator.Free_item (y)
 			UNTIL sym # Base.sym_comma
 		ELSE
 			REPEAT
@@ -1622,7 +1627,11 @@ BEGIN
 		IF sym = Base.sym_becomes THEN
 			Scanner.Get (sym);
 			expression (y);
-			IF Assignable (x, y) THEN Generator.Store (x, y)
+			IF Assignable (x, y) THEN
+				Generator.Store (x, y)
+			ELSE
+				Generator.Free_item (y);
+				Generator.Free_item (x)
 			END
 		ELSIF x.mode = Base.class_proc THEN
 			IF x.type # NIL THEN
