@@ -30,11 +30,6 @@ BEGIN
 			4: Scanner.Mark ('Assignment source is non-global procedure') |
 			5: Scanner.Mark ('Assignment with incompatible procedure') |
 			6: Scanner.Mark ('Assignment source string is oversized')
-		END;
-		IF (result = 0) & (x.type = Base.byte_type) & (y.mode = Base.class_const)
-		& ((y.a < 0) OR (y.a > 255)) THEN
-			Scanner.Mark ('Const value out of BYTE range');
-			y.a := 0
 		END
 	END;
 	RETURN result
