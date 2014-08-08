@@ -1491,14 +1491,14 @@ BEGIN
 			Generator.Type_test (x, y.type)
 		ELSIF (op = Base.sym_equal) OR (op = Base.sym_not_equal) THEN
 			Check_equal_comparison (x, y);
-			Generator.Relation (op, x, y)
+			Generator.Comparison (op, x, y)
 		ELSIF ((op = Base.sym_less_equal) OR (op = Base.sym_greater_equal))
 		& (x.type = Base.set_type) THEN
 			Check_set (y);
 			Generator.Inclusion (op, x, y)
 		ELSE
 			Check_order_comparison (x, y);
-			Generator.Relation (op, x, y)
+			Generator.Comparison (op, x, y)
 		END
 	END
 END expression;
