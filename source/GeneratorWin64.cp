@@ -2242,9 +2242,7 @@ BEGIN
 		INC (param_regs_usage)
 	ELSE
 		load (x);
-		param.mode := Base.mode_regI;
-		param.r := reg_RSP;
-		param.a := mem_stack - proc.e + adr;
+		Make_mem_stack_item (param, x.type, mem_stack - proc.e + adr);
 		Emit_op_mem_reg (op_MOV, param, x.r);
 		Free_reg
 	END
@@ -2268,9 +2266,7 @@ BEGIN
 			INC (param_regs_usage)
 		ELSE
 			Load_adr (x);
-			param.mode := Base.mode_regI;
-			param.r := reg_RSP;
-			param.a := mem_stack - proc.e + adr;
+			Make_mem_stack_item (param, x.type, mem_stack - proc.e + adr);
 			Emit_op_mem_reg (op_MOV, param, x.r);
 			Free_reg
 		END
@@ -2282,7 +2278,7 @@ END Reference_parameter;
 PROCEDURE Record_variable_parameter* (VAR x, proc : Base.Item; adr : INTEGER);
 	VAR
 		tag : Base.Item;
-	BEGIN
+BEGIN
 	IF Base.flag_varParam IN x.flag THEN
 		tag.flag := {Base.flag_param};
 		tag.mode := Base.class_ref;
@@ -2290,17 +2286,17 @@ PROCEDURE Record_variable_parameter* (VAR x, proc : Base.Item; adr : INTEGER);
 		tag.a := x.a + 8
 	ELSE
 		Make_type_desc_item (tag, x.type)
-		END;
+	END;
 	Reference_parameter (x, proc, adr);
 	Reference_parameter (tag, proc, adr + 8)
-	END Record_variable_parameter;
+END Record_variable_parameter;
 	
 PROCEDURE Open_array_parameter* (VAR x, proc : Base.Item; par : Base.Object);
 	VAR
 		temp, len : Base.Item;
 		tp, formal_type : Base.Type;
 		adr : INTEGER;
-	BEGIN
+BEGIN
 	adr := SHORT (par.val);
 	temp := x;
 	Reference_parameter (temp, proc, adr);
@@ -2309,25 +2305,32 @@ PROCEDURE Open_array_parameter* (VAR x, proc : Base.Item; par : Base.Object);
 	tp := x.type;
 	WHILE (formal_type.form = Base.type_array) & (formal_type.len < 0) DO
 		INC (adr, 8);
-		IF (tp.form = Base.type_array) & (tp.len < 0) THEN
-			IF x.b = 0 THEN x.b := SHORT (x.a) + 8 END;
-			Make_len_item (len, x.b);
-			INC (x.b, 8)
+		IF tp.form = Base.type_array THEN
+			IF tp.len < 0 THEN
+				IF x.b = 0 THEN x.b := SHORT (x.a) + 8
+				END;
+				Make_len_item (len, x.b);
+				INC (x.b, 8)
+			ELSE
+				len.mode := Base.class_const;
+				len.type := Base.int_type;
+				len.a := tp.len;
+			END
 		ELSE
-			len.mode := Base.class_const;
-			len.type := Base.int_type;
-			len.a := tp.len;
-			END;
+			Scanner.Mark ('COMPILER FAULT: procedure Generator.Open_array_parameter')
+		END;
+		
 		Normal_parameter (len, proc, adr);
+		
 		formal_type := formal_type.base;
 		tp := tp.base
-		END
-	END Open_array_parameter;
+	END
+END Open_array_parameter;
 	
 PROCEDURE String_parameter* (VAR x, proc : Base.Item; par : Base.Object);
 	VAR
 		temp_array : Base.Item;
-	BEGIN
+BEGIN
 	temp_array.mode := Base.class_var;
 	temp_array.lev := 1;
 	temp_array.type := par.type;
@@ -2338,7 +2341,7 @@ PROCEDURE String_parameter* (VAR x, proc : Base.Item; par : Base.Object);
 	
 	Store (temp_array, x);
 	Reference_parameter (temp_array, proc, SHORT (par.val))
-	END String_parameter;
+END String_parameter;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -2348,27 +2351,34 @@ PROCEDURE Begin_FOR*
 	VAR
 		t : Base.Item;
 		i : INTEGER;
-	BEGIN
+BEGIN
 	t := x; Store (t, beg);
 	
 	i := stack_frame_usage; Inc_stack_frame_usage (8);
 	t.mode := Base.class_var; t.lev := 1; t.type := Base.int_type; t.a := i;
 	Store (t, end);
+	
 	end.mode := Base.class_var; end.lev := 1; end.type := Base.int_type;
 	end.a := i;
 	
 	L := pc; rel := x;
 	t.mode := Base.class_var; t.lev := 1; t.type := Base.int_type; t.a := i;
-	IF inc >= 0 THEN Relation (Base.sym_less_equal, rel, t)
-	ELSE Relation (Base.sym_greater_equal, rel, t) END;
+	IF inc >= 0 THEN Comparison (Base.sym_less_equal, rel, t)
+	ELSE Comparison (Base.sym_greater_equal, rel, t)
+	END;
 	CFJump (rel)
-	END Begin_FOR;
+END Begin_FOR;
 	
 PROCEDURE End_FOR* (VAR x, rel, inc : Base.Item; L : INTEGER);
 BEGIN
 	IF inc.mode = Base.mode_reg THEN
 		Emit_op_mem_reg (op_ADD, x, inc.r); Free_reg
-	ELSE Emit_op_mem_const (op_ADD, x, inc.a)
+	ELSE
+		Emit_op_mem_const (op_ADD, x, inc.a)
+	END;
+	IF (x.type.form = Base.type_integer)
+	& (Base.integer_overflow_check IN Base.compiler_flag) THEN
+		Emit_op_sym (op_JO, sym_integer_overflow_trap)
 	END;
 	BJump (L); Fix_link (SHORT (rel.a))
 END End_FOR;
@@ -2382,7 +2392,7 @@ PROCEDURE Init_type_desc;
 		tp : Base.Type;
 		basetps : ARRAY Base.type_extension_limit + 1 OF Base.Type;
 		dtag, tag : Base.Item;
-	BEGIN
+BEGIN
 	FOR i := 0 TO record_no - 1 DO
 		tp := type_desc_list [i];
 		Make_type_desc_item (dtag, type_desc_list [i]);
@@ -2392,42 +2402,42 @@ PROCEDURE Init_type_desc;
 		WHILE tp.base # NIL DO
 			tp := tp.base;
 			basetps [tp.len] := tp
-			END;
+		END;
 		j := 0;
 		WHILE j <= Base.type_extension_limit DO
 			IF basetps [j] # NIL THEN
 				Make_type_desc_item (tag, basetps [j]);
-				Emit_op_reg_mem (op_LEA, -reg_RAX, tag);
-				Emit_op_mem_reg (op_MOV, dtag, -reg_RAX);
+				Emit_op_reg_mem (op_LEA, reg_RAX, tag);
+				Emit_op_mem_reg (op_MOV, dtag, reg_RAX);
 				INC (dtag.a, 8);
 				basetps [j] := NIL;
 				INC (j)
 			ELSE
 				j := Base.type_extension_limit + 1 (* exit loop *)
-				END
 			END
 		END
-	END Init_type_desc;
+	END
+END Init_type_desc;
 
 PROCEDURE Module_init*;
-	BEGIN
-	Emit_op_reg (op_PUSH, -reg_RBP);
-	Emit_op_reg_reg (op_MOV, -reg_RBP, -reg_RSP);
-	Emit_op_reg_imm (op_SUB, -reg_RSP, 0);
+BEGIN
+	Emit_op_reg (op_PUSH, reg_RBP);
+	Emit_op_reg_reg (op_MOV, reg_RBP, reg_RSP);
+	Emit_op_reg_imm (op_SUB, reg_RSP, 0);
 	
-	Init_type_desc;
+	(* Init_type_desc; *)
 	
 	stack_frame_usage := 0;
 	stack_frame_size := 0;
 	reg_stack := 0;
 	mem_stack := 0;
 	used_regs := {}
-	END Module_init;
+END Module_init;
 
 PROCEDURE End_module_init*;
-	BEGIN
-	Emit_op_reg_imm (op_SUB, -reg_RSP, 32);
-	Emit_op_reg_imm (op_MOV, -reg_ECX, 0);
+BEGIN
+	Emit_op_reg_imm (op_SUB, reg_RSP, 32);
+	Emit_op_reg_imm (op_MOV, reg_ECX, 0);
 	Emit_op_sym (op_CALL, Base.Make_string ('[@ExitProcess]'));
 	
 	(* Perform fixup *)
@@ -2436,12 +2446,12 @@ PROCEDURE End_module_init*;
 	ELSE
 		IF stack_frame_size MOD 16 # 0 THEN
 			stack_frame_size := (stack_frame_size DIV 16 + 1) * 16
-			END;
-		codes [2].operands [1].imm := stack_frame_size;
 		END;
+		codes [2].operands [1].imm := stack_frame_size;
+	END;
 	
 	Write_codes_to_file
-	END End_module_init;
+END End_module_init;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -2656,7 +2666,7 @@ PROCEDURE Init* (module_name : Base.String);
 		i : INTEGER;
 		filename : ARRAY 512 OF CHAR;
 		path : ARRAY 1024 OF CHAR;
-	BEGIN
+BEGIN
 	i := 0; Sys.Get_executable_path (path, i);
 	path [i] := 'd'; path [i + 1] := 'a'; path [i + 2] := 't';
 	path [i + 3] := 'a'; path [i + 4] := '.'; path [i + 5] := 'd';
@@ -2667,7 +2677,7 @@ PROCEDURE Init* (module_name : Base.String);
 	WHILE i < module_name.len DO
 		filename [i] := module_name.content [i];
 		INC (i)
-		END;
+	END;
 	filename [i] := '.';
 	filename [i + 1] := 'a';
 	filename [i + 2] := 's';
@@ -2686,33 +2696,32 @@ PROCEDURE Init* (module_name : Base.String);
 	Sys.Write_string (out, "section '.text' code readable executable");
 	Sys.Write_newline (out);
 	Sys.Write_newline (out)
-	END Init;
+END Init;
 	
 PROCEDURE Generate_trap_section;
 	VAR
 		i : INTEGER;
-	BEGIN
+BEGIN
 	FOR i := 1 TO 4 DO
 		CASE i OF
 			1: Sys.Write_string (out, sym_array_index_trap.content) |
 			2: Sys.Write_string (out, sym_integer_overflow_trap.content) |
 			3: Sys.Write_string (out, sym_invalid_divisor_trap.content) |
 			4: Sys.Write_string (out, sym_type_check_trap.content)
-			END;
+		END;
 		Sys.Write_char (out, ':');
 		Sys.Write_newline (out);
 		Sys.Write_string (out, 'and	rsp, -16');
 		Sys.Write_newline (out);
 		Sys.Write_string (out, 'sub	rsp, 32');
 		Sys.Write_newline (out);
-		Sys.Write_string (out, 'mov	ecx, -');
-		Sys.Write_number (out, i);
+		Sys.Write_string (out, 'mov	ecx, -'); Sys.Write_number (out, i);
 		Sys.Write_newline (out);
 		Sys.Write_string (out, 'call	[@ExitProcess]');
 		Sys.Write_newline (out);
-		END;
+	END;
 	Sys.Write_newline (out)
-	END Generate_trap_section;
+END Generate_trap_section;
 	
 PROCEDURE Generate_type_desc_section;
 	VAR
@@ -2783,7 +2792,7 @@ PROCEDURE Generate_type_desc_section;
 PROCEDURE Generate_string_section;
 	VAR
 		i : INTEGER;
-	BEGIN
+BEGIN
 	Sys.Write_string (out, modid.content);
 	Sys.Write_string (out, '@@');
 	Sys.Write_string (out, sym_stringbase.content);
@@ -2794,12 +2803,12 @@ PROCEDURE Generate_string_section;
 		Sys.Write_char (out, ',');
 		Sys.Write_number (out, ORD (strings [i]));
 		INC (i)
-		END;
+	END;
 	Sys.Write_newline (out)
-	END Generate_string_section;
+END Generate_string_section;
 	
 PROCEDURE Generate_variable_section (vars_size : INTEGER);
-	BEGIN
+BEGIN
 	Sys.Write_string (out, modid.content);
 	Sys.Write_string (out, '@@');
 	Sys.Write_string (out, sym_varbase.content);
@@ -2807,25 +2816,29 @@ PROCEDURE Generate_variable_section (vars_size : INTEGER);
 	Sys.Write_number (out, vars_size);
 	Sys.Write_string (out, ' dup ?');
 	Sys.Write_newline (out)
-	END Generate_variable_section;
+END Generate_variable_section;
 	
 PROCEDURE Finish* (vars_size : INTEGER);
 	VAR
 		i : INTEGER;
-	BEGIN
+BEGIN
 	Generate_trap_section;	
 	Sys.Write_string (out, "section '.data' data readable writable");
 	Sys.Write_newline (out);
-	IF td_offset > 0 THEN Generate_type_desc_section END;
-	IF str_offset > 0 THEN Generate_string_section END;
-	IF vars_size > 0 THEN Generate_variable_section (vars_size) END;
+
+	IF td_offset > 0 THEN Generate_type_desc_section
+	END;
+	IF str_offset > 0 THEN Generate_string_section
+	END;
+	IF vars_size > 0 THEN Generate_variable_section (vars_size)
+	END;
 	Sys.Write_newline (out);
 	
 	Sys.Copy_file (out, datafile, 781);
 	
 	Sys.Close (datafile);
 	Sys.Close (out)
-	END Finish;
+END Finish;
 	
 PROCEDURE Init_optable;
 BEGIN
