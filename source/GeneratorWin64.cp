@@ -549,6 +549,23 @@ END Safe_to_multiply;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
+PROCEDURE Get_type_desc_size (typ : Base.Type) : INTEGER;
+BEGIN
+	RETURN 16 + 8 * (Base.type_extension_limit + 1) + 8 * typ.num_ptr
+END Get_type_desc_size;
+
+PROCEDURE Alloc_type_desc* (typ : Base.Type);
+BEGIN
+	IF record_no >= LEN (type_desc_list) THEN
+		Scanner.Mark ('Too many record types (compiler limit)')
+	ELSE
+		type_desc_list [record_no] := typ;
+		INC (record_no)
+	END;
+	typ.obj.val := td_offset;
+	INC (td_offset, Get_type_desc_size (typ))
+END Alloc_type_desc;
+
 PROCEDURE Make_const* (VAR x : Base.Item; typ : Base.Type; val : LONGINT);
 BEGIN
 	x.flag := {};
@@ -593,7 +610,7 @@ PROCEDURE Make_type_desc_item (VAR x : Base.Item; typ : Base.Type);
 BEGIN
 	x.flag := {Base.flag_typeDesc};
 	x.mode := Base.class_var;
-	x.type := Base.nil_type;
+	x.type := Base.int_type;
 	x.lev := 0;
 	x.a := typ.obj.val
 END Make_type_desc_item;
@@ -617,21 +634,6 @@ BEGIN
 	x.a := offset;
 	x.r := reg_RSP
 END Make_mem_stack_item;
-	
-PROCEDURE Alloc_type_desc* (typ : Base.Type);
-	VAR
-		td_size : INTEGER;
-	BEGIN
-	IF record_no >= LEN (type_desc_list) THEN
-		Scanner.Mark ('Too many record types (compiler limit)')
-	ELSE
-		type_desc_list [record_no] := typ;
-		INC (record_no)
-		END;
-	typ.obj.val := td_offset;
-	td_size := 16 + 8 * (Base.type_extension_limit + 1) + 8 * typ.num_ptr;
-	INC (td_offset, td_size)
-	END Alloc_type_desc;
 	
 PROCEDURE Set_cond (VAR x : Base.Item; n : INTEGER);
 BEGIN
@@ -1728,39 +1730,43 @@ END Index;
 	
 PROCEDURE Type_guard* (VAR x : Base.Item; typ : Base.Type);
 	VAR
-		tag1, tag2 : Base.Item;
+		tag, td : Base.Item;
 BEGIN
 	IF x.type # typ THEN
 		IF x.type.form = Base.type_pointer THEN
 			load (x);
-			tag1.flag := {};
-			tag1.mode := Base.mode_regI;
-			tag1.type := Base.nil_type;
-			tag1.r := x.r;
-			tag1.a := -8;
+			
+			tag.flag := {};
+			tag.mode := Base.mode_regI;
+			tag.type := Base.nil_type;
+			tag.r := x.r;
+			tag.a := -8;
+			
 			Inc_reg_stack;
-			Emit_op_reg_mem (op_MOV, reg_stack - 1, tag1);
-			tag1.r := reg_stack - 1;
-			tag1.a := 8 + typ.base.len * 8;
-			Make_type_desc_item (tag2, typ.base)
+			Emit_op_reg_mem (op_MOV, reg_stack - 1, tag);
+			tag.r := reg_stack - 1;
+			tag.a := 8 + typ.base.len * 8;
+			
+			Make_type_desc_item (td, typ.base)
 		ELSE
 			(* x is record variable parameter *)
-			tag1.flag := {Base.flag_param};
-			tag1.mode := Base.class_ref;
-			tag1.type := Base.nil_type;
-			tag1.lev := x.lev;
-			tag1.a := x.a + 8;
-			Ref_to_regI (tag1);
+			tag.flag := {Base.flag_param};
+			tag.mode := Base.class_ref;
+			tag.type := Base.nil_type;
+			tag.lev := x.lev;
+			tag.a := x.a + 8;
+			
+			Ref_to_regI (tag);
 			tag1.a := 8 + typ.len * 8;
-			Make_type_desc_item (tag2, typ)
-			END;	
-		Emit_op_reg_mem (op_LEA, -reg_RAX, tag2);
-		Emit_op_reg_mem (op_CMP, -reg_RAX, tag1);
+			
+			Make_type_desc_item (td, typ)
+		END;
+		Emit_op_reg_mem (op_LEA, reg_RAX, td);
+		Emit_op_reg_mem (op_CMP, reg_RAX, tag);
 		Emit_op_sym (op_JNE, sym_type_check_trap);
-		Free_reg;
-		x.type := typ
-		END
-	END Type_guard;
+		Free_reg; x.type := typ
+	END
+END Type_guard;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -1934,8 +1940,8 @@ END Inclusion;
 	
 PROCEDURE Type_test* (VAR x : Base.Item; typ : Base.Type);
 	VAR
-		tag : Base.Item;
-	BEGIN
+		td : Base.Item;
+BEGIN
 	IF x.type # typ THEN
 		IF x.type.form = Base.type_pointer THEN
 			load (x);
@@ -1944,24 +1950,22 @@ PROCEDURE Type_test* (VAR x : Base.Item; typ : Base.Type);
 			load (x);
 			x.mode := Base.mode_regI;
 			x.a := 8 + typ.base.len * 8;
-			Make_type_desc_item (tag, typ.base)
+			Make_type_desc_item (td, typ.base)
 		ELSE
 			(* x is record variable parameter *)
 			INC (x.a, 8);
 			Ref_to_regI (x);
 			x.type := Base.nil_type;
 			x.a := 8 + typ.len * 8;
-			Make_type_desc_item (tag, typ)
-			END;
-		Emit_op_reg_mem (op_LEA, -reg_RAX, tag);
-		Emit_op_reg_mem (op_CMP, -reg_RAX, x);
-		Free_reg;
-		Set_cond (x, op_JE);
-		x.type := Base.bool_type
+			Make_type_desc_item (td, typ)
+		END;
+		Emit_op_reg_mem (op_LEA, reg_RAX, td);
+		Emit_op_reg_mem (op_CMP, reg_RAX, x);
+		Free_reg; Set_cond (x, op_JE); x.type := Base.bool_type
 	ELSE
 		Make_const (x, Base.bool_type, 1)
-		END
-	END Type_test;
+	END
+END Type_test;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -2051,12 +2055,11 @@ BEGIN
 	   procedure. And that makes fixing simpler. =)
 	*)
 	
-	(* Saving volatile registers, also using fix-later trick *)
+	(* Saving non-volatile registers, also using fix-later trick *)
 	FOR i := reg_R12 TO reg_RDI DO
 		Emit_op_reg (op_PUSH, i)	(* No. 7 to 12 *)
 	END;
-	
-	
+
 	(*
 	(* Init pointers value to 0 *)
 	obj := Base.top_scope.next;
@@ -2129,27 +2132,45 @@ PROCEDURE Need_saving (VAR proc : Base.Item; reg : INTEGER) : BOOLEAN;
 		result : BOOLEAN;
 BEGIN
 	IF (reg >= 0) & (reg <= reg_TOP) & (reg_stack > reg) THEN
-		IF (proc.mode IN Base.modes_UseReg) & (proc.r = reg) THEN
-			result := FALSE
-		ELSE
-			result := TRUE
-		END
+		result := TRUE
 	ELSE
 		result := FALSE
 	END;
 	RETURN result
 END Need_saving;
+
+PROCEDURE Need_saving2 (xreg : INTEGER) : BOOLEAN;
+BEGIN
+	RETURN xreg_stack > xreg
+END Need_saving2;
 	
 PROCEDURE Prepare_to_call* (VAR x : Base.Item);
 	VAR
 		i, top : INTEGER;
 BEGIN
-	IF x.mode = Base.class_ref THEN Ref_to_regI (x)
+	IF x.mode # Base.class_proc THEN
+		IF x.mode = Base.class_ref THEN Ref_to_regI (x)
+		END;
+		IF x.mode IN Base.cls_Variable THEN
+			Emit_op_reg_mem (op_MOV, reg_RAX, x)
+		ELSIF x.mode = Base.mode_reg THEN
+			Emit_op_reg_reg (op_MOV, reg_RAX, x.r)
+		END;
+		IF x.mode IN Base.modes_UseReg THEN Free_reg
+		END
 	END;
+	
+	(* Save volatile registers *)
 	IF Need_saving (x, reg_R10) THEN Push_reg (reg_R10)
 	END;
 	IF Need_saving (x, reg_R11) THEN Push_reg (reg_R11)
 	END;
+	IF xreg_stack > reg_XMM4 THEN Push_xreg (reg_XMM4)
+	END;
+	IF xreg_stack > reg_XMM5 THEN Push_xreg (reg_XMM5)
+	END;	
+	x.reg_stack := reg_stack; reg_stack := 0;
+	x.xreg_stack := xreg_stack; xreg_stack := 0;
 	
 	(* Save previous param regs *)
 	x.param_regs_usage := param_regs_usage;
@@ -2176,27 +2197,35 @@ BEGIN
 	END;
 	INC (mem_stack, x.b);
 	IF mem_stack MOD 16 = 8 THEN INC (x.b, 8); INC (mem_stack, 8)
-	END;
-	
+	END;	
 	Emit_op_reg_imm (op_SUB, reg_RSP, x.b);
-	x.e := mem_stack (* Store the location of parameter block *)
+	x.mem_stack := mem_stack;
+	
+	IF (x.mode # Base.class_proc) & (x.type.len # 0) THEN
+		Push_reg (reg_RAX)
+	END
 END Prepare_to_call;
 	
 PROCEDURE Call* (VAR x : Base.Item);
 	VAR
 		i : INTEGER;		
 BEGIN
-	IF x.mode = Base.class_proc THEN Emit_op_proc (op_CALL, x.proc)
-	ELSIF x.mode = Base.mode_reg THEN Emit_op_reg (op_CALL, x.r)
-	ELSIF x.mode IN Base.cls_Variable THEN Emit_op_mem (op_CALL, x)
-	ELSE Scanner.Mark ('COMPILER FAULT: procedure Generator.Call, error 1')
+	IF x.mode = Base.class_proc THEN
+		Emit_op_proc (op_CALL, x.proc)
+	ELSE
+		IF x.type.len # 0 THEN
+			IF x.mem_stack = mem_stack - 8 THEN Pop_reg (reg_RAX)
+			ELSE Scanner.Mark ('COMPILER FAULT: procedure Generator.Call')
+			END
+		END;
+		Emit_op_reg (op_CALL, reg_RAX)
 	END;
 	
-	(* Unwind the stack area used for parameters *)
+	(* Release the stack area used for parameters *)
 	Emit_op_reg_imm (op_ADD, reg_RSP, x.b);
 	DEC (mem_stack, x.b);
 	
-	(* Release temporary stack frame, if there are any *)
+	(* Free temporary stack frame usage *)
 	DEC (stack_frame_usage, x.c);
 	
 	(* Restore the saved previous parameter registers, if there are any *)
@@ -2213,11 +2242,17 @@ BEGIN
 		END
 	END;
 		
-	(* Restore saved registers *)
+	(* Restore volatile registers *)
+	IF xreg_stack > reg_XMM5 THEN Pop_xreg (reg_XMM5)
+	END;
+	IF xreg_stack > reg_XMM4 THEN Pop_xreg (reg_XMM4)
+	END;
 	IF Need_saving (x, reg_R11) THEN Pop_reg (reg_R11)
 	END;
 	IF Need_saving (x, reg_R10) THEN Pop_reg (reg_R10)
 	END;
+	reg_stack := x.reg_stack;
+	xreg_stack := x.xreg_stack;
 	
 	(* Return value *)
 	IF x.mode = Base.class_proc THEN
@@ -2228,14 +2263,9 @@ BEGIN
 		END
 	ELSIF (x.type # NIL) & (x.type.form = Base.type_procedure) THEN
 		IF x.type.base # NIL THEN
-			IF ~ (x.mode IN Base.modes_UseReg) THEN
-				x.r := reg_stack; Inc_reg_stack
-			END;
+			Inc_reg_stack; x.r := reg_stack - 1; 
 			x.mode := Base.mode_reg; x.type := x.type.base; x.flag := {};
 			Emit_op_reg_reg (op_MOV, x.r, reg_RAX)
-		ELSE
-			IF x.mode IN Base.modes_UseReg THEN Free_reg
-			END
 		END
 	ELSE
 		Scanner.Mark ('COMPILER FAULT: procedure Generator.Call, error 2')
@@ -2313,7 +2343,7 @@ BEGIN (* Normal_parameter *)
 		END
 	ELSE
 		load (x);
-		Make_mem_stack_item (param, x.type, mem_stack - proc.e + adr);
+		Make_mem_stack_item (param, x.type, mem_stack - proc.mem_stack + adr);
 		IF x.mode = Base.mode_reg THEN
 			Emit_op_mem_reg (op_MOV, param, x.r); Free_reg
 		ELSIF x.mode = Base.mode_xreg THEN
@@ -2340,7 +2370,8 @@ BEGIN
 			INCL (param_regs_usage, adr DIV 8)
 		ELSE
 			Load_adr (x);
-			Make_mem_stack_item (param, x.type, mem_stack - proc.e + adr);
+			Make_mem_stack_item
+				(param, x.type, mem_stack - proc.mem_stack + adr);
 			Emit_op_mem_reg (op_MOV, param, x.r);
 			Free_reg
 		END
@@ -2813,7 +2844,7 @@ PROCEDURE Generate_type_desc_section;
 			VAR
 				field : Base.Object;
 				n : INTEGER;
-			BEGIN
+		BEGIN
 			IF typ.form = Base.type_pointer THEN
 				Sys.Write_char (out, ',');
 				Sys.Write_number (out, offset)
@@ -2821,51 +2852,54 @@ PROCEDURE Generate_type_desc_section;
 				n := typ.num_ptr;
 				IF (typ.base # NIL) & (typ.base.num_ptr > 0) THEN
 					Emit_pointer_offset (typ.base, offset);
-					DEC (n, typ.base.num_ptr)
-					END;
-				IF n > 0 THEN
-					field := typ.fields;
-					WHILE n > 0 DO
-						IF field.type.num_ptr > 0 THEN
-							Emit_pointer_offset
-							(field.type, offset + SHORT(field.val));
-							DEC (n, field.type.num_ptr)
-							END;
-						field := field.next
-						END
+					DEC (n, typ.base.num_ptr);
+					IF n > 0 THEN Sys.Write_char (out, ',')
 					END
+				END;
+				field := typ.fields;
+				WHILE n > 0 DO
+					IF field.type.num_ptr > 0 THEN
+						Emit_pointer_offset
+							(field.type, offset + SHORT(field.val));
+						DEC (n, field.type.num_ptr);
+						IF n > 0 THEN Sys.Write_char (out, ',')
+						END
+					END;
+					field := field.next
+				END
 			ELSIF typ.form = Base.type_array THEN
 				FOR n := 0 TO typ.len - 1 DO
-					Emit_pointer_offset (typ.base, offset + n * 8)
+					Emit_pointer_offset (typ.base, offset + n * type.base.size);
+					IF n # typ.len - 1 THEN Sys.Write_char (out, ',')
 					END
 				END
-			END Emit_pointer_offset;	
+			END
+		END Emit_pointer_offset;	
 			
-		BEGIN (* Emit_record_tdesc *)
+	BEGIN (* Emit_record_tdesc *)
 		Sys.Write_number (out, typ.size);
-		FOR i := 0 TO Base.type_extension_limit DO
-			Sys.Write_string (out, ',0')
-			END;
+		FOR i := 0 TO Base.type_extension_limit DO Sys.Write_string (out, ',0')
+		END;
 		IF typ.num_ptr > 0 THEN
+			Sys.Write_char (out, ',');
 			Emit_pointer_offset (typ, 0)
-			END;
+		END;
 		Sys.Write_string (out, ',-1')
-		END Emit_record_tdesc;
+	END Emit_record_tdesc;
 		
-	BEGIN (* Generate_type_desc_section *)
+BEGIN (* Generate_type_desc_section *)
 	Sys.Write_string (out, modid.content);
 	Sys.Write_string (out, '@@');
 	Sys.Write_string (out, sym_tdbase.content);
-	Sys.Write_string (out, ' dq ');
-	Emit_record_tdesc (type_desc_list [0]);
-	i := 1;
-	WHILE i < record_no DO
-		Sys.Write_char (out, ',');
+	Sys.Write_char (out, ':');
+	Sys.Write_newline (out);
+	
+	FOR i := 0 TO record_no - 1 DO
+		Sys.Write_string (out, '	dq ');
 		Emit_record_tdesc (type_desc_list [i]);
-		INC (i)
-		END;
-	Sys.Write_newline (out)
-	END Generate_type_desc_section;
+		Sys.Write_newline (out)
+	END
+END Generate_type_desc_section;
 	
 PROCEDURE Generate_string_section;
 	VAR

@@ -98,7 +98,8 @@ TYPE
 		flag* : SET;
 		mode*, lev* : INTEGER;
 		type* : Type;
-		b*, c*, d*, e*, r* : INTEGER;
+		b*, c*, r* : INTEGER;
+		mem_stack*, reg_stack*, xreg_stack* : INTEGER;
 		param_regs_usage* : SET;
 		proc* : Object;
 		a* : LONGINT
