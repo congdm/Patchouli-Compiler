@@ -33,7 +33,7 @@ CONST
 	op_JE = 54; op_JNE = 55; op_JL = 56; op_JGE = 57; op_JG = 58; op_JLE = 59;
 	op_JA = 60; op_JBE = 61; op_JB = 62; op_JAE = 63; op_JC = 64; op_JNC = 65;
 	
-	op_MOVSS = 100; op_MOVSD = 101; op_MOVD = 102;
+	op_MOVSS = 100; op_MOVSD = 101; op_MOVD = 102; op_MOVQ = 103;
 	op_ADDSS = 110; op_SUBSS = 111; op_MULSS = 112; op_DIVSS = 113;
 	op_ANDPS = 120; op_ORPS = 121; op_XORPS = 123;
 	
@@ -2157,10 +2157,11 @@ BEGIN
 		FOR i := 0 TO 3 DO
 			IF i IN param_regs_usage THEN
 				IF i + 4 IN param_regs_usage THEN
-					Emit_op_reg
+					Push_scalar_xmm (reg_XMM0 + i)
+				ELSE
+					Push_reg (reg_RCX + i)
 				END
 			END
-			Push_reg (reg_RCX + i)
 		END;
 		param_regs_usage := {}
 	END;
@@ -2199,10 +2200,16 @@ BEGIN
 	DEC (stack_frame_usage, x.c);
 	
 	(* Restore the saved previous parameter registers, if there are any *)
-	param_regs_usage := x.d;
-	IF param_regs_usage > 0 THEN
-		FOR i := param_regs_usage - 1 TO 0 BY -1 DO
-			Pop_reg (reg_RCX + i)
+	param_regs_usage := x.param_regs_usage;
+	IF param_regs_usage # {} THEN
+		FOR i := 3 TO 0 BY -1 DO
+			IF i IN param_regs_usage THEN
+				IF i + 4 IN param_regs_usage THEN
+					Pop_scalar_xmm (reg_XMM0 + i)
+				ELSE
+					Pop_reg (reg_RCX + i)
+				END
+			END
 		END
 	END;
 		
@@ -2237,46 +2244,81 @@ END Call;
 	
 PROCEDURE Normal_parameter* (VAR x, proc : Base.Item; adr : INTEGER);
 	VAR
-		param_reg, r2 : INTEGER;
 		param : Base.Item;
-BEGIN
-	IF adr < 32 THEN
-		param_reg := reg_RCX + (adr DIV 8);
+		
+	PROCEDURE GR_param (VAR x : Base.Item; i : INTEGER);
+	VAR
+		param_reg : INTEGER;
+	BEGIN
+		param_reg := reg_RCX + i;
+		IF x.mode IN Base.cls_HasValue THEN
+			IF x.type.form = Base.type_string THEN
+				IF x.mode # Base.class_var THEN
+					Scanner.Mark ('COMPILER FAULT: procedure Generator.Normal_parameter.GR_param error 1')
+				END;
+				IF x.type.len # 2 THEN
+					Scanner.Mark ('COMPILER FAULT: procedure Generator.Normal_parameter.GR_param error 2')
+				END;
+				x.mode := Base.class_const;
+				x.type := Base.char_type;
+				x.a := ORD (strings [x.a DIV Base.char_type.size])
+			END;
+			param_reg := Small_reg (param_reg, x.type.size);
+		END;
 		CASE x.mode OF
 			Base.mode_reg:
-				param_reg := Small_reg (param_reg, x.type.size);
-				r2 := Small_reg (x.r, x.type.size);
-				Emit_op_reg_reg (op_MOV, param_reg, r2);
+				x.r := Small_reg (x.r, x.type.size);
+				Emit_op_reg_reg (op_MOV, param_reg, x.r);
 				Free_reg |
-			Base.class_const:
-				param_reg := Small_reg (param_reg, x.type.size);
-				Emit_op_reg_imm (op_MOV, param_reg, x.a) |
 			Base.class_ref:
 				Ref_to_regI (x);
 				Emit_op_reg_mem (op_MOV, param_reg, x);
 				Free_reg |
-			Base.class_proc:
-				Emit_op_reg_mem (op_LEA, param_reg, x) |
-			Base.class_var, Base.mode_regI:
-				IF x.type.form # Base.type_string THEN
-					param_reg := Small_reg (param_reg, x.type.size);
-					Emit_op_reg_mem (op_MOV, param_reg, x)
-				ELSIF x.type.len = 2 THEN
-					param_reg := Small_reg (param_reg, Base.char_type.size);
-					r2 := ORD (strings [x.a DIV Base.char_type.size]);
-					Emit_op_reg_imm (op_MOV, param_reg, r2)
-				ELSE
-					Scanner.Mark ('COMPILER FAULT: procedure Normal_parameter')
-				END;
-				IF x.mode = Base.mode_regI THEN Free_reg
-				END
+			Base.class_const: Emit_op_reg_imm (op_MOV, param_reg, x.a) |
+			Base.class_var: Emit_op_reg_mem (op_MOV, param_reg, x) |
+			Base.mode_regI: Emit_op_reg_mem (op_MOV, param_reg, x); Free_reg |
+			Base.class_proc: Emit_op_reg_mem (op_LEA, param_reg, x)
 		END;
-		INC (param_regs_usage)
+		INCL (param_regs_usage, i)
+	END GR_param;
+	
+	PROCEDURE XMM_param (VAR x : Base.Item; i : INTEGER);
+	VAR
+		param_reg : INTEGER;
+	BEGIN
+		param_reg := reg_XMM0 + i;
+		CASE x.mode OF
+			Base.mode_xreg:
+				Emit_op_xreg_xreg (op_MOVSD, param_reg, x.r);
+				Free_xreg |
+			Base.class_const:
+				Emit_op_reg_imm (op_MOV, reg_RAX, x.a);
+				Emit_op_xreg_reg (op_MOVQ, param_reg, reg_RAX) |
+			Base.class_ref:
+				Ref_to_regI (x);
+				Emit_op_xreg_mem (op_MOVSD, param_reg, x);
+				Free_reg |
+			Base.class_var: Emit_op_xreg_mem (op_MOVSD, param_reg, x) |
+			Base.mode_regI: Emit_op_xreg_mem (op_MOVSD, param_reg, x); Free_reg
+		END;
+		param_regs_usage := param_regs_usage + {i, i + 4};
+	END XMM_param;
+		
+BEGIN (* Normal_parameter *)
+	IF adr < 32 THEN
+		IF (x.mode IN Base.cls_HasValue) & (x.type.form = Base.type_real) THEN
+			XMM_param (x, adr DIV 8)
+		ELSE
+			GR_param (x, adr DIV 8)
+		END
 	ELSE
 		load (x);
 		Make_mem_stack_item (param, x.type, mem_stack - proc.e + adr);
-		Emit_op_mem_reg (op_MOV, param, x.r);
-		Free_reg
+		IF x.mode = Base.mode_reg THEN
+			Emit_op_mem_reg (op_MOV, param, x.r); Free_reg
+		ELSIF x.mode = Base.mode_xreg THEN
+			Emit_op_mem_xreg (op_MOVSD, param, x.r); Free_xreg
+		END
 	END
 END Normal_parameter;
 	
@@ -2295,7 +2337,7 @@ BEGIN
 			Emit_op_reg_mem (op_LEA, param_reg, x);
 			IF x.mode = Base.mode_regI THEN Free_reg
 			END;
-			INC (param_regs_usage)
+			INCL (param_regs_usage, adr DIV 8)
 		ELSE
 			Load_adr (x);
 			Make_mem_stack_item (param, x.type, mem_stack - proc.e + adr);
@@ -2933,6 +2975,7 @@ BEGIN
 	op_table [op_MOVSS] := 'movss';
 	op_table [op_MOVSD] := 'movsd';
 	op_table [op_MOVD] := 'movd';
+	op_table [op_MOVQ] := 'movq';
 	op_table [op_ADDSS] := 'addss';
 	op_table [op_SUBSS] := 'subss';
 	op_table [op_MULSS] := 'mulss';
