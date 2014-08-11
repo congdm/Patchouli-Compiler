@@ -110,7 +110,8 @@ VAR
 	
 	pc* : INTEGER;
 	str_offset, td_offset, record_no : INTEGER;
-	reg_stack, mem_stack, param_regs_usage, xreg_stack : INTEGER;
+	reg_stack, mem_stack, xreg_stack : INTEGER;
+	param_regs_usage : SET;
 	used_regs : SET;
 	stack_frame_usage, stack_frame_size : INTEGER;
 	
@@ -652,6 +653,26 @@ BEGIN
 	Emit_op_reg (op_POP, reg);
 	DEC (mem_stack, 8)
 END Pop_reg;
+
+PROCEDURE Push_scalar_xmm (xreg : INTEGER);
+	VAR
+		temp : Base.Item;
+BEGIN
+	Emit_op_reg_imm (op_SUB, reg_RSP, 8);
+	Make_mem_stack_item (temp, Base.int_type, 0);
+	Emit_op_mem_xreg (op_MOVSD, temp, xreg);
+	INC (mem_stack, 8)
+END Push_scalar_xmm;
+
+PROCEDURE Pop_scalar_xmm (xreg : INTEGER);
+	VAR
+		temp : Base.Item;
+BEGIN
+	Make_mem_stack_item (temp, Base.int_type, 0);
+	Emit_op_mem_xreg (op_MOVSD, temp, xreg);
+	Emit_op_reg_imm (op_ADD, reg_RSP, 8);
+	DEC (mem_stack, 8)
+END Pop_scalar_xmm;
 	
 PROCEDURE Push_const (const : LONGINT);
 BEGIN
@@ -740,7 +761,9 @@ END Free_item;
 PROCEDURE Save_to_stack_if_in_use (reg : INTEGER);
 BEGIN
 	IF (reg >= reg_RCX) & (reg <= reg_R9) THEN
-		IF param_regs_usage > reg - reg_RCX THEN Push_reg (reg)
+		IF (reg - reg_RCX IN param_regs_usage)
+		& ~ (reg - reg_RCX + 4 IN param_regs_usage) THEN
+			Push_reg (reg)
 		END
 	END
 END Save_to_stack_if_in_use;
@@ -748,7 +771,9 @@ END Save_to_stack_if_in_use;
 PROCEDURE Restore_from_stack_if_saved (reg : INTEGER);
 BEGIN
 	IF (reg >= reg_RCX) & (reg <= reg_R9) THEN
-		IF param_regs_usage > reg - reg_RCX THEN Pop_reg (reg)
+		IF (reg - reg_RCX IN param_regs_usage)
+		& ~ (reg - reg_RCX + 4 IN param_regs_usage) THEN
+			Pop_reg (reg)
 		END
 	END
 END Restore_from_stack_if_saved;
@@ -2126,11 +2151,18 @@ BEGIN
 	IF Need_saving (x, reg_R11) THEN Push_reg (reg_R11)
 	END;
 	
-	x.d := param_regs_usage; (* Use for remembering previous param regs usage *)
-	IF param_regs_usage > 0 THEN
-		FOR i := 0 TO param_regs_usage - 1 DO Push_reg (reg_RCX + i)
+	(* Save previous param regs *)
+	x.param_regs_usage := param_regs_usage;
+	IF param_regs_usage # {} THEN
+		FOR i := 0 TO 3 DO
+			IF i IN param_regs_usage THEN
+				IF i + 4 IN param_regs_usage THEN
+					Emit_op_reg
+				END
+			END
+			Push_reg (reg_RCX + i)
 		END;
-		param_regs_usage := 0
+		param_regs_usage := {}
 	END;
 	
 	x.c := 0; (* Use for tracking temporary stack space usage *)
