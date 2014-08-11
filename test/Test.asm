@@ -6,11 +6,10 @@ section '.text' code readable executable
 Test@MakeAnsiStr:
 push	rbp
 mov	rbp, rsp
-sub	rsp, 24
+sub	rsp, 16
 mov	[rbp + 16], rcx
 mov	[rbp + 24], rdx
 mov	[rbp + 32], r8
-push	r12
 mov	r10, qword [rbp + 32]
 mov	qword [rbp + -16], r10
 mov	r10, qword [rbp + -16]
@@ -60,7 +59,6 @@ jae	INVALID_ARRAY_INDEX_TRAP
 lea	r10, [r11 + r10 * 1 + 0]
 mov	byte [r10 + 0], 0
 Test@MakeAnsiStr@58:
-pop	r12
 leave
 ret
 
@@ -197,7 +195,7 @@ mov	r8, r10
 lea	r10, qword [rbp + -16]
 mov	r9, r10
 xor	r10d, r10d
-mov	[rsp + 32], r10
+mov	qword [rsp + 32], r10
 call	qword [Test@@VAR + 16]
 add	rsp, 48
 mov	r10, rax

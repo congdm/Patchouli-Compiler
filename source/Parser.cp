@@ -1,7 +1,7 @@
 MODULE Parser;
 
 IMPORT
-	Base, Scanner, Generator := GeneratorWin64, Console;
+	Sys, Base, Scanner, Generator := GeneratorWin64, Console;
 
 VAR
 	sym : INTEGER;
@@ -997,7 +997,7 @@ PROCEDURE StandProc (VAR x : Base.Item);
 		expression (x);
 		
 		IF ~ (x.mode IN Base.cls_Variable)
-		OR (x.type.form = Base.type_procedure) THEN
+		OR (x.type.form # Base.type_procedure) THEN
 			Scanner.Mark ('Expect a procedure variable');
 			no_error := FALSE
 		ELSIF Base.flag_readOnly IN x.flag THEN
@@ -1288,7 +1288,7 @@ BEGIN
 		Generator.Make_item (x, obj);
 		exit := FALSE;
 		REPEAT
-			is_procedure := (x.mode = Base.class_proc)
+			is_procedure := (x.mode IN {Base.class_proc, Base.class_sproc})
 				OR (x.mode IN Base.cls_HasValue)
 					& (x.type.form = Base.type_procedure);
 					
@@ -1625,6 +1625,8 @@ BEGIN
 			IF Assignable (x, y) THEN
 				Generator.Store (x, y)
 			ELSE
+				IF Scanner.char_num = 585 THEN Sys.Console_WriteString ('Hello')
+				END;
 				Generator.Free_item (y);
 				Generator.Free_item (x)
 			END

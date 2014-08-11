@@ -1224,7 +1224,7 @@ BEGIN
 				load (x);
 				Emit_op_reg_mem (op_SUB, x.r, y) |
 			Base.class_ref:
-				load (x); Ref_to_regI (y)
+				load (x); Ref_to_regI (y);
 				Emit_op_reg_mem (op_SUB, x.r, y);
 				Free_reg |
 			Base.mode_regI:
@@ -1471,7 +1471,7 @@ BEGIN
 			s1[1] := s1[1] / s2[1] |
 	END;
 	
-	SYSTEM.PUT (SYSTEM.ADR (x) s1[0]);
+	SYSTEM.PUT (SYSTEM.ADR (x), s1[0]);
 	SYSTEM.PUT (SYSTEM.ADR (x) + 4, s1[1]);
 	RETURN x
 END Op2_set_const;
@@ -1560,7 +1560,7 @@ BEGIN
 	IF x.mode IN Base.cls_Variable THEN
 		Emit_op_reg_mem (op_MOV, x.r, x)
 	END;
-	x.mode := Base.mode_regI; x.a := 0
+	x.mode := Base.mode_regI; x.a := 0;
 	
 	x.type := x.type.base;
 	EXCL (x.flag, Base.flag_readOnly)
@@ -2015,7 +2015,7 @@ BEGIN
 	par.a := 0;
 	
 	FOR i := 0 TO 3 DO
-		Emit_op_mem_reg (op_MOV, par, reg_RCX - i); (* No. 3 to 6 *)
+		Emit_op_mem_reg (op_MOV, par, reg_RCX + i); (* No. 3 to 6 *)
 		IF i >= k THEN codes [pc - 1].flag := {flag_skiped}
 		END;
 		INC (par.a, 8)
@@ -2305,7 +2305,7 @@ BEGIN
 	tp := x.type;
 	WHILE (formal_type.form = Base.type_array) & (formal_type.len < 0) DO
 		INC (adr, 8);
-		IF tp.form = Base.type_array THEN
+		IF tp.form IN {Base.type_array, Base.type_string} THEN
 			IF tp.len < 0 THEN
 				IF x.b = 0 THEN x.b := SHORT (x.a) + 8
 				END;
@@ -2498,16 +2498,16 @@ PROCEDURE SFunc_LEN* (VAR y : Base.Item);
 	END SFunc_LEN;
 	
 PROCEDURE SFunc_ORD* (VAR y : Base.Item);
-	BEGIN
+BEGIN
 	IF y.mode IN Base.cls_Variable THEN
 		IF y.type.form = Base.type_string THEN
 			y.mode := Base.class_const;
 			y.a := ORD (strings [y.a DIV Base.char_type.size])
 		ELSIF y.type.size < 8 THEN
 			load (y)
-			END
 		END
-	END SFunc_ORD;
+	END
+END SFunc_ORD;
 	
 PROCEDURE SFunc_CHR* (VAR y : Base.Item);
 	BEGIN
@@ -2544,51 +2544,55 @@ END SFunc_VAL;
 PROCEDURE SProc_LoadLibrary* (VAR x, y : Base.Item);
 	VAR
 		i : INTEGER;
-	BEGIN
+BEGIN
 	IF (x.mode IN Base.modes_UseReg) & (x.r IN {reg_R10, reg_R11}) THEN
-		Push_reg (-x.r)
-		END;
-	IF mem_stack MOD 16 # 0 THEN i := 40 ELSE i := 32 END;
-	Emit_op_reg_imm (op_SUB, -reg_RSP, i);
+		Push_reg (x.r)
+	END;
+	IF mem_stack MOD 16 # 0 THEN i := 40 ELSE i := 32
+	END;
+	Emit_op_reg_imm (op_SUB, reg_RSP, i);
 	
 	Load_adr (y);
-	Emit_op_reg_reg (op_MOV, -reg_RCX, y.r);
+	Emit_op_reg_reg (op_MOV, reg_RCX, y.r);
 	Free_reg;
 	Emit_op_sym (op_CALL, Base.Make_string ('[@LoadLibrary]'));
 	
-	Emit_op_reg_imm (op_ADD, -reg_RSP, i);
+	Emit_op_reg_imm (op_ADD, reg_RSP, i);
 	IF (x.mode IN Base.modes_UseReg) & (x.r IN {reg_R10, reg_R11}) THEN
-		Pop_reg (-x.r)
-		END;
-	Emit_op_mem_reg (op_MOV, x, -reg_RAX);
-	IF x.mode IN Base.modes_UseReg THEN Free_reg END
-	END SProc_LoadLibrary;
+		Pop_reg (x.r)
+	END;
+	Emit_op_mem_reg (op_MOV, x, reg_RAX);
+	IF x.mode IN Base.modes_UseReg THEN Free_reg
+	END
+END SProc_LoadLibrary;
 	
 PROCEDURE SProc_GetProcAddress* (VAR x, y, z : Base.Item);
 	VAR
 		i : INTEGER;
-	BEGIN
+BEGIN
 	IF (x.mode IN Base.modes_UseReg) & (x.r IN {reg_R10, reg_R11}) THEN
-		Push_reg (-x.r)
-		END;
-	IF mem_stack MOD 16 # 0 THEN i := 40 ELSE i := 32 END;
-	Emit_op_reg_imm (op_SUB, -reg_RSP, i);
+		Push_reg (x.r)
+	END;
+	IF mem_stack MOD 16 # 0 THEN i := 40 ELSE i := 32
+	END;
+	Emit_op_reg_imm (op_SUB, reg_RSP, i);
 	
 	load (y);
-	Emit_op_reg_reg (op_MOV, -reg_RCX, y.r);
+	Emit_op_reg_reg (op_MOV, reg_RCX, y.r);
 	Free_reg;
 	load (z);
-	Emit_op_reg_reg (op_MOV, -reg_RDX, z.r);
+	Emit_op_reg_reg (op_MOV, reg_RDX, z.r);
 	Free_reg;
 	Emit_op_sym (op_CALL, Base.Make_string ('[@GetProcAddress]'));
 	
-	Emit_op_reg_imm (op_ADD, -reg_RSP, i);
+	Emit_op_reg_imm (op_ADD, reg_RSP, i);
 	IF (x.mode IN Base.modes_UseReg) & (x.r IN {reg_R10, reg_R11}) THEN
-		Pop_reg (-x.r)
-		END;
-	Emit_op_mem_reg (op_MOV, x, -reg_RAX);
-	IF x.mode IN Base.modes_UseReg THEN Free_reg END
-	END SProc_GetProcAddress;
+		Pop_reg (x.r)
+	END;
+	Emit_op_mem_reg (op_MOV, x, reg_RAX);
+	IF x.mode IN Base.modes_UseReg THEN Free_reg
+	END
+END SProc_GetProcAddress;
 	
 PROCEDURE SProc_GET* (VAR x, y : Base.Item);
 	VAR

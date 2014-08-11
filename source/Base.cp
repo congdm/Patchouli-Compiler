@@ -470,9 +470,7 @@ PROCEDURE Assignable* (dst_type : Type; VAR src : Item) : INTEGER;
 		result : INTEGER;
 BEGIN
 	result := 0;
-	IF ~ (src.mode IN cls_HasValue + {class_proc}) THEN
-		result := 1
-	ELSIF src.mode = class_proc THEN
+	IF src.mode = class_proc THEN
 		IF dst_type.form # type_procedure THEN
 			result := 2
 		ELSIF src.proc.lev > 0 THEN
@@ -480,11 +478,20 @@ BEGIN
 		ELSIF ~ Compatible_proc2 (src.proc, dst_type) THEN
 			result := 5
 		END
-	ELSIF dst_type.form IN types_Simple - {type_char} THEN
-		IF (dst_type # src.type) & (dst_type # char_type)
-		& (src.type.form # type_string) & (src.type.len # 2) THEN
+	ELSIF ~ (src.mode IN cls_HasValue) THEN
+		result := 1
+	ELSIF dst_type = src.type THEN
+		(* Ok *)
+	ELSIF dst_type = char_type THEN
+		IF (src.type.form # type_string) OR (src.type.len # 2) THEN
 			result := 2
 		END
+	ELSIF dst_type.form = type_integer THEN
+		IF src.type.form # type_integer THEN
+			result := 2
+		END
+	ELSIF dst_type.form IN types_Simple - {type_char, type_integer} THEN
+		result := 2
 	ELSIF dst_type.form IN {type_pointer, type_record} THEN
 		IF (dst_type.form = type_pointer) & (src.type = nil_type) THEN
 			(* Ok *)
@@ -494,9 +501,7 @@ BEGIN
 			result := 3
 		END
 	ELSIF dst_type.form = type_array THEN
-		IF dst_type = src.type THEN
-			(* Ok *)
-		ELSIF (dst_type.base = char_type) & (src.type.form = type_string) THEN
+		IF (dst_type.base = char_type) & (src.type.form = type_string) THEN
 			IF src.type.len > dst_type.len + 1 THEN
 				result := 6
 			END

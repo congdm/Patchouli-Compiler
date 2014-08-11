@@ -34,7 +34,7 @@ VAR
 	
 	srcfile : Sys.FileHandle;
 	ch : CHAR;
-	char_num, _i : INTEGER;
+	char_num*, _i : INTEGER;
 	eof : BOOLEAN;
 
 PROCEDURE Init* (VAR file : Sys.FileHandle);
@@ -394,8 +394,7 @@ BEGIN
 			Mark ('This number is too large (compiler limit)')
 		END;
 		type_of_val := Base.int_type;
-	END;
-	Sys.Console_WriteInt (val); Sys.Console_WriteLn;
+	END
 END Get_number2;
 
 PROCEDURE Get_number;
