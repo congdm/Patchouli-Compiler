@@ -827,22 +827,24 @@ BEGIN (* DeclarationSequence *)
 	END
 END DeclarationSequence;
 	
-PROCEDURE ActualParameters (VAR x : Base.Item);
+PROCEDURE ActualParameters
+(VAR x : Base.Item; VAR procinfo : Generator.ProcedureInfo);
 	VAR
 		param : Base.Object;
 		
-	PROCEDURE Parameter (VAR proc : Base.Item; VAR param : Base.Object);
+	PROCEDURE Parameter
+	(VAR procinfo : Generator.ProcedureInfo; VAR param : Base.Object);
 		VAR
 			y : Base.Item;
 	BEGIN
 		expression (y);
 		IF param # Base.guard THEN
 			CASE Base.Check_parameter (param, y) OF
-				0: Generator.Normal_parameter (y, proc, SHORT (param.val)) |
-				1: Generator.Open_array_parameter (y, proc, param) |
-				2: Generator.Reference_parameter (y, proc, SHORT (param.val)) |
-				3: Generator.Record_variable_parameter (y, proc, SHORT (param.val)) |
-				9: Generator.String_parameter (y, proc, param) |
+				0: Generator.Normal_parameter (y, procinfo) |
+				1: Generator.Open_array_parameter (y, procinfo, param.type) |
+				2: Generator.Reference_parameter (y, procinfo) |
+				3: Generator.Record_variable_parameter (y, procinfo) |
+				9: Generator.String_parameter (y, procinfo, param.type) |
 				4: Scanner.Mark ('Formal parameter is variable but actual is read-only') |
 				5: Scanner.Mark ('Formal parameter is variable but actual is not') |
 				6: Scanner.Mark ('Formal type and actual type are incompatible') |
@@ -866,7 +868,7 @@ BEGIN (* ActualParameters *)
 			IF param = Base.guard THEN
 				Scanner.Mark ('Too much actual parameters')
 			END;
-			Parameter (x, param)
+			Parameter (procinfo, param)
 		UNTIL sym # Base.sym_comma
 	END;
 	
@@ -875,6 +877,26 @@ BEGIN (* ActualParameters *)
 	END;
 	Check (Base.sym_rparen, 'No closing )')
 END ActualParameters;
+
+PROCEDURE FunctionCall (VAR x : Base.Item);
+	VAR
+		procinfo : Generator.ProcedureInfo;
+		is_procedure : BOOLEAN;
+BEGIN
+	is_procedure := FALSE;
+	IF (x.mode = Base.class_proc) & (x.type = NIL)
+	OR (x.mode # Base.class_proc) & (x.type.base = NIL) THEN
+		Scanner.Mark ('Proper procedure cannot be called in expression');
+		is_procedure := TRUE
+	END;
+	
+	Generator.Prepare_to_call (x, procinfo);
+	ActualParameters (x, procinfo);
+	Generator.Call (x, procinfo);
+	
+	IF is_procedure THEN Generator.Make_const (x, Base.int_type, 0)
+	END
+END FunctionCall;
 	
 PROCEDURE StandProc (VAR x : Base.Item);
 	VAR
@@ -968,23 +990,26 @@ PROCEDURE StandProc (VAR x : Base.Item);
 	BEGIN
 		no_error := TRUE;
 		expression (x);
-		IF ~ (x.mode IN Base.cls_Variable) OR (x.type # Base.int_type) THEN
-			Scanner.Mark ('Expect an integer variable');
+		
+		IF ~ (x.mode IN Base.cls_HasValue)
+		OR (x.type.form # Base.type_string)
+		& ((x.type.form # Base.type_array) OR (x.type.base # Base.char_type))
+		THEN
+			Scanner.Mark ('Expect a string or character array');
 			no_error := FALSE
+		ELSE
+			Generator.SProc_LoadLibrary (x)
 		END;
 		
 		Check (Base.sym_comma, 'Not enough parameters');
 		expression (y);
 		
-		IF ~ (y.mode IN Base.cls_HasValue)
-		OR (y.type.form # Base.type_string)
-			& ((y.type.form # Base.type_array) OR (y.type.base # Base.char_type))
-		THEN
-			Scanner.Mark ('Expect a string or character array');
+		IF ~ (y.mode IN Base.cls_Variable) OR (y.type # Base.int_type) THEN
+			Scanner.Mark ('Expect an integer variable');
 			no_error := FALSE
 		END;
 		
-		IF no_error THEN Generator.SProc_LoadLibrary (x, y)
+		IF no_error THEN Generator.Store (y, x)
 		END
 	END SProc_LoadLibrary;
 		
@@ -994,23 +1019,27 @@ PROCEDURE StandProc (VAR x : Base.Item);
 			no_error : BOOLEAN;
 	BEGIN
 		no_error := TRUE;
-		expression (x);
+		expression (x); Check_int (x); Generator.load (x);
+		Check (Base.sym_comma, 'Not enough parameters');
+		expression (y); Check_int (y); Generator.load (y);
 		
-		IF ~ (x.mode IN Base.cls_Variable)
-		OR (x.type.form # Base.type_procedure) THEN
+		Generator.SProc_GetProcAddress (x, y);
+		
+		Check (Base.sym_comma, 'Not enough parameters');
+		expression (z);
+		
+		IF ~ (z.mode IN Base.cls_Variable)
+		OR (z.type.form # Base.type_procedure) THEN
 			Scanner.Mark ('Expect a procedure variable');
 			no_error := FALSE
-		ELSIF Base.flag_readOnly IN x.flag THEN
+		ELSIF Base.flag_readOnly IN z.flag THEN
 			Scanner.Mark ('Can not modify read-only variable');
 			no_error := FALSE
 		END;
 		
-		Check (Base.sym_comma, 'Not enough parameters');
-		expression (y); Check_int (y);
-		Check (Base.sym_comma, 'Not enough parameters');
-		expression (z); Check_int (z);
-		
-		IF no_error THEN Generator.SProc_GetProcAddress (x, y, z)
+		IF no_error THEN
+			x.type := z.type;
+			Generator.Store (z, x)
 		END
 	END SProc_GetProcAddress;
 
@@ -1314,6 +1343,8 @@ PROCEDURE set (VAR x : Base.Item);
 		expression (y);
 		Check_set_element (y);
 		IF sym = Base.sym_upto THEN
+			IF y.mode # Base.class_const THEN Generator.load (y)
+			END;
 			Scanner.Get (sym);
 			expression (z);
 			Check_set_element (z);
@@ -1348,28 +1379,14 @@ BEGIN
 		designator (x);
 		IF sym = Base.sym_lparen THEN
 			IF x.mode = Base.class_sproc THEN
-				IF x.type = NIL THEN
-					Scanner.Mark ('Found proper procedure in expression')
+				IF x.type # NIL THEN StandFunc (x)
 				ELSE
-					StandFunc (x)
+					Scanner.Mark ('Found proper procedure in expression');
+					Generator.Make_const (x, Base.int_type, 0)
 				END
-			ELSIF x.mode = Base.class_proc THEN
-				IF x.type = NIL THEN
-					Scanner.Mark ('Found proper procedure in expression')
-				ELSE
-					Generator.Prepare_to_call (x);
-					ActualParameters (x);
-					Generator.Call (x)
-				END
-			ELSIF (x.mode IN Base.cls_HasValue)
+			ELSIF (x.mode = Base.class_proc) OR (x.mode IN Base.cls_HasValue)
 			& (x.type.form = Base.type_procedure) THEN
-				IF x.type.base = NIL THEN
-					Scanner.Mark ('Found proper procedure in expression')
-				ELSE
-					Generator.Prepare_to_call (x);
-					ActualParameters (x);
-					Generator.Call (x)
-				END
+				FunctionCall (x)
 			ELSE
 				Scanner.Mark ('Found ( but designator is not a procedure')
 			END
@@ -1612,6 +1629,32 @@ BEGIN
 	Check (Base.sym_end, 'No END for FOR statement');
 	Generator.End_FOR (x, rel, inc, L)
 END ForStatement;
+
+PROCEDURE ProcedureCall (VAR x : Base.Item);
+	VAR
+		procinfo : Generator.ProcedureInfo;
+		is_function : BOOLEAN;
+BEGIN
+	is_function := FALSE;
+	IF (x.mode = Base.class_proc) & (x.type # NIL)
+	OR (x.mode # Base.class_proc) & (x.type.base # NIL) THEN
+		Scanner.Mark ('Function procedure must be called in expression');
+		is_function := TRUE
+	END;
+	
+	Generator.Prepare_to_call (x, procinfo);
+	IF sym = Base.sym_lparen THEN ActualParameters (x, procinfo)
+	ELSIF x.mode = Base.class_proc THEN
+		IF x.proc.parblksize > 0 THEN
+			Scanner.Mark ('Not enough actual parameters')
+		END
+	ELSE Scanner.Mark ('Parameter list (even empty) expected')
+	END;
+	Generator.Call (x, procinfo);
+	
+	IF is_function THEN Generator.Free_item (x)
+	END
+END ProcedureCall;
 	
 PROCEDURE statement;
 	VAR
@@ -1622,26 +1665,10 @@ BEGIN
 		IF sym = Base.sym_becomes THEN
 			Scanner.Get (sym);
 			expression (y);
-			IF Assignable (x, y) THEN
-				Generator.Store (x, y)
-			ELSE
-				IF Scanner.char_num = 585 THEN Sys.Console_WriteString ('Hello')
-				END;
-				Generator.Free_item (y);
-				Generator.Free_item (x)
+			IF Assignable (x, y) THEN Generator.Store (x, y)
 			END
 		ELSIF x.mode = Base.class_proc THEN
-			IF x.type # NIL THEN
-				Scanner.Mark ('Function procedure must be called in expression')
-			END;
-			
-			Generator.Prepare_to_call (x);
-			IF sym = Base.sym_lparen THEN
-				ActualParameters (x)
-			ELSIF x.proc.parblksize > 0 THEN
-				Scanner.Mark ('Not enough actual parameters')
-			END;
-			Generator.Call (x)
+			ProcedureCall (x)
 		ELSIF x.mode = Base.class_sproc THEN
 			IF x.type # NIL THEN
 				Scanner.Mark ('Function procedure must be called in expression')
@@ -1650,15 +1677,7 @@ BEGIN
 			END
 		ELSIF (x.mode IN Base.cls_HasValue)
 		& (x.type.form = Base.type_procedure) THEN
-			IF x.type.base # NIL THEN
-				Scanner.Mark ('Function procedure must be called in expression')
-			END;
-			
-			Generator.Prepare_to_call (x);
-			IF sym = Base.sym_lparen THEN ActualParameters (x)
-			ELSE Scanner.Mark ('Parameter list (even empty) expected')
-			END;
-			Generator.Call (x)
+			ProcedureCall (x)
 		ELSE
 			Scanner.Mark ('Invalid statement')
 		END

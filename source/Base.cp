@@ -99,7 +99,7 @@ TYPE
 		mode*, lev* : INTEGER;
 		type* : Type;
 		b*, c*, r* : INTEGER;
-		mem_stack*, reg_stack*, xreg_stack* : INTEGER;
+		mem_stack* : INTEGER;
 		param_regs_usage* : SET;
 		proc* : Object;
 		a* : LONGINT
