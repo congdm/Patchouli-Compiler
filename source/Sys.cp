@@ -125,7 +125,10 @@ BEGIN
 END Write_char;
 	
 PROCEDURE Write_byte* (VAR file : FileHandle; n : INTEGER);
+	VAR i : UBYTE;
 BEGIN
+	i := USHORT(n);
+	file.f.WriteByte (i)
 END Write_byte;
 	
 PROCEDURE Write_2bytes* (VAR file : FileHandle; n : INTEGER);
