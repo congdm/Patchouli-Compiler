@@ -96,29 +96,29 @@ PROCEDURE InitLibrary;
 		s : AnsiStr;
 		kernel32, user32 : INTEGER;
 BEGIN
-	LoadLibrary (kernel32, 'kernel32.dll');
-	LoadLibrary (user32, 'user32.dll');
+	LoadLibrary ('kernel32.dll', kernel32);
+	LoadLibrary ('user32.dll', user32);
 	
 	MakeAnsiStr (s, 'GetModuleHandleW');
-	GetProcAddress (GetModuleHandleW, kernel32, ADR(s));
+	GetProcAddress (kernel32, ADR(s), GetModuleHandleW);
 	MakeAnsiStr (s, 'RegisterClassW');
-	GetProcAddress (RegisterClassW, user32, ADR(s));
+	GetProcAddress (user32, ADR(s), RegisterClassW);
 	MakeAnsiStr (s, 'CreateWindowExW');
-	GetProcAddress (CreateWindowExW, user32, ADR(s));
+	GetProcAddress (user32, ADR(s), CreateWindowExW);
 	MakeAnsiStr (s, 'ShowWindow');
-	GetProcAddress (ShowWindow, user32, ADR(s));
+	GetProcAddress (user32, ADR(s), ShowWindow);
 	MakeAnsiStr (s, 'GetMessageW');
-	GetProcAddress (GetMessageW, user32, ADR(s));
+	GetProcAddress (user32, ADR(s), GetMessageW);
 	MakeAnsiStr (s, 'TranslateMessage');
-	GetProcAddress (TranslateMessage, user32, ADR(s));
+	GetProcAddress (user32, ADR(s), TranslateMessage);
 	MakeAnsiStr (s, 'DispatchMessageW');
-	GetProcAddress (DispatchMessageW, user32, ADR(s));
+	GetProcAddress (user32, ADR(s), DispatchMessageW);
 	MakeAnsiStr (s, 'DefWindowProcW');
-	GetProcAddress (DefWindowProcW, user32, ADR(s));
+	GetProcAddress (user32, ADR(s), DefWindowProcW);
 	MakeAnsiStr (s, 'DestroyWindow');
-	GetProcAddress (DestroyWindow, user32, ADR(s));
+	GetProcAddress (user32, ADR(s), DestroyWindow);
 	MakeAnsiStr (s, 'PostQuitMessage');
-	GetProcAddress (PostQuitMessage, user32, ADR(s))
+	GetProcAddress (user32, ADR(s), PostQuitMessage)
 END InitLibrary;
 
 PROCEDURE WndProc (hWnd, Msg, wParam, lParam : INTEGER) : INTEGER;

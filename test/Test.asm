@@ -10,55 +10,55 @@ sub	rsp, 16
 mov	[rbp + 16], rcx
 mov	[rbp + 24], rdx
 mov	[rbp + 32], r8
-mov	r10, qword [rbp + 32]
-mov	qword [rbp + -16], r10
-mov	r10, qword [rbp + -16]
-cmp	r10, 256
-jle	Test@MakeAnsiStr@19
+mov	rcx, qword [rbp + 32]
+mov	qword [rbp + -16], rcx
+mov	rcx, qword [rbp + -16]
+cmp	rcx, 256
+jle	Test@MakeAnsiStr@29
 mov	qword [rbp + -16], 256
-Test@MakeAnsiStr@19:
+Test@MakeAnsiStr@29:
 mov	qword [rbp + -8], 0
-Test@MakeAnsiStr@20:
-mov	r10, qword [rbp + -8]
-cmp	r10, qword [rbp + -16]
-jge	Test@MakeAnsiStr@40
-mov	r10, [rbp + 16]
-mov	r11, qword [rbp + -8]
-cmp	r11, 256
+Test@MakeAnsiStr@30:
+mov	rcx, qword [rbp + -8]
+cmp	rcx, qword [rbp + -16]
+jge	Test@MakeAnsiStr@50
+mov	rcx, [rbp + 16]
+mov	rdx, qword [rbp + -8]
+cmp	rdx, 256
 jae	INVALID_ARRAY_INDEX_TRAP
-lea	r10, [r10 + r11 * 1 + 0]
-mov	r11, qword [rbp + -8]
-mov	r12, [rbp + 24]
-cmp	r11, qword [rbp + 32]
+lea	rcx, [rcx + rdx * 1 + 0]
+mov	rdx, qword [rbp + -8]
+mov	r8, [rbp + 24]
+cmp	rdx, qword [rbp + 32]
 jae	INVALID_ARRAY_INDEX_TRAP
-lea	r11, [r12 + r11 * 2 + 0]
-movzx	r11, word [r11 + 0]
-mov	byte [r10 + 0], r11l
-mov	r10, qword [rbp + -8]
-add	r10, 1
+lea	rdx, [r8 + rdx * 2 + 0]
+movzx	edx, word [rdx + 0]
+mov	byte [rcx + 0], dl
+mov	rcx, qword [rbp + -8]
+add	rcx, 1
 jo	INTEGER_OVERFLOW_TRAP
-mov	qword [rbp + -8], r10
-jmp	Test@MakeAnsiStr@20
-Test@MakeAnsiStr@40:
-mov	r10, qword [rbp + -16]
-sub	r10, 1
+mov	qword [rbp + -8], rcx
+jmp	Test@MakeAnsiStr@30
+Test@MakeAnsiStr@50:
+mov	rcx, qword [rbp + -16]
+sub	rcx, 1
 jo	INTEGER_OVERFLOW_TRAP
-mov	r11, [rbp + 16]
-cmp	r10, 256
+mov	rdx, [rbp + 16]
+cmp	rcx, 256
 jae	INVALID_ARRAY_INDEX_TRAP
-lea	r10, [r11 + r10 * 1 + 0]
-movzx	r10, byte [r10 + 0]
-cmp	r10, 0
-je	Test@MakeAnsiStr@58
-mov	r10, qword [rbp + -16]
-sub	r10, 1
+lea	rcx, [rdx + rcx * 1 + 0]
+movzx	ecx, byte [rcx + 0]
+cmp	rcx, 0
+je	Test@MakeAnsiStr@68
+mov	rcx, qword [rbp + -16]
+sub	rcx, 1
 jo	INTEGER_OVERFLOW_TRAP
-mov	r11, [rbp + 16]
-cmp	r10, 256
+mov	rdx, [rbp + 16]
+cmp	rcx, 256
 jae	INVALID_ARRAY_INDEX_TRAP
-lea	r10, [r11 + r10 * 1 + 0]
-mov	byte [r10 + 0], 0
-Test@MakeAnsiStr@58:
+lea	rcx, [rdx + rcx * 1 + 0]
+mov	byte [rcx + 0], 0
+Test@MakeAnsiStr@68:
 leave
 ret
 
@@ -70,30 +70,30 @@ mov	[rbp + 16], rcx
 mov	[rbp + 24], rdx
 mov	qword [rbp + -8], 0
 mov	byte [rbp + -9], 1
-Test@NullStringLen@15:
-mov	r10, qword [rbp + -8]
-cmp	r10, qword [rbp + 24]
-jge	Test@NullStringLen@35
+Test@NullStringLen@25:
+mov	rcx, qword [rbp + -8]
+cmp	rcx, qword [rbp + 24]
+jge	Test@NullStringLen@45
 cmp	byte [rbp + -9], 0
-je	Test@NullStringLen@35
-mov	r10, qword [rbp + -8]
-mov	r11, [rbp + 16]
-cmp	r10, qword [rbp + 24]
+je	Test@NullStringLen@45
+mov	rcx, qword [rbp + -8]
+mov	rdx, [rbp + 16]
+cmp	rcx, qword [rbp + 24]
 jae	INVALID_ARRAY_INDEX_TRAP
-lea	r10, qword [r11 + r10 * 1 + 0]
-movzx	r10, byte [r10 + 0]
-cmp	r10, 0
-je	Test@NullStringLen@33
-mov	r10, qword [rbp + -8]
-add	r10, 1
+lea	rcx, qword [rdx + rcx * 1 + 0]
+movzx	ecx, byte [rcx + 0]
+cmp	rcx, 0
+je	Test@NullStringLen@43
+mov	rcx, qword [rbp + -8]
+add	rcx, 1
 jo	INTEGER_OVERFLOW_TRAP
-mov	qword [rbp + -8], r10
-jmp	Test@NullStringLen@34
-Test@NullStringLen@33:
+mov	qword [rbp + -8], rcx
+jmp	Test@NullStringLen@44
+Test@NullStringLen@43:
 mov	byte [rbp + -9], 0
-Test@NullStringLen@34:
-jmp	Test@NullStringLen@15
-Test@NullStringLen@35:
+Test@NullStringLen@44:
+jmp	Test@NullStringLen@25
+Test@NullStringLen@45:
 mov	rax, qword [rbp + -8]
 leave
 ret
@@ -103,53 +103,50 @@ push	rbp
 mov	rbp, rsp
 sub	rsp, 272
 sub	rsp, 32
-lea	r10, [Test@@STRING + 0]
-mov	rcx, r10
+lea	rcx, [Test@@STRING + 0]
 call	[@LoadLibrary]
 add	rsp, 32
-mov	qword [rbp + -264], rax
+mov	rcx, rax
+mov	qword [rbp + -264], rcx
 sub	rsp, 32
 lea	rcx, [rbp + -256]
 lea	rdx, [Test@@STRING + 26]
-mov	r8, 13
+mov	r8d, 13
 call	Test@MakeAnsiStr
 add	rsp, 32
-lea	r10, [rbp + -256]
+mov	rcx, qword [rbp + -264]
+lea	rdx, [rbp + -256]
 sub	rsp, 32
-mov	r11, qword [rbp + -264]
-mov	rcx, r11
-mov	rdx, r10
 call	[@GetProcAddress]
 add	rsp, 32
-mov	qword [Test@@VAR + 0], rax
+mov	rcx, rax
+mov	qword [Test@@VAR + 0], rcx
 sub	rsp, 32
 lea	rcx, [rbp + -256]
 lea	rdx, [Test@@STRING + 52]
-mov	r8, 13
+mov	r8d, 13
 call	Test@MakeAnsiStr
 add	rsp, 32
-lea	r10, [rbp + -256]
+mov	rcx, qword [rbp + -264]
+lea	rdx, [rbp + -256]
 sub	rsp, 32
-mov	r11, qword [rbp + -264]
-mov	rcx, r11
-mov	rdx, r10
 call	[@GetProcAddress]
 add	rsp, 32
-mov	qword [Test@@VAR + 8], rax
+mov	rcx, rax
+mov	qword [Test@@VAR + 8], rcx
 sub	rsp, 32
 lea	rcx, [rbp + -256]
 lea	rdx, [Test@@STRING + 78]
-mov	r8, 10
+mov	r8d, 10
 call	Test@MakeAnsiStr
 add	rsp, 32
-lea	r10, [rbp + -256]
+mov	rcx, qword [rbp + -264]
+lea	rdx, [rbp + -256]
 sub	rsp, 32
-mov	r11, qword [rbp + -264]
-mov	rcx, r11
-mov	rdx, r10
 call	[@GetProcAddress]
 add	rsp, 32
-mov	qword [Test@@VAR + 16], rax
+mov	rcx, rax
+mov	qword [Test@@VAR + 16], rcx
 leave
 ret
 
@@ -157,17 +154,21 @@ Test@InitConsole:
 push	rbp
 mov	rbp, rsp
 sub	rsp, 16
+mov	rax, qword [Test@@VAR + 0]
 sub	rsp, 32
-call	qword [Test@@VAR + 0]
+call	rax
 add	rsp, 32
-mov	r10, rax
-mov	qword [rbp + -8], r10
+mov	rcx, rax
+mov	qword [rbp + -8], rcx
+mov	rax, qword [Test@@VAR + 8]
 sub	rsp, 32
+push	rax
 mov	rcx, -11
-call	qword [Test@@VAR + 8]
+pop	rax
+call	rax
 add	rsp, 32
-mov	r10, rax
-mov	qword [Test@@VAR + 24], r10
+mov	rcx, rax
+mov	qword [Test@@VAR + 24], rcx
 leave
 ret
 
@@ -177,29 +178,29 @@ mov	rbp, rsp
 sub	rsp, 16
 mov	[rbp + 16], rcx
 mov	[rbp + 24], rdx
+mov	rax, qword [Test@@VAR + 16]
 sub	rsp, 48
+push	rax
 mov	rcx, qword [Test@@VAR + 24]
-mov	r10, [rbp + 16]
-mov	rdx, r10
+mov	rdx, [rbp + 16]
 push	rcx
 push	rdx
-sub	rsp, 32
-mov	rcx, qword [rbp + 16]
+sub	rsp, 40
+mov	rcx, [rbp + 16]
 mov	rdx, qword [rbp + 24]
 call	Test@NullStringLen
-add	rsp, 32
+add	rsp, 40
 pop	rdx
 pop	rcx
-mov	r10, rax
-mov	r8, r10
-lea	r10, qword [rbp + -16]
-mov	r9, r10
+mov	r8, rax
+lea	r9, qword [rbp + -16]
 xor	r10d, r10d
-mov	qword [rsp + 32], r10
-call	qword [Test@@VAR + 16]
+mov	qword [rsp + 40], r10
+pop	rax
+call	rax
 add	rsp, 48
-mov	r10, rax
-mov	qword [rbp + -8], r10
+mov	rcx, rax
+mov	qword [rbp + -8], rcx
 leave
 ret
 
@@ -210,12 +211,12 @@ sub	rsp, 256
 sub	rsp, 32
 lea	rcx, [rbp + -256]
 lea	rdx, [Test@@STRING + 98]
-mov	r8, 14
+mov	r8d, 14
 call	Test@MakeAnsiStr
 add	rsp, 32
 sub	rsp, 32
 lea	rcx, [rbp + -256]
-mov	rdx, 256
+mov	edx, 256
 call	Test@WriteAnsiString
 add	rsp, 32
 leave

@@ -2242,7 +2242,22 @@ PROCEDURE Enter* (proc : Base.Object; locblksize : INTEGER);
 		r, k : INTEGER;
 		par, temp : Base.Item;
 		obj : Base.Object;
-BEGIN
+		
+	PROCEDURE Get_param_size (obj : Base.Object) : INTEGER;
+		VAR
+			result : INTEGER;
+	BEGIN
+		IF (obj.type.form = Base.type_array) & (obj.type.len < 0) THEN
+			result := obj.type.size
+		ELSIF (Base.flag_varParam IN obj.flag)
+		& (obj.type.form = Base.type_record) THEN
+			result := 16
+		ELSE result := 8
+		END;
+		RETURN result
+	END Get_param_size;
+		
+BEGIN (* Enter *)
 	Emit_op_reg (op_PUSH, reg_RBP); (* Instruction no. 0 *)
 	Emit_op_reg_reg (op_MOV, reg_RBP, reg_RSP); (* No. 1 *)
 	Emit_op_reg_imm (op_SUB, reg_RSP, 0); (* No. 2 *)
@@ -2270,24 +2285,24 @@ BEGIN
 	par.a := 0;
 	
 	obj := Base.top_scope.next;
-	
+	IF obj # Base.guard THEN k := Get_param_size (obj)
+	END;
 	(* Instruction no. 3 to 6 *)
-	k := 0;
+	
 	FOR r := 0 TO 3 DO
 		IF (obj # Base.guard) & (Base.flag_param IN obj.flag) THEN
 			IF obj.type.form = Base.type_real THEN
 				Emit_op_mem_xreg (op_MOVSD, par, r)
-			ELSE
-				Emit_op_mem_reg (op_MOV, par, r)
+			ELSE Emit_op_mem_reg (op_MOV, par, r)
+			END;
+			INC (par.a, 8); DEC (k, 8);
+			IF k = 0 THEN obj := obj.next;
+				IF obj # Base.guard THEN k := Get_param_size (obj)
+				END
 			END
 		ELSE
 			Emit_op_bare (op_NOP);
-			codes [pc - 1].flag := {flag_skipped}
-		END;
-		INC (par.a, 8); INC (k, 8);
-		IF k >= obj.type.size THEN
-			obj := obj.next;
-			k := 0
+			codes [pc - 1].flag := {flag_skipped};
 		END
 	END;
 	
@@ -2380,6 +2395,11 @@ BEGIN
 		END
 	END;
 	
+	WHILE nXregs <= reg_XMM15 - reg_XMM6 DO
+		codes [7 + nXregs].flag := {flag_skipped};
+		INC (nXregs)
+	END;
+	
 	IF stack_frame_size = 0 THEN codes [2].flag := {flag_skipped}
 	ELSE codes [2].operands [1].imm := stack_frame_size
 	END;
@@ -2413,11 +2433,11 @@ PROCEDURE Restore_reg_stacks (VAR procinfo : ProcedureInfo);
 BEGIN
 	reg_stack := procinfo.reg_stack;
 	xreg_stack := procinfo.xreg_stack;
-	i := xreg_stack;
-	WHILE i > 0 DO Pop_scalar_xmm (i); DEC (i)
+	i := xreg_stack - 1;
+	WHILE i >= 0 DO Pop_scalar_xmm (i); DEC (i)
 	END;
-	i := reg_stack;
-	WHILE i > 0 DO Pop_reg (i); DEC (i)
+	i := reg_stack - 1;
+	WHILE i >= 0 DO Pop_reg (i); DEC (i)
 	END
 END Restore_reg_stacks;
 	

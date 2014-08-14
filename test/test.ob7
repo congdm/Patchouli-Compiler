@@ -46,13 +46,13 @@ PROCEDURE InitLibrary;
 		s : AnsiStr;
 		kernel32 : INTEGER;
 BEGIN
-	LoadLibrary (kernel32, 'kernel32.dll');
+	LoadLibrary ('kernel32.dll', kernel32);
 	MakeAnsiStr (s, 'AllocConsole');
-	GetProcAddress (AllocConsole, kernel32, ADR(s));
+	GetProcAddress (kernel32, ADR(s), AllocConsole);
 	MakeAnsiStr (s, 'GetStdHandle');
-	GetProcAddress (GetStdHandle, kernel32, ADR(s));
+	GetProcAddress (kernel32, ADR(s), GetStdHandle);
 	MakeAnsiStr (s, 'WriteFile');
-	GetProcAddress (WriteFile, kernel32, ADR(s))
+	GetProcAddress (kernel32, ADR(s), WriteFile)
 END InitLibrary;
 
 PROCEDURE InitConsole;
