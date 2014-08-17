@@ -1,7 +1,7 @@
 MODULE GeneratorWin64v2;
 
 IMPORT
-	CPmain, SYSTEM, Sys, Base;
+	CPmain, SYSTEM, Sys, Base, Scanner;
 
 CONST
 	MIN_INT8 = -128;
@@ -11,6 +11,9 @@ CONST
 	MIN_INT32 = -2147483648;
 	
 	integer_check = 0;
+	
+	mode_reg = Base.mode_reg; mode_imm = Base.class_const;
+	mode_mem = {Base.class_var, Base.class_ref, Base.mode_regI};
 	
 	if_skipped = 0; if_REX = 1; if_16bit_prefix = 2; if_disp = 3;
 	if_32bit_disp = 4;
@@ -23,13 +26,26 @@ CONST
 	reg_R8 = 8; reg_R9 = 9; reg_R10 = 10; reg_R11 = 11;
 	reg_R12 = 12; reg_R13 = 13; reg_R14 = 14; reg_R15 = 15;
 	
-	MOVr = 88H; ADDr = 0; SUBr = 28H; IMULr = 0AF0FH; IDIVr = 7F7H; TESTr = 84H;
+	ccO = 0; ccNO = 1; ccB = 2; ccAE = 3; ccZ = 4; ccNZ = 5; ccBE = 6; ccA = 7;
+	ccS = 8; ccNS = 9; ccP = 10; ccNP = 11; ccL = 12; ccGE = 13; ccLE = 14;
+	ccG = 15; ccAlways = 16; ccNever = 17;
+	
+	MOVr = 88H; XCHGr = 86H;
+	ADDr = 00H; SUBr = 28H; IMULr = 0AF0FH; IDIVr = 7F7H; NEGr = 3F6H;
+	SHLcl = 4D2H; SHRcl = 5D2H; SARcl = 7D2H;
+	ANDr = 20H; ORr = 08H; XORr = 30H; NOTr = 2F6H;
+	TESTr = 84H; CMPr = 38H;
+	BTr = 0A30FH; BTSr = 0AB0FH;
 	
 	MOVZX = 0B60FH;
 	
-	ADDi = 80H; SUBi = 580H; IMULi = 69H;
+	ADDi = 80H; SUBi = 580H; IMULi = 69H; NEGi = NEGr;
+	SHLi = 4C0H; SHRi = 5C0H; SARi = 7C0H;
+	ANDi = 480H; ORi = 180H; XORi = 680H;
+	TESTi = 0F6H; CMPi = 780H;
+	BTi = 4BA0FH; BTSi = 5BA0FH;
 	
-	CQO = 9948H;
+	CQO = 9948H; LEAVE = 0C9H; RET = 0C3H;
 
 TYPE
 	InstructionInfo = RECORD
@@ -70,10 +86,6 @@ VAR
 		i : UBYTE;
 		iflag : SET;
 	END;
-	
-PROCEDURE Mark (str : ARRAY OF CHAR);
-BEGIN
-END Mark;
 
 PROCEDURE Emit_REX_prefix (rsize, reg, r2, bas, idx : UBYTE);
 	VAR n : UBYTE;
@@ -167,6 +179,19 @@ BEGIN
 	
 	Next_inst
 END EmitRR;
+
+PROCEDURE EmitRRnd (op : INTEGER; reg, rsize, rm : UBYTE);
+BEGIN
+	Emit.iflag := {}; Emit.i := 0;
+	Emit_REX_prefix (rsize, reg, rm, 0, 0); Emit_16bit_prefix (rsize);
+	Emit_opcodeR (op, rsize, 0);
+	
+	(* ModR/M byte *)
+	code [pc, Emit.i] := USHORT (0C0H + reg MOD 8 * 8 + rm MOD 8);
+	INC (Emit.i);
+	
+	Next_inst
+END EmitRRnd;
 
 PROCEDURE EmitRMs
 (d : UBYTE; op : INTEGER; reg, rsize, bas, idx, scl : UBYTE; disp : INTEGER);
@@ -294,7 +319,7 @@ BEGIN
 		IF (rsize > 1) & (BITS(op) * BITS(w_bit) = {}) THEN INC (op, w_bit) END;
 		
 		isize := rsize;
-		IF (isize > 1) & (imm >= MIN_INT8) & (imm <= MAX_INT8) THEN
+		IF (rsize > 1) & (imm >= MIN_INT8) & (imm <= MAX_INT8) THEN
 			INC (op, s_bit); isize := 1
 		ELSIF isize = 8 THEN isize := 4
 		END;
@@ -314,6 +339,30 @@ BEGIN
 		EmitRRI (IMULi, rm, rsize, rm, imm)
 	END
 END EmitRI;
+
+PROCEDURE EmitRI8 (op : INTEGER; rm, rsize : UBYTE; imm8 : LONGINT);
+	VAR op3bit : UBYTE;
+BEGIN
+	Emit.iflag := {}; Emit.i := 0;
+	Emit_REX_prefix (rsize, 0, rm, 0, 0); Emit_16bit_prefix (rsize);
+	
+	op3bit := USHORT (op DIV 256);
+	op := op MOD 256;
+	
+	IF (rsize > 1) & (BITS(op) * BITS(w_bit) = {}) THEN INC (op, w_bit) END;
+	
+	code [pc, Emit.i] := USHORT (op);	(* Opcode byte *)
+	INC (Emit.i);
+	
+	(* ModR/M byte *)
+	code [pc, Emit.i] := USHORT (0C0H + op3bit * 8 + rm MOD 8);
+	INC (Emit.i);
+	
+	SYSTEM.PUT (SYSTEM.ADR (code [pc, Emit.i]), imm8);
+	INC (Emit.i);
+	
+	Next_inst
+END EmitRI8;
 
 PROCEDURE EmitR (op : INTEGER; rm, rsize : UBYTE);
 	VAR op3bit : UBYTE;
@@ -336,22 +385,50 @@ BEGIN
 	Next_inst
 END EmitR;
 
-PROCEDURE BranchD (disp : INTEGER);
+PROCEDURE PushR (rm : UBYTE);
+BEGIN
+	Emit.iflag := {}; Emit.i := 0; Emit_REX_prefix (8, 0, rm, 0, 0);
+	code [pc, Emit.i] := USHORT (50H + rm MOD 8); INC (Emit.i); Next_inst
+END PushR;
+
+PROCEDURE PopR (rm : UBYTE);
+BEGIN
+	Emit.iflag := {}; Emit.i := 0; Emit_REX_prefix (8, 0, rm, 0, 0);
+	code [pc, Emit.i] := USHORT (58H + rm MOD 8); INC (Emit.i); Next_inst
+END PopR;
+
+PROCEDURE Branch (disp : INTEGER);
 BEGIN
 	Emit.iflag := {}; Emit.i := 0;
 	code [pc, Emit.i] := 0E9H; INC (Emit.i);
 	SYSTEM.PUT (SYSTEM.ADR (code [pc, Emit.i]), disp); INC (Emit.i, 4);
 	Next_inst
-END BranchD;
+END Branch;
 
-PROCEDURE CondBranchD (cond : UBYTE; disp : INTEGER);
+PROCEDURE BranchS (disp : INTEGER);
+BEGIN
+	Emit.iflag := {}; Emit.i := 0;
+	code [pc, Emit.i] := 0EBH; INC (Emit.i);
+	SYSTEM.PUT (SYSTEM.ADR (code [pc, Emit.i]), disp); INC (Emit.i);
+	Next_inst
+END BranchS;
+
+PROCEDURE CondBranch (cond, disp : INTEGER);
 BEGIN
 	Emit.iflag := {}; Emit.i := 0;
 	code [pc, Emit.i] := 0FH; INC (Emit.i);
 	code [pc, Emit.i] := USHORT (80H + cond); INC (Emit.i);
 	SYSTEM.PUT (SYSTEM.ADR (code [pc, Emit.i]), disp); INC (Emit.i, 4);
 	Next_inst
-END CondBranchD;
+END CondBranch;
+
+PROCEDURE CondBranchS (cond, disp : INTEGER);
+BEGIN
+	Emit.iflag := {}; Emit.i := 0;
+	code [pc, Emit.i] := USHORT (70H + cond); INC (Emit.i);
+	SYSTEM.PUT (SYSTEM.ADR (code [pc, Emit.i]), disp); INC (Emit.i);
+	Next_inst
+END CondBranchS;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -360,9 +437,8 @@ PROCEDURE Fix_link* (L : INTEGER);
 	VAR L1, i, size : INTEGER;
 BEGIN
 	WHILE L # 0 DO
-		i := 1;
 		size := codeinfo [L].size;
-		IF size = 6 THEN INC (i) END;
+		IF code [L, 0] # 0FH THEN i := 1 ELSE i := 2 END;
 		SYSTEM.GET (SYSTEM.ADR (code [L, i]), L1);
 		SYSTEM.PUT (SYSTEM.ADR (code [L, i]), ip - codeinfo [L].ip - size);
 		L := L1
@@ -400,6 +476,18 @@ BEGIN
     RETURN L1
 END merged;
 
+PROCEDURE Set_cond (VAR x : Item; n : INTEGER);
+BEGIN
+	x.mode := Base.mode_cond;
+	x.a := 0; x.b := 0; x.c := n
+END Set_cond;
+
+PROCEDURE negated (cond : INTEGER) : INTEGER;
+BEGIN
+	IF ODD(cond) THEN DEC (cond) ELSE INC (cond) END;
+	RETURN cond
+END negated;
+
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
@@ -415,7 +503,7 @@ PROCEDURE Alloc_reg() : UBYTE;
 BEGIN
 	i := reg_stacks [crs].i;
 	IF i < reg_stacks [crs].n THEN INC (reg_stacks [crs].i)
-	ELSE Mark ('Compiler limit: Register stack overflow')
+	ELSE Scanner.Mark ('Compiler limit: Register stack overflow')
 	END;
 	r := reg_stacks [crs].ord [i];
 	INCL (curRegs, r);
@@ -429,7 +517,7 @@ BEGIN
 	IF i > 0 THEN
 		DEC (reg_stacks [crs].i); r := reg_stacks [crs].ord [i - 1];
 		EXCL (curRegs, r)
-	ELSE Mark ('Fault: Register stack overflow')
+	ELSE Scanner.Mark ('Fault: Register stack overflow')
 	END
 END Free_reg;
 
@@ -440,9 +528,9 @@ PROCEDURE load* (VAR x : Item);
 	VAR
 		rsize : UBYTE;
 BEGIN
-	IF x.mode # Base.mode_reg THEN
+	IF x.mode # mode_reg THEN
 		rsize := USHORT (x.type.size);
-		IF x.mode = Base.class_const THEN
+		IF x.mode = mode_imm THEN
 			x.r := Alloc_reg();
 			IF (rsize = 8) & (x.a >= 0) & (x.a <= MAX_UINT32) THEN
 				MoveRI (x.r, 4, x.a)
@@ -451,24 +539,31 @@ BEGIN
 		ELSIF x.mode = Base.mode_regI THEN
 			EmitRM (1, MOVr, x.r, rsize, x.r, SHORT(x.a))
 		END;
-		x.mode := Base.mode_reg
+		x.mode := mode_reg
 	END
 END load;
 
-PROCEDURE Convert_BYTE* (VAR x : Item);
+PROCEDURE ConvertToInt64 (VAR x : Item);
 BEGIN
 	IF x.type # Base.byte_type THEN (* Do nothing *)
 	ELSE
-		IF x.mode # Base.class_const THEN load (x);
+		IF x.mode # mode_imm THEN load (x);
 			EmitRR2 (MOVZX, x.r, 4, x.r, 1)
 		END;
 		x.type := Base.int_type
 	END
-END Convert_BYTE;
+END ConvertToInt64;
+
+PROCEDURE Load_cond (VAR x : Item);
+BEGIN
+	IF x.mode = mode_imm THEN Set_cond (x, ccNever - SHORT (x.a))
+	ELSE load (x); EmitRRnd (TESTr, x.r, 8, x.r); Free_reg; Set_cond (x, ccNZ)
+	END
+END Load_cond;
 
 PROCEDURE Small_const (VAR x : Item) : BOOLEAN;
 BEGIN
-	RETURN (x.mode = Base.class_const) & (x.a >= MIN_INT32) & (x.a <= MAX_INT32)
+	RETURN (x.mode = mode_imm) & (x.a >= MIN_INT32) & (x.a <= MAX_INT32)
 END Small_const;
 
 PROCEDURE Trap (cond, traptype : UBYTE);
@@ -476,16 +571,17 @@ BEGIN
 END Trap;
 
 (* -------------------------------------------------------------------------- *)
-
-(*
+(* -------------------------------------------------------------------------- *)
 
 PROCEDURE Set1* (VAR x : Item);
 	VAR r : UBYTE;
 BEGIN
-	IF x.mode = Base.mode_reg THEN
+	IF x.mode = mode_reg THEN
 		IF x.a # 0 THEN
-			IF Small_const (x.a) THEN EmitRI (ORi, x.r, 8, x.a)
-			ELSE r := Alloc_reg(); MoveRI (r, 8, x.a);
+			IF (x.a >= MIN_INT32) & (x.a <= MAX_INT32) THEN
+				EmitRI (ORi, x.r, 8, x.a)
+			ELSE
+				r := Alloc_reg(); MoveRI (r, 8, x.a);
 				EmitRR (ORr, x.r, 8, r); Free_reg
 			END
 		END
@@ -497,135 +593,124 @@ PROCEDURE Set2* (VAR x, y : Item);
 		s : ARRAY 2 OF SET;
 		r : UBYTE;
 BEGIN
-	IF y.mode = Base.class_const THEN
+	IF y.mode = mode_imm THEN
 		(* Delay code generation *)
 		s[0] := {}; s[1] := {};
 		SYSTEM.PUT (SYSTEM.ADR (s), x.a);
 		IF y.a > 31 THEN INCL (s[0], y.a) ELSE INCL (s[1], y.a - 32) END;
 		SYSTEM.GET (SYSTEM.ADR (s), x.a)
-	ELSIF x.mode = Base.class_const THEN
+	ELSIF x.mode = mode_imm THEN
 		r := Alloc_reg(); EmitRR (XORr, r, 4, r);
-		load (y);
-		EmitRR (BTSr, y.r, x.r);
-		Emit_op_reg_reg (op_MOV, y.r, reg_RAX);
-		x.mode := Base.mode_reg;
-		x.r := r
-	ELSIF x.mode = Base.mode_reg THEN
-		load (y);
-		Emit_op_reg_reg (op_BTS, x.r, y.r);
-		Free_reg
-	ELSE
-		Scanner.Mark ('FAULT: procedure Generator.Set2')
+		load (y); EmitRR (BTSr, y.r, 8, r);
+		IF r # Reg_stack(-2) THEN EmitRR (MOVr, r, 8, y.r); r := y.r END;
+		Free_reg;
+		x.mode := mode_reg; x.r := r
+	ELSIF x.mode = mode_reg THEN
+		load (y); EmitRR (BTSr, y.r, 8, x.r); Free_reg
 	END
 END Set2;
 	
-PROCEDURE Set3* (VAR x, y, z : Base.Item);
+PROCEDURE Set3* (VAR x, y, z : Item);
 	VAR
 		s : ARRAY 2 OF SET;
 		imm : LONGINT;
-		
-BEGIN (* Set3 *)
-	IF z.mode = Base.class_ref THEN Ref_to_regI (z)
-	END;
-	IF (y.mode = Base.class_const) & (z.mode = Base.class_const) THEN
-		IF y.a > z.a THEN
-			Scanner.Mark ('The first element is greater than last element')
-		ELSE
+		r : UBYTE;
+BEGIN
+	IF (y.mode = mode_imm) & (z.mode = mode_imm) THEN
+		IF y.a <= z.a THEN
 			(* Delay code generation *)
 			s[0] := {}; s[1] := {};
 			SYSTEM.PUT (SYSTEM.ADR (s), x.a);
-			IF (y.a < 32) & (z.a < 32) THEN s[0] := s[0] + {y.a .. z.a}
+			IF (y.a < 32) & (z.a < 32) THEN
+				s[0] := s[0] + {y.a .. z.a}
 			ELSIF (y.a > 31) & (z.a > 31) THEN
 				s[1] := s[1] + {y.a - 32 .. z.a - 32}
 			ELSE
-				s[0] := s[0] + {y.a .. 31}; s[1] := s[1] + {32 .. z.a - 32}
+				s[0] := s[0] + {y.a .. 31};
+				s[1] := s[1] + {32 .. z.a - 32}
 			END;
-			SYSTEM.PUT (SYSTEM.ADR (x.a), s[0]);
-			SYSTEM.PUT (SYSTEM.ADR (x.a) + 4, s[1])
-		END
-	ELSIF ~ (y.mode IN {Base.mode_reg, Base.class_const})
-	OR ~ (z.mode IN {Base.mode_reg, Base.class_const} + Base.cls_Variable) THEN
-		Scanner.Mark ('FAULT: procedure Generator.Set3')
-	ELSIF x.mode = Base.class_const THEN
-		IF y.mode = Base.mode_reg THEN
-			IF y.r > reg_RCX THEN Push_reg (reg_RCX);
-				Emit_op_reg_reg (op_MOV, reg_RCX, y.r);
-			END;
-			Emit_op_reg_imm (op_MOV, reg_RAX, -1);
-			Emit_op_reg_reg (op_SHL, reg_RAX, reg_CL);
-			IF z.mode = Base.class_const THEN
-				imm := -2; imm := ASH (imm, z.a);
-				Emit_op_reg_imm (op_MOV, y.r, imm)
-			ELSE
-				load_to_reg (reg_RCX, z);
-				Emit_op_reg_imm (op_MOV, y.r, -2);
-				Emit_op_reg_reg (op_SHL, y.r, reg_CL)
-			END;
-			Emit_op_reg_reg (op_XOR, y.r, reg_RAX);
-			IF z.mode IN Base.modes_UseReg THEN Free_reg
-			END;
-			IF y.r > reg_RCX THEN Pop_reg (reg_RCX)
-			END
-		ELSIF y.mode = Base.class_const THEN
-			IF z.mode IN Base.modes_UseReg THEN
-				IF z.r = reg_RCX THEN load (z)
-				ELSE Push_reg (reg_RCX); load_to_reg (reg_RCX, z)
-				END;
-			ELSE
-				IF reg_stack > reg_RCX THEN Push_reg (reg_RCX)
-				END;
-				load_to_reg (reg_RCX, z);
-				Inc_reg_stack
-			END;
-			
-			Emit_op_reg_imm (op_MOV, reg_RAX, -2);
-			Emit_op_reg_reg (op_SHL, reg_RAX, reg_CL);	
-			imm := -1; imm := ASH (imm, y.a);
-			Emit_op_reg_imm (op_MOV, reg_stack - 1, imm);
-			Emit_op_reg_reg (op_XOR, reg_stack - 1, reg_RAX);
-			
-			IF reg_stack > reg_RCX + 1 THEN Pop_reg (reg_RCX)
-			END
-		END;
-		x.mode := Base.mode_reg; x.r := reg_stack - 1
-	ELSIF x.mode = Base.mode_reg THEN
-		Push_reg (reg_RCX);
-		IF y.mode = Base.mode_reg THEN
-			Emit_op_reg_reg (op_MOV, reg_RCX, y.r);
-			Emit_op_reg_imm (op_MOV, reg_RAX, -1);
-			Emit_op_reg_reg (op_SHL, reg_RAX, reg_CL);
-			IF z.mode = Base.class_const THEN
-				imm := -2; imm := ASH (imm, z.a);
-				Emit_op_reg_imm (op_MOV, y.r, imm)
-			ELSE
-				load_to_reg (reg_RCX, z);
-				Emit_op_reg_imm (op_MOV, y.r, -2);
-				Emit_op_reg_reg (op_SHL, y.r, reg_CL)
-			END;
-			Emit_op_reg_reg (op_XOR, reg_RAX, y.r);
-			Free_reg
-		ELSIF y.mode = Base.class_const THEN
-			load_to_reg (reg_RCX, z);	
-			Emit_op_reg_imm (op_MOV, reg_RAX, -2);
-			Emit_op_reg_reg (op_SHL, reg_RAX, reg_CL);	
-			imm := -1; imm := ASH (imm, y.a);
-			Emit_op_reg_imm (op_MOV, reg_RCX, imm);
-			Emit_op_reg_reg (op_XOR, reg_RAX, reg_RCX)
-		END;
-		Pop_reg (reg_RCX);
-		Emit_op_reg_reg (op_OR, x.r, reg_RAX);
-		IF z.mode IN Base.modes_UseReg THEN Free_reg
+			SYSTEM.GET (SYSTEM.ADR (s), x.a)
+		ELSE Scanner.Mark ('The first element is greater than last element')
 		END
 	ELSE
-		Scanner.Mark ('FAULT: procedure Generator.Set3 error 2')
+		IF x.mode = mode_imm THEN r := Alloc_reg() ELSE r := x.r END;
+		load (y); load (z);
+		
+		IF y.r = reg_C THEN
+			MoveRI (r, 8, -1); EmitR (SHLcl, r, 8);
+			EmitRR (MOVr, reg_C, 1, z.r); MoveRI (z.r, 8, -2);
+			EmitR (SHLcl, z.r, 8); EmitRR (XORr, r, 8, z.r)
+		ELSIF z.r = reg_C THEN
+			MoveRI (r, 8, -2); EmitR (SHLcl, r, 8);
+			EmitRR (MOVr, reg_C, 1, y.r); MoveRI (y.r, 8, -1);
+			EmitR (SHLcl, y.r, 8); EmitRR (XORr, r, 8, y.r)
+		ELSE
+			MoveRI (r, 8, -1); EmitRR (XCHGr, reg_C, 1, y.r);
+			EmitR (SHLcl, r, 8); EmitRR (MOVr, reg_C, 1, z.r);
+			MoveRI (z.r, 8, -2); EmitR (SHLcl, z.r, 8);
+			EmitRR (XORr, r, 8, z.r); EmitRR (XCHGr, reg_C, 1, y.r)
+		END;
+		
+		x.r := Reg_stack(-3); x.mode := mode_reg;
+		IF r = x.r THEN (* Do nothing *) ELSE EmitRR (MOVr, x.r, 8, r) END;
+		Free_reg; Free_reg
 	END
 END Set3;
 
-*)
-
+(* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE CommutativeOp (opR : UBYTE; opI : INTEGER; VAR x, y : Item);
+PROCEDURE Op1* (op : INTEGER; VAR x : Item);
+	VAR
+		s : ARRAY 2 OF SET;
+		t, cond : INTEGER;
+BEGIN
+	IF op = Base.sym_not THEN
+		IF x.mode = mode_imm THEN
+			x.a := (x.a + 1) MOD 2
+		ELSE
+			IF x.mode # Base.mode_cond THEN Load_cond (x) END;
+			x.c := negated (x.c);
+			t := SHORT (x.a); x.a := x.b; x.b := t
+		END
+	ELSIF op = Base.sym_minus THEN
+		IF x.mode = mode_imm THEN
+			IF x.type.form = Base.type_integer THEN
+				IF x.a = Base.MIN_INT THEN
+					Scanner.Mark ('Integer overflow detected')
+				ELSE x.a := -x.a
+				END
+			ELSIF x.type = Base.set_type THEN
+				s[0] := {}; s[1] := {}; SYSTEM.PUT (SYSTEM.ADR (s), x.a);
+				s[0] := -s[0]; s[1] := -s[1]; SYSTEM.GET (SYSTEM.ADR (s), x.a)
+			END
+		ELSE
+			load (x);
+			IF x.type = Base.int_type THEN EmitR (NEGr, x.r, 8);
+				IF integer_check IN compiler_flag THEN Trap (ccO, integer_check)
+				END
+			ELSIF x.type = Base.byte_type THEN
+				EmitRR2 (MOVZX, x.r, 8, x.r, 1); EmitR (NEGr, x.r, 8)
+			ELSIF x.type = Base.set_type THEN EmitR (NOTr, x.r, 8)
+			END
+		END
+	ELSIF op = Base.sym_and THEN
+		IF x.mode # Base.mode_cond THEN Load_cond (x) END;
+		cond := negated (x.c);
+		IF cond # ccNever THEN CondBranch (cond, SHORT (x.a));
+			x.a := pc - 1
+		END;
+		Fix_link (x.b); x.b := 0
+	ELSIF op = Base.sym_or THEN
+		IF x.mode # Base.mode_cond THEN Load_cond (x) END;
+		IF x.c # ccNever THEN CondBranch (x.c, x.b);
+			x.b := pc - 1
+		END;
+		Fix_link (SHORT (x.a)); x.a := 0
+	END
+END Op1;
+
+PROCEDURE IntegerOp (opR, opI : INTEGER; VAR x, y : Item);
 BEGIN
 	IF Small_const (y) THEN EmitRI (opI, x.r, 8, y.a)
 	ELSIF ~ Small_const (x) THEN
@@ -633,13 +718,13 @@ BEGIN
 		EmitRR (opR, x.r, 8, Reg_stack(-1)); Free_reg
 	ELSE
 		load (y); EmitRI (opI, y.r, 8, x.a);
-		x.mode := Base.mode_reg; x.r := y.r
+		x.mode := mode_reg; x.r := y.r
 	END
-END CommutativeOp;
+END IntegerOp;
 
 PROCEDURE Subtract (VAR x, y : Item);
 BEGIN
-	IF x.mode # Base.class_const THEN
+	IF x.mode # mode_imm THEN
 		IF Small_const (y) THEN EmitRI (SUBi, x.r, 8, y.a)
 		ELSE load (y); EmitRR (SUBr, x.r, 8, y.r); Free_reg
 		END
@@ -649,81 +734,226 @@ BEGIN
 	END
 END Subtract;
 
-PROCEDURE Division (op : INTEGER; VAR x, y : Item);
+PROCEDURE Divide (op : INTEGER; VAR x, y : Item);
 	VAR dst, r, r2 : UBYTE; saveA, saveD : BOOLEAN;
+		L : INTEGER;
 BEGIN
-	load (x); load (y);
-	IF integer_check IN compiler_flag THEN
-		EmitRR (TESTr, y.r, 8, y.r); Trap (ccLE, integer_check)
+	IF (y.mode # mode_imm) OR (y.a > 0) & (Base.log2(y.a) < 0) THEN
+		r := 0; r2 := 0;
+
+		load (x); load (y);
+		IF integer_check IN compiler_flag THEN
+			EmitRRnd (TESTr, y.r, 8, y.r); Trap (ccLE, integer_check)
+		END;
+		
+		dst := Reg_stack(-2);
+		
+		IF (reg_A IN curRegs) & (x.r # reg_A) THEN
+			r := Alloc_reg(); EmitRR (MOVr, r, 8, reg_A); saveA := TRUE
+		ELSE saveA := FALSE
+		END;
+		IF (reg_D IN curRegs) & (x.r # reg_D) THEN
+			r2 := Alloc_reg(); EmitRR (MOVr, r2, 8, reg_D); saveD := TRUE
+		ELSE saveD := FALSE
+		END;
+		
+		IF x.r # reg_A THEN EmitRR (MOVr, reg_A, 8, x.r) END;
+		EmitBare (CQO);
+		
+		EmitRRnd (TESTr, reg_A, 8, reg_A);
+		L := pc; CondBranchS (ccS, 0);
+		
+		IF ~ (y.r IN {reg_A, reg_D}) THEN EmitR (IDIVr, y.r, 8)
+		ELSIF y.r = reg_D THEN EmitR (IDIVr, r2, 8)
+		ELSE EmitR (IDIVr, r, 8)
+		END;
+		
+		BranchS (0); Fix_link (L); L := pc - 1; 
+		
+		IF ~ (y.r IN {reg_A, reg_D}) THEN EmitR (IDIVr, y.r, 8)
+		ELSIF y.r = reg_D THEN EmitR (IDIVr, r2, 8)
+		ELSE EmitR (IDIVr, r, 8)
+		END;
+		
+		EmitRRnd (TESTr, reg_D, 8, reg_D);
+		CondBranchS (ccZ, L); L := pc - 1;
+		
+		IF op = Base.sym_div THEN EmitRI (SUBi, reg_A, 8, 1)
+		ELSIF ~ (y.r IN {reg_A, reg_D}) THEN EmitRR (ADDr, reg_D, 8, y.r)
+		ELSIF y.r = reg_D THEN EmitRR (ADDr, reg_D, 8, r2)
+		ELSE EmitRR (ADDr, reg_D, 8, r)
+		END;
+		
+		Fix_link (L);
+		
+		IF op = Base.sym_div THEN
+			IF dst # reg_A THEN EmitRR (MOVr, dst, 8, reg_A) END
+		ELSIF dst # reg_D THEN EmitRR (MOVr, dst, 8, reg_D)
+		END;
+		
+		IF saveD THEN Free_reg;
+			IF y.r # reg_D THEN EmitRR (MOVr, reg_D, 8, r2) END
+		END;
+		IF saveA THEN Free_reg;
+			IF y.r # reg_A THEN EmitRR (MOVr, reg_A, 8, r) END
+		END;
+		
+		x.r := dst; Free_reg
+	ELSE
+		IF y.a > 1 THEN
+			IF op = Base.sym_div THEN EmitRI8 (SARi, x.r, 8, Base.log2(y.a))
+			ELSE DEC (y.a);
+				IF y.a <= MAX_INT32 THEN EmitRI (ANDi, x.r, 8, y.a)
+				ELSE load (y); EmitRR (ANDr, x.r, 8, y.r); Free_reg
+				END
+			END
+		ELSIF y.a = 1 THEN
+			IF op = Base.sym_mod THEN EmitRR (XORr, x.r, 4, x.r)
+			END
+		ELSE Scanner.Mark ('Division by non-positive number')
+		END
+	END
+END Divide;
+
+PROCEDURE BitwiseOp (op : INTEGER; VAR x, y : Item);
+	VAR dst, src : UBYTE;
+BEGIN
+	load (x); load (y); dst := Reg_stack(-2); src := Reg_stack(-1);
+	EmitRR (op, dst, 8, src); Free_reg; x.r := dst
+END BitwiseOp;
+
+PROCEDURE Difference (VAR x, y : Item);
+	VAR s : ARRAY 2 OF SET;
+BEGIN
+	IF y.mode # mode_imm THEN
+		load (y); EmitR (NOTr, y.r, 8); BitwiseOp (ANDr, x, y)
+	ELSE
+		s[0] := {}; s[1] := {};
+		SYSTEM.PUT (SYSTEM.ADR (s), y.a); s[0] := -s[0]; s[1] := -s[1];
+		SYSTEM.GET (SYSTEM.ADR (s), y.a);
+		load (y); EmitRR (ANDr, x.r, 8, y.r); Free_reg
+	END
+END Difference;
+
+PROCEDURE IntConstOp (op : INTEGER; x, y : LONGINT) : LONGINT;
+BEGIN
+	CASE op OF
+		Base.sym_plus:
+		IF Base.Safe_to_add (x, y) THEN INC (x, y)
+		ELSE Scanner.Mark ('Integer overflow detected')
+		END |
+		
+		Base.sym_minus:
+		IF Base.Safe_to_subtract (x, y) THEN DEC (x, y)
+		ELSE Scanner.Mark ('Integer overflow detected')
+		END |
+		
+		Base.sym_times:
+		IF Base.Safe_to_multiply (x, y) THEN x := x * y
+		ELSE Scanner.Mark ('Integer overflow detected')
+		END |
+		
+		Base.sym_div:
+		IF y > 0 THEN x := x DIV y
+		ELSE Scanner.Mark ('Division by non-positive number')
+		END |
+		
+		Base.sym_mod:
+		IF y > 0 THEN x := x MOD y
+		ELSE Scanner.Mark ('Division by non-positive number')
+		END
+	END;
+	RETURN x
+END IntConstOp;
+
+PROCEDURE SetConstOp (op : INTEGER; x, y : LONGINT) : LONGINT;
+	VAR dst, src : ARRAY 2 OF SET;
+BEGIN
+	dst[0] := {}; dst[1] := {}; src[0] := {}; src[1] := {};
+	SYSTEM.PUT (SYSTEM.ADR (dst), x); SYSTEM.PUT (SYSTEM.ADR (src), y);
+	
+	CASE op OF
+		Base.sym_plus: dst[0] := dst[0] + src[0]; dst[1] := dst[1] + src[1] |
+		Base.sym_minus: dst[0] := dst[0] - src[0]; dst[1] := dst[1] - src[1] |
+		Base.sym_times: dst[0] := dst[0] * src[0]; dst[1] := dst[1] * src[1] |
+		Base.sym_slash: dst[0] := dst[0] / src[0]; dst[1] := dst[1] / src[1]
 	END;
 	
-	dst := Reg_stack(-2);
+	SYSTEM.GET (SYSTEM.ADR (dst), x);
+	RETURN x
+END SetConstOp;
 	
-	IF (reg_A IN curRegs) & (x.r # reg_A) THEN
-		r := Alloc_reg(); EmitRR (MOVr, r, 8, reg_A); saveA := TRUE
-	ELSE saveA := FALSE
-	END;
-	IF (reg_D IN curRegs) & (x.r # reg_D) THEN
-		r2 := Alloc_reg(); EmitRR (MOVr, r2, 8, reg_D); saveD := TRUE
-	ELSE saveD := FALSE
-	END;
-	
-	IF x.r # reg_A THEN EmitRR (MOVr, reg_A, 8, x.r) END;
-	EmitBare (CQO);
-	
-	IF ~ (y.r IN {reg_A, reg_D}) THEN EmitR (IDIVr, y.r)
-	ELSIF y.r = reg_D THEN EmitR (IDIVr, r2)
-	ELSE EmitR (IDIVr, r)
-	END;
-	
-	IF (op = Base.sym_div) & (dst # reg_A) THEN EmitRR (MOVr, dst, 8, reg_A)
-	ELSIF dst # reg_D THEN EmitRR (MOVr, dst, 8, reg_D)
-	END;
-	
-	IF saveD THEN Free_reg;
-		IF y.r # reg_D THEN EmitRR (MOVr, reg_D, 8, r2) END
-	END;
-	IF saveA THEN Free_reg;
-		IF y.r # reg_A THEN EmitRR (MOVr, reg_A, 8, r) END
-	END;
-	
-	x.r := dst; Free_reg
-END Division;
+PROCEDURE Op2* (op : INTEGER; VAR x, y : Item);
+BEGIN
+	IF (x.mode = Base.class_const) & (y.mode = Base.class_const) THEN
+		IF x.type = Base.int_type THEN x.a := IntConstOp (op, x.a, y.a)
+		ELSIF x.type = Base.set_type THEN x.a := SetConstOp (op, x.a, y.a)
+		END
+	ELSE
+		IF x.type.form = Base.type_integer THEN
+			ConvertToInt64 (x); ConvertToInt64 (y);
+			CASE op OF
+				Base.sym_plus: IntegerOp (ADDr, ADDi, x, y) |
+				Base.sym_minus: Subtract (x, y) |
+				Base.sym_times: IntegerOp (IMULr, IMULi, x, y) |
+				Base.sym_div: Divide (Base.sym_div, x, y) |
+				Base.sym_mod: Divide (Base.sym_mod, x, y)
+			END
+		ELSIF x.type = Base.set_type THEN
+			CASE op OF
+				Base.sym_plus: BitwiseOp (ORr, x, y) |
+				Base.sym_minus: Difference (x, y) |
+				Base.sym_times: BitwiseOp (ANDr, x, y) |
+				Base.sym_slash: BitwiseOp (XORr, x, y) |
+			END
+		ELSIF x.type = Base.bool_type THEN
+			IF y.mode # Base.mode_cond THEN Load_cond (y) END;
+			IF op = Base.sym_and THEN
+				x.a := merged (SHORT (y.a), SHORT (x.a));
+				x.b := y.b
+			ELSIF op = Base.sym_or THEN
+				x.b := merged (y.b, x.b);
+				x.a := y.a
+			END;
+			x.c := y.c
+		END
+	END
+END Op2;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
 PROCEDURE FJump* (VAR L : INTEGER);
 BEGIN
-	BranchD (L);
+	Branch (L);
 	L := pc - 1
 END FJump;
 
 PROCEDURE CFJump* (VAR x : Item);
-	VAR cond : UBYTE;
+	VAR cond : INTEGER;
 BEGIN
 	IF x.mode # Base.mode_cond THEN Load_cond (x) END;
     cond := negated (x.c);
-	IF cond < 16 THEN CondBranchD (cond, SHORT (x.a)); x.a := pc - 1
-	ELSIF cond = ccAlways THEN BranchD (SHORT (x.a)); x.a := pc - 1
+	IF cond < 16 THEN CondBranch (cond, SHORT (x.a)); x.a := pc - 1
+	ELSIF cond = ccAlways THEN Branch (SHORT (x.a)); x.a := pc - 1
 	END;
 	Fix_link (x.b)
 END CFJump;
 	
 PROCEDURE CBJump* (VAR x : Item; L : INTEGER);
-	VAR cond : UBYTE;
+	VAR cond : INTEGER;
 BEGIN
 	IF x.mode # Base.mode_cond THEN Load_cond (x) END;
     cond := negated (x.c);
-	IF cond < 16 THEN CondBranchD (cond, codeinfo [L].ip - ip - 6)
-	ELSIF cond = ccAlways THEN BranchD (codeinfo [L].ip - ip - 5)
+	IF cond < 16 THEN CondBranch (cond, codeinfo [L].ip - ip - 6)
+	ELSIF cond = ccAlways THEN Branch (codeinfo [L].ip - ip - 5)
 	END;
-	Fix_link (x.b); Fix_link_with (x.a, codeinfo [L].ip)
+	Fix_link (x.b); Fix_link_with (SHORT (x.a), codeinfo [L].ip)
 END CBJump;
   
 PROCEDURE BJump* (L : INTEGER);
 BEGIN
-	BranchD (codeinfo [L].ip - ip - 5)
+	Branch (codeinfo [L].ip - ip - 5)
 END BJump;
 
 PROCEDURE Fixup* (x : Item);
@@ -739,8 +969,8 @@ PROCEDURE Write_to_file* (from, n : INTEGER);
 		file : Sys.FileHandle;
 		i, j : INTEGER;
 BEGIN
-	ASSERT (from < pc);
-	ASSERT (from + n <= pc); 
+	ASSERT (from <= pc);
+	ASSERT (from + n <= pc + 1); 
 	Sys.Rewrite (file, 'output.bin');
 	
 	FOR i := from TO from + n - 1 DO
@@ -753,7 +983,7 @@ END Write_to_file;
 
 PROCEDURE Init;
 BEGIN
-	pc := 0; ip := 0; crs := 0;
+	pc := 1; ip := 0; crs := 0;
 	reg_stacks [0].i := 0;
 	reg_stacks [0].n := 11;
 	reg_stacks [0].ord [0] := reg_A;
@@ -769,9 +999,18 @@ BEGIN
 	reg_stacks [0].ord [10] := reg_R15
 END Init;
 
+PROCEDURE Test;
+	VAR x, y : Item;
+
+	PROCEDURE Make (VAR x : Item);
+	BEGIN x.mode := mode_reg; x.r := Alloc_reg()
+	END Make;
+
+BEGIN (* Test *)
+END Test;
+
 BEGIN
 	Init;
-	EmitRR2 (MOVZX, reg_A, 4, reg_A, 2);
-	EmitRI (IMULi, reg_A, 8, 2);
-	Write_to_file (0, pc)
+	Test;
+	Write_to_file (1, pc)
 END GeneratorWin64v2.

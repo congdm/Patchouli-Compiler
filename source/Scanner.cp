@@ -238,7 +238,7 @@ PROCEDURE Finish_real_number
 	VAR
 		tail : LONGINT;
 		
-	PROCEDURE Adjust_scale (scale : INTEGER);
+	PROCEDURE Adjust_scale (real : LONGINT; scale : INTEGER);
 		VAR
 			t : INTEGER; single : SHORTREAL; double : REAL;
 	BEGIN
@@ -282,7 +282,7 @@ BEGIN
 		DEC (real, TWO_POWER_52);
 		INC (real, (exponent + 52) * TWO_POWER_52);
 		
-		Adjust_scale (scale)
+		Adjust_scale (real, scale)
 	END;
 	type_of_val := Base.real_type
 END Finish_real_number;

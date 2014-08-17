@@ -490,39 +490,31 @@ END Emit_op_xreg_reg;
 (* -------------------------------------------------------------------------- *)
 
 PROCEDURE Safe_to_add (x, y : LONGINT) : BOOLEAN;
-	VAR
-		result : BOOLEAN;
+	VAR result : BOOLEAN;
 BEGIN
 	result := TRUE;
 	IF (x >= 0) & (y >= 0) THEN
-		IF y > MAX_INT - x THEN result := FALSE
-		END;
+		IF y > MAX_INT - x THEN result := FALSE	END;
 	ELSIF (x < 0) & (y < 0) THEN
-		IF y < MIN_INT - x THEN result := FALSE
-		END
+		IF y < MIN_INT - x THEN result := FALSE END
 	END;
 	RETURN result
 END Safe_to_add;
 	
 PROCEDURE Safe_to_subtract (x, y : LONGINT) : BOOLEAN;
-	VAR
-		result : BOOLEAN;
+	VAR result : BOOLEAN;
 BEGIN
 	result := TRUE;
 	IF (x >= 0) & (y < 0) THEN
-		IF x > MAX_INT + y THEN result := FALSE
-		END;
+		IF x > MAX_INT + y THEN result := FALSE END
 	ELSIF (x < 0) & (y >= 0) THEN
-		IF x < MIN_INT + y THEN result := FALSE
-		END
+		IF x < MIN_INT + y THEN result := FALSE END
 	END;
 	RETURN result
 END Safe_to_subtract;
 	
 PROCEDURE Safe_to_multiply (x, y : LONGINT) : BOOLEAN;
-	VAR
-		result : BOOLEAN;
-		q, r : LONGINT;
+	VAR result : BOOLEAN; q, r : LONGINT;
 BEGIN
 	result := TRUE;
 	IF (x < 0) & (y >= 0) THEN
@@ -534,16 +526,13 @@ BEGIN
 	END;
 	IF x > 0 THEN
 		IF y > 0 THEN
-			IF x > MAX_INT / y THEN result := FALSE
-			END
+			IF x > MAX_INT / y THEN result := FALSE END
 		ELSIF y < 0 THEN
 			q := MIN_INT DIV y; r := MIN_INT MOD y;
 			IF r = 0 THEN
-				IF x > q THEN result := FALSE
-				END
+				IF x > q THEN result := FALSE END
 			ELSE
-				IF x >= q THEN result := FALSE
-				END
+				IF x >= q THEN result := FALSE END
 			END
 		END
 	END;
@@ -1381,7 +1370,7 @@ BEGIN
 		IF is_modulo THEN Zero_clear_reg (x.r)
 		END
 	ELSE
-		e := Base.Integer_binary_logarithm (const);
+		e := Base.log2 (const);
 		IF e > 0 THEN
 			IF is_modulo THEN Emit_op_reg_imm (op_AND, x.r, const - 1)
 			ELSE Emit_op_reg_imm (op_SAR, x.r, e)
@@ -1836,7 +1825,7 @@ PROCEDURE Open_array_index (VAR x, y : Base.Item);
 		
 		size := typ.base.size;
 		IF size > 0 THEN
-			e := Base.Integer_binary_logarithm (size);
+			e := Base.log2 (size);
 			IF e = 0 THEN
 				(* Do nothing *)
 			ELSIF e > 0 THEN
@@ -1883,7 +1872,7 @@ BEGIN (* Open_array_index *)
 			IF y.mode = Base.class_const THEN
 				INC (x.a, y.a * size)
 			ELSE
-				e := Base.Integer_binary_logarithm (size);
+				e := Base.log2 (size);
 				IF e < 0 THEN
 					Emit_op_reg_imm (op_IMUL, y.r, size); scale := 0
 				ELSIF e > 3 THEN
@@ -1931,7 +1920,7 @@ BEGIN
 			END;
 				
 			size := x.type.base.size;
-			e := Base.Integer_binary_logarithm (size);
+			e := Base.log2 (size);
 			IF e < 0 THEN
 				Emit_op_reg_imm (op_IMUL, y.r, size); scale := 0
 			ELSIF e > 3 THEN

@@ -194,22 +194,20 @@ END Make_string;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 	
-PROCEDURE Integer_binary_logarithm* (a : LONGINT) : INTEGER;
-	VAR
-		e : INTEGER;
+PROCEDURE log2* (a : LONGINT) : INTEGER;
+	VAR e : INTEGER;
 BEGIN
-	IF a <= 0 THEN
-		e := -1
-	ELSE
+	IF a > 0 THEN
 		e := 0;
 		WHILE a > 1 DO
 			IF a MOD 2 = 0 THEN INC (e); a := a DIV 2
 			ELSE e := -1; a := 1
 			END
 		END
+	ELSE e := -1
 	END;
 	RETURN e
-END Integer_binary_logarithm;
+END log2;
 	
 PROCEDURE Size_of_const* (n : LONGINT) : INTEGER;
 	VAR
@@ -222,6 +220,56 @@ BEGIN
 	END;
 	RETURN res
 END Size_of_const;
+
+PROCEDURE Safe_to_add* (x, y : LONGINT) : BOOLEAN;
+	VAR result : BOOLEAN;
+BEGIN
+	result := TRUE;
+	IF (x >= 0) & (y >= 0) THEN
+		IF y > MAX_INT - x THEN result := FALSE	END;
+	ELSIF (x < 0) & (y < 0) THEN
+		IF y < MIN_INT - x THEN result := FALSE END
+	END;
+	RETURN result
+END Safe_to_add;
+	
+PROCEDURE Safe_to_subtract* (x, y : LONGINT) : BOOLEAN;
+	VAR result : BOOLEAN;
+BEGIN
+	result := TRUE;
+	IF (x >= 0) & (y < 0) THEN
+		IF x > MAX_INT + y THEN result := FALSE END
+	ELSIF (x < 0) & (y >= 0) THEN
+		IF x < MIN_INT + y THEN result := FALSE END
+	END;
+	RETURN result
+END Safe_to_subtract;
+	
+PROCEDURE Safe_to_multiply* (x, y : LONGINT) : BOOLEAN;
+	VAR result : BOOLEAN; q, r : LONGINT;
+BEGIN
+	result := TRUE;
+	IF (x < 0) & (y >= 0) THEN
+		q := x;	x := y; y := q (* swap *)
+	ELSIF (x < 0) & (y < 0) THEN
+		IF (x = MIN_INT) OR (y = MIN_INT) THEN result := FALSE
+		ELSE x := -x; y := -y
+		END
+	END;
+	IF x > 0 THEN
+		IF y > 0 THEN
+			IF x > MAX_INT / y THEN result := FALSE END
+		ELSIF y < 0 THEN
+			q := MIN_INT DIV y; r := MIN_INT MOD y;
+			IF r = 0 THEN
+				IF x > q THEN result := FALSE END
+			ELSE
+				IF x >= q THEN result := FALSE END
+			END
+		END
+	END;
+	RETURN result
+END Safe_to_multiply;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
