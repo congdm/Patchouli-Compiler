@@ -16,7 +16,7 @@ CONST
 	mode_mem = {Base.class_var, Base.class_ref, Base.mode_regI};
 	
 	if_skipped = 0; if_REX = 1; if_16bit_prefix = 2; if_disp = 3;
-	if_32bit_disp = 4;
+	if_32bit_disp = 4; if_global_var = 5; if_static_var = 6;
 
 	W_bit = 8; R_bit = 4; X_bit = 2; B_bit = 1; (* REX prefix *)
 	d_bit = 2; w_bit = 1; s_bit = 2; w_bit_1byte = 8;
@@ -71,10 +71,12 @@ TYPE
 	
 VAR
 	compiler_flag : SET;
+	
+	out : Sys.FileHandle;
 
 	code : ARRAY 65536 OF Instruction;
 	codeinfo : ARRAY 65536 OF InstructionInfo;
-	pc, ip : INTEGER;
+	pc, ip, varbase, staticbase, varsize* : INTEGER;
 	
 	(* Reg stack *)
 	reg_stacks : ARRAY 1 OF RegStack;
@@ -85,6 +87,12 @@ VAR
 	Emit : RECORD
 		i : UBYTE;
 		iflag : SET;
+	END;
+	
+	ProcState : RECORD
+		adr, prolog_size, locblksize : INTEGER;
+		parlist : Base.Object;
+		usedRegs : SET
 	END;
 
 PROCEDURE Emit_REX_prefix (rsize, reg, r2, bas, idx : UBYTE);
@@ -262,6 +270,19 @@ BEGIN
 	END
 END EmitRM2;
 
+PROCEDURE EmitRMip
+(d : UBYTE; op : INTEGER; reg, rsize : UBYTE; disp : INTEGER);
+BEGIN
+	Emit.iflag := {}; Emit.i := 0;
+	Emit_REX_prefix (rsize, reg, 0, 0, 0); Emit_16bit_prefix (rsize);
+	Emit_opcodeR (op, rsize, d);
+	
+	code [pc, Emit.i] := USHORT (reg MOD 8 * 8 + reg_BP); INC (Emit.i);
+	SYSTEM.PUT (SYSTEM.ADR (code [pc, Emit.i]), disp); INC (Emit.i, 4);
+	
+	Next_inst
+END EmitRMip;
+
 PROCEDURE MoveRI (rm, rsize : UBYTE; imm : LONGINT);
 	VAR op : UBYTE;
 BEGIN
@@ -397,6 +418,18 @@ BEGIN
 	code [pc, Emit.i] := USHORT (58H + rm MOD 8); INC (Emit.i); Next_inst
 END PopR;
 
+PROCEDURE EmitRGv (d : UBYTE; op : INTEGER; reg, rsize : UBYTE; disp : INTEGER);
+BEGIN
+	EmitRMip (d, op, reg, rsize, varbase + disp);
+	INCL (codeinfo [pc - 1].flag, if_global_var)
+END EmitRGv;
+
+PROCEDURE EmitRSv (d : UBYTE; op : INTEGER; reg, rsize : UBYTE; disp : INTEGER);
+BEGIN
+	EmitRMip (d, op, reg, rsize, staticbase + disp);
+	INCL (codeinfo [pc - 1].flag, if_static_var)
+END EmitRSv;
+
 PROCEDURE Branch (disp : INTEGER);
 BEGIN
 	Emit.iflag := {}; Emit.i := 0;
@@ -506,7 +539,7 @@ BEGIN
 	ELSE Scanner.Mark ('Compiler limit: Register stack overflow')
 	END;
 	r := reg_stacks [crs].ord [i];
-	INCL (curRegs, r);
+	INCL (curRegs, r); INCL (ProcState.usedRegs, r)
 	RETURN r
 END Alloc_reg;
 
@@ -530,14 +563,31 @@ PROCEDURE load* (VAR x : Item);
 BEGIN
 	IF x.mode # mode_reg THEN
 		rsize := USHORT (x.type.size);
-		IF x.mode = mode_imm THEN
+		IF x.mode = Base.class_var THEN
+			x.r := Alloc_reg();
+			IF x.lev > 0 THEN
+				IF x.type.form # Base.type_string THEN
+					EmitRM (1, MOVr, x.r, rsize, reg_BP, SHORT(x.a))
+				ELSE EmitRSv (1, MOVr, x.r, rsize, SHORT(x.a))
+				END
+			ELSIF x.lev = 0 THEN
+				EmitRGv (1, MOVr, x.r, rsize, SHORT(x.a))
+			END
+		ELSIF x.mode = Base.class_ref THEN
+			x.r := Alloc_reg();
+			IF x.lev > 0 THEN
+				EmitRM (1, MOVr, x.r, 8, reg_BP, SHORT(x.a));
+				EmitRM (1, MOVr, x.r, rsize, x.r, x.b);
+				x.a := 0
+			END
+		ELSIF x.mode = Base.mode_regI THEN
+			EmitRM (1, MOVr, x.r, rsize, x.r, SHORT(x.a))
+		ELSIF x.mode = mode_imm THEN
 			x.r := Alloc_reg();
 			IF (rsize = 8) & (x.a >= 0) & (x.a <= MAX_UINT32) THEN
 				MoveRI (x.r, 4, x.a)
 			ELSE MoveRI (x.r, rsize, x.a)
 			END
-		ELSIF x.mode = Base.mode_regI THEN
-			EmitRM (1, MOVr, x.r, rsize, x.r, SHORT(x.a))
 		END;
 		x.mode := mode_reg
 	END
@@ -546,11 +596,7 @@ END load;
 PROCEDURE ConvertToInt64 (VAR x : Item);
 BEGIN
 	IF x.type # Base.byte_type THEN (* Do nothing *)
-	ELSE
-		IF x.mode # mode_imm THEN load (x);
-			EmitRR2 (MOVZX, x.r, 4, x.r, 1)
-		END;
-		x.type := Base.int_type
+	ELSE load (x); EmitRR2 (MOVZX, x.r, 4, x.r, 1); x.type := Base.int_type
 	END
 END ConvertToInt64;
 
@@ -964,26 +1010,116 @@ END Fixup;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE Write_to_file* (from, n : INTEGER);
-	VAR
-		file : Sys.FileHandle;
-		i, j : INTEGER;
-BEGIN
-	ASSERT (from <= pc);
-	ASSERT (from + n <= pc + 1); 
-	Sys.Rewrite (file, 'output.bin');
+PROCEDURE Write_to_file* (from, to : INTEGER);
+	VAR	file : Sys.FileHandle; i, j : INTEGER;
+		
+	PROCEDURE Fixup_disp (p : INTEGER);
+		VAR i, disp : INTEGER;
+	BEGIN
+		disp := 0;
+		i := codeinfo [p].size - 4;
+		SYSTEM.GET (SYSTEM.ADR (code [p, i]), disp);
+		DEC (disp, codeinfo [p].ip + codeinfo [p].size + ProcState.prolog_size);
+		SYSTEM.PUT (SYSTEM.ADR (code [p, i]), disp)
+	END Fixup_disp;
 	
-	FOR i := from TO from + n - 1 DO
+BEGIN (* Write_to_file *)
+	ASSERT ((from > 0) & (to > 0) & (from <= pc) & (to <= pc));
+	FOR i := from TO to DO
+		IF {if_global_var, if_static_var} * codeinfo [i].flag # {} THEN
+			Fixup_disp (i)
+		END;
 		FOR j := 0 TO codeinfo [i].size - 1 DO
-			Sys.Write_byte (file, code [i, j])
+			Sys.Write_byte (out, code [i, j])
 		END
-	END;
-	Sys.Close (file);
+	END
 END Write_to_file;
 
-PROCEDURE Init;
+PROCEDURE Enter* (proc : Base.Object; locblksize : INTEGER);
 BEGIN
-	pc := 1; ip := 0; crs := 0;
+	IF proc # NIL THEN
+		ProcState.locblksize := locblksize;
+		ProcState.parlist := proc.dsc;
+		proc.val := ip
+	ELSE
+		ProcState.locblksize := 0;
+		ProcState.parlist := NIL
+	END;
+	ProcState.usedRegs := {};
+	ProcState.adr := ip;
+	Reset_reg_stack; pc := 1
+END Enter;
+	
+PROCEDURE Return* (proc : Base.Object; locblksize : INTEGER);
+	VAR i, k, nRegs, endPC, endIP : INTEGER;
+		paramRegs : ARRAY 4 OF UBYTE; obj : Base.Object;
+		
+	PROCEDURE Param_size (obj : Base.Object) : INTEGER;
+		VAR result : INTEGER;
+	BEGIN
+		IF (obj.type.form = Base.type_array) & (obj.type.len < 0) THEN
+			result := obj.type.size
+		ELSIF ~ obj.readonly & (obj.type.form = Base.type_record) THEN
+			result := 16
+		ELSE result := 8
+		END;
+		RETURN result
+	END Param_size;
+		
+BEGIN (* Return *)
+	nRegs := 0;
+	IF reg_R15 IN ProcState.usedRegs THEN PopR (reg_R15); INC (nRegs) END;
+	IF reg_R14 IN ProcState.usedRegs THEN PopR (reg_R14); INC (nRegs) END;
+	IF reg_R13 IN ProcState.usedRegs THEN PopR (reg_R13); INC (nRegs) END;
+	IF reg_R12 IN ProcState.usedRegs THEN PopR (reg_R12); INC (nRegs) END;
+	IF reg_SI IN ProcState.usedRegs THEN PopR (reg_SI); INC (nRegs) END;
+	IF reg_DI IN ProcState.usedRegs THEN PopR (reg_DI); INC (nRegs) END;
+	
+	i := (ProcState.locblksize + nRegs * 8) MOD 16;
+	IF i > 0 THEN INC (ProcState.locblksize, 16 - i) END;
+	EmitBare (LEAVE); EmitBare (RET);
+	endPC := pc; endIP := ip;
+	
+	PushR (reg_BP); EmitRR (MOVr, reg_BP, 8, reg_SP);
+	IF locblksize > 0 THEN EmitRI (SUBi, reg_SP, 8, locblksize) END;
+	
+	IF reg_DI IN ProcState.usedRegs THEN PushR (reg_DI); INC (nRegs) END;
+	IF reg_SI IN ProcState.usedRegs THEN PushR (reg_SI); INC (nRegs) END;
+	IF reg_R12 IN ProcState.usedRegs THEN PushR (reg_R12); INC (nRegs) END;
+	IF reg_R13 IN ProcState.usedRegs THEN PushR (reg_R13); INC (nRegs) END;
+	IF reg_R14 IN ProcState.usedRegs THEN PushR (reg_R14); INC (nRegs) END;
+	IF reg_R15 IN ProcState.usedRegs THEN PushR (reg_R15); INC (nRegs) END;
+	
+	IF ProcState.parlist # NIL THEN
+		paramRegs [0] := reg_C; paramRegs [1] := reg_D;
+		paramRegs [2] := reg_R8; paramRegs [3] := reg_R9;
+		obj := parlist; i := 0; k := 0;
+		WHILE obj # Base.guard DO
+			IF k = 0 THEN k := Param_size (obj) END;
+			EmitRM (0, MOVr, paramRegs [i], 8, reg_BP, 16 + i * 8);
+			INC (i); DEC (k, 8);
+			IF k = 0 THEN obj := obj.next END
+		END
+	END;
+	
+	ProcState.prolog_size := ip - endIP;
+	Write_to_file (endPC, pc - 1);
+	Write_to_file (1, endPC - 1);
+	IF ip MOD 16 # 0 THEN INC (ip, 16 - ip MOD 16) END
+END Return;
+
+PROCEDURE Init* (modname : Base.String);
+BEGIN
+	ip := 0; varsize := 0; varbase := 0; staticbase := 0;
+	Sys.Rewrite (out, 'output.bin')
+END Init;
+
+PROCEDURE Finish*;
+BEGIN
+	Sys.Close (out)
+END Finish;
+
+BEGIN
 	reg_stacks [0].i := 0;
 	reg_stacks [0].n := 11;
 	reg_stacks [0].ord [0] := reg_A;
@@ -997,20 +1133,4 @@ BEGIN
 	reg_stacks [0].ord [8] := reg_R13;
 	reg_stacks [0].ord [9] := reg_R14;
 	reg_stacks [0].ord [10] := reg_R15
-END Init;
-
-PROCEDURE Test;
-	VAR x, y : Item;
-
-	PROCEDURE Make (VAR x : Item);
-	BEGIN x.mode := mode_reg; x.r := Alloc_reg()
-	END Make;
-
-BEGIN (* Test *)
-END Test;
-
-BEGIN
-	Init;
-	Test;
-	Write_to_file (1, pc)
 END GeneratorWin64v2.
