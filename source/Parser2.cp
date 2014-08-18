@@ -320,7 +320,7 @@ PROCEDURE FormalParameters (VAR parblksize : INTEGER; VAR rtype : Base.Type);
 		
 		WHILE first # Base.guard DO
 			first.class := cls;
-			first.val := parblksize;
+			first.val := parblksize + 16;
 			first.type := tp;
 			first.lev := Base.cur_lev;
 			first.param := TRUE;
@@ -450,7 +450,7 @@ PROCEDURE RecordType (VAR typ : Base.Type);
 		
 		IF tp # NIL THEN
 			IF tp.len < Base.type_extension_limit THEN
-				INCL (tp.flag, Base.flag_hasExtension);
+				typ.hasExtension := TRUE;
 				typ.base := tp;
 				typ.size := tp.size;
 				typ.num_ptr := tp.num_ptr;
@@ -746,7 +746,7 @@ PROCEDURE ActualParameters
 				0: Generator.Normal_parameter (y, procinfo) |
 				1: Generator.Open_array_parameter (y, procinfo, param.type) |
 				2: Generator.Reference_parameter (y, procinfo) |
-				3: Generator.Record_variable_parameter (y, procinfo) |
+				3: Generator.Record_var_parameter (y, procinfo) |
 				(*
 				9: Generator.String_parameter (y, procinfo, param.type) |
 				*)
@@ -761,7 +761,7 @@ PROCEDURE ActualParameters
 	END Parameter;
 		
 BEGIN (* ActualParameters *)
-	IF x.mode = Base.class_proc THEN param := x.proc.dsc
+	IF x.mode = Base.class_proc THEN param := x.obj.dsc
 	ELSE param := x.type.fields
 	END;
 	
@@ -1111,7 +1111,7 @@ PROCEDURE selector (VAR x : Base.Item);
 		IF x.type.form = Base.type_record THEN
 			IF sym = Base.sym_ident THEN
 				Base.Find_field (obj, Scanner.id, x.type);
-				IF obj # Base.guard THEN Generator.Field (x, obj.val)
+				IF obj # Base.guard THEN Generator.Field (x, obj)
 				ELSE Scanner.Mark ('Record field not found')
 				END;
 				Scanner.Get (sym)
@@ -1270,7 +1270,7 @@ BEGIN
 			END
 		END
 	ELSIF sym = Base.sym_string THEN
-		Generator.Make_string (x, Scanner.id);
+		(* Generator.Make_string (x, Scanner.id); *)
 		Scanner.Get (sym)
 	ELSIF sym = Base.sym_nil THEN
 		Generator.Make_const (x, Base.nil_type, 0);
@@ -1502,7 +1502,7 @@ BEGIN
 	
 	Generator.Prepare_to_call (x, procinfo);
 	IF sym = Base.sym_lparen THEN ActualParameters (x, procinfo)
-	ELSIF x.proc.parblksize > 0 THEN Scanner.Mark ('Not enough parameters')
+	ELSIF x.obj.parblksize > 0 THEN Scanner.Mark ('Not enough parameters')
 	END;
 	Generator.Call (x, procinfo);
 	IF is_function THEN Generator.Free_item (x) END
@@ -1594,4 +1594,4 @@ BEGIN
 	Generator.Finish;
 END Module;
 
-END Parser.
+END Parser2.

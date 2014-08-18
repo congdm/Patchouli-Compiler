@@ -59,12 +59,6 @@ CONST
 	types_Numberic* = {type_integer, type_real};
 	types_Character* = {type_char, type_string};
 	
-
-	(* Object/Item/Type flag *)
-	flag_param* = 0; flag_export* = 1; flag_import* = 2; flag_used* = 3;
-	flag_readOnly* = 4; flag_predefined* = 5; flag_varParam* = 6;
-	flag_hasExtension* = 7; flag_hasName* = 8; flag_typeDesc* = 9;
-	
 	(* Compiler flag *)
 	array_bound_check* = 0;
 	integer_overflow_check* = 1;
@@ -77,32 +71,29 @@ TYPE
 	END;
 
 	Type* = POINTER TO RECORD
-		flag* : SET;
+		hasExtension*, predefined* : BOOLEAN;
 		form* : INTEGER;
 		fields*, obj* : Object;
 		base* : Type;
 		size*, len*, alignment* : INTEGER;
-		num_ptr*, exportno* : INTEGER
+		num_ptr*, ref* : INTEGER
 	END;
 
 	Object* = POINTER TO RECORD
-		flag* : SET;
+		param*, readonly*, export* : BOOLEAN;
 		class*, lev*, parblksize* : INTEGER;
 		name* : String;
 		type* : Type;
-		next*, dsc*, scope* : Object;
+		next*, dsc* : Object;
 		val2* : INTEGER;
 		val* : LONGINT
 	END;
-
+	
 	Item* = RECORD
-		flag* : SET;
+		r* : UBYTE; readonly*, param* : BOOLEAN;
 		mode*, lev* : INTEGER;
-		type* : Type;
-		b*, c*, r* : INTEGER;
-		mem_stack* : INTEGER;
-		param_regs_usage* : SET;
-		proc* : Object;
+		obj* : Object; type* : Type;
+		b*, c* : INTEGER;
 		a* : LONGINT
 	END;
 		
@@ -133,62 +124,43 @@ VAR
 (* -------------------------------------------------------------------------- *)
 	
 PROCEDURE Str_len* (s : ARRAY OF CHAR) : INTEGER;
-	VAR
-		i : INTEGER;
+	VAR i : INTEGER;
 BEGIN
-	i := 0;
-	WHILE (s[i] # 0X) & (i < LEN(s)) DO INC (i)
-	END;
+	i := 0; WHILE (s[i] # 0X) & (i < LEN(s)) DO INC (i) END;
 	RETURN i
 END Str_len;
 
 PROCEDURE Str_equal* (s1 : String; s2 : ARRAY OF CHAR) : BOOLEAN;
-	VAR
-		i : INTEGER;
-		result : BOOLEAN;
+	VAR i : INTEGER; result : BOOLEAN;
 BEGIN
-	i := 0;
-	result := TRUE;
+	i := 0; result := TRUE;
 	WHILE (s1.content[i] # 0X) & (s2[i] # 0X) & result DO
-		IF s1.content[i] # s2[i] THEN
-			result := FALSE
-		END;
+		IF s1.content[i] # s2[i] THEN result := FALSE END;
 		INC (i)
 	END;
-	IF result & ((s1.content[i] # 0X) OR (s2[i] # 0X)) THEN
-		result := FALSE
-	END;
-	RETURN result
+	RETURN result & (s1.content[i] = 0X) & (s2[i] = 0X)
 END Str_equal;
 
 PROCEDURE Str_equal2* (s1, s2 : String) : BOOLEAN;
-	VAR
-		i : INTEGER;
-		result : BOOLEAN;
+	VAR i : INTEGER; result : BOOLEAN;
 BEGIN
-	IF (s1 = NIL) OR (s2 = NIL) OR (s1.len # s2.len) THEN
-		result := FALSE
+	IF (s1 = NIL) OR (s2 = NIL) OR (s1.len # s2.len) THEN result := FALSE
 	ELSE
-		i := 0;
-		result := TRUE;
+		i := 0; result := TRUE;
 		WHILE (i < s1.len) & result DO
-			IF s1.content[i] # s2.content[i] THEN result := FALSE
-			END;
-			INC (i);
-		END;
+			IF s1.content[i] # s2.content[i] THEN result := FALSE END;
+			INC (i)
+		END
 	END;
 	RETURN result
 END Str_equal2;
 
 PROCEDURE Make_string* (const_str : ARRAY OF CHAR) : String;
-	VAR
-		i : INTEGER;
-		s : String;
+	VAR i : INTEGER; s : String;
 BEGIN
 	NEW (s);
 	s.len := LEN(const_str) - 1;
-	FOR i := 0 TO s.len DO s.content[i] := const_str[i]
-	END;
+	FOR i := 0 TO s.len DO s.content[i] := const_str[i] END;
 	RETURN s
 END Make_string;
 	
@@ -211,8 +183,7 @@ BEGIN
 END log2;
 	
 PROCEDURE Size_of_const* (n : LONGINT) : INTEGER;
-	VAR
-		res : INTEGER;
+	VAR res : INTEGER;
 BEGIN
 	IF (n >= 0) & (n < 256) THEN res := 1
 	ELSIF (n >= 0) & (n < 65536) THEN res := 2
@@ -276,8 +247,7 @@ END Safe_to_multiply;
 (* -------------------------------------------------------------------------- *)
 
 PROCEDURE Open_scope* (scope_name : String);
-	VAR
-		new_scope : Object;
+	VAR new_scope : Object;
 BEGIN
 	NEW (new_scope);
 	new_scope.class := class_head;
@@ -302,32 +272,24 @@ END Inc_level;
 	
 PROCEDURE Find_obj_in_scope (VAR obj : Object; name : String; scope : Object);
 BEGIN
-	guard.name := name;
-	obj := scope.next;
-	WHILE ~ Str_equal2 (obj.name, name) DO
-		obj := obj.next
-	END
+	guard.name := name; obj := scope.next;
+	WHILE ~ Str_equal2 (obj.name, name) DO obj := obj.next END
 END Find_obj_in_scope;
 
 PROCEDURE Find_obj* (VAR obj : Object; name : String);
-	VAR
-		loop_exit : BOOLEAN;
+	VAR	loop_exit : BOOLEAN;
 		scope : Object;
 BEGIN
-	loop_exit := FALSE;
-	scope := top_scope;
+	loop_exit := FALSE; scope := top_scope;
 	REPEAT
 		IF scope = universe THEN
-			Find_obj_in_scope (obj, name, scope);
-			loop_exit := TRUE
-		ELSE
+			Find_obj_in_scope (obj, name, scope); loop_exit := TRUE
+		ELSIF scope = top_scope THEN
 			IF Str_equal2 (scope.name, name) THEN
-				Find_obj_in_scope (obj, name, scope.dsc);
-				loop_exit := TRUE
-			ELSIF scope = top_scope THEN
+				Find_obj_in_scope (obj, name, scope.dsc); loop_exit := TRUE
+			ELSE
 				Find_obj_in_scope (obj, name, scope);
-				IF obj # guard THEN loop_exit := TRUE
-				END
+				IF obj # guard THEN loop_exit := TRUE END
 			END;
 			scope := scope.dsc
 		END
@@ -336,42 +298,37 @@ END Find_obj;
 	
 PROCEDURE Find_field* (VAR obj : Object; name : String; rec_typ : Type);
 BEGIN
-	guard.name := name;
-	obj := rec_typ.fields;
-	WHILE ~ Str_equal2 (obj.name, name) DO
-		obj := obj.next
-	END
+	guard.name := name; obj := rec_typ.fields;
+	WHILE ~ Str_equal2 (obj.name, name) DO obj := obj.next END
 END Find_field;
 
 PROCEDURE New_obj* (VAR obj : Object; name : String; class : INTEGER);
-	VAR
-		result : BOOLEAN;
 BEGIN
 	IF class = class_field THEN	Find_obj_in_scope (obj, name, top_scope)
 	ELSE Find_obj (obj, name)
 	END;
+	
 	IF obj # guard THEN
 		obj := guard
 	ELSE
 		obj := top_scope;
-		WHILE obj.next # guard DO obj := obj.next
-		END;
+		WHILE obj.next # guard DO obj := obj.next END;
+		NEW (obj.next); obj := obj.next;
 		
-		NEW (obj.next);
-		obj := obj.next;
+		obj.readonly := FALSE;
+		obj.param := FALSE;
 		obj.name := name;
 		obj.class := class;
-		obj.next := guard;
-		obj.flag := {};
 		obj.lev := cur_lev;
-		obj.scope := top_scope
+		obj.next := guard
 	END
 END New_obj;
 
 PROCEDURE New_typ* (VAR typ : Type; form : INTEGER);
 BEGIN
 	NEW (typ);
-	typ.flag := {};
+	typ.hasExtension := FALSE;
+	typ.predefined := FALSE;
 	typ.form := form;
 	typ.num_ptr := 0
 END New_typ;
@@ -379,29 +336,27 @@ END New_typ;
 PROCEDURE New_predefined_typ (VAR typ : Type; form, size : INTEGER);
 BEGIN
 	New_typ (typ, form);
-	typ.flag := {flag_predefined};
+	typ.predefined := TRUE;
 	typ.size := size;
 	typ.alignment := size
 END New_predefined_typ;
 	
 PROCEDURE Enter (cl, n : INTEGER; name : String; typ : Type);
-	VAR
-		obj : Object;
-		str : String;
+	VAR obj : Object; str : String;
 BEGIN
 	NEW (obj);
+	obj.readonly := FALSE;
+	obj.param := FALSE;
 	obj.class := cl;
 	obj.val := n;
 	obj.name := name;
 	obj.type := typ;
-	obj.flag := {flag_predefined};
-	obj.next := top_scope.next;
-	top_scope.next := obj
+	obj.next := universe.next;
+	universe.next := obj
 END Enter;
 	
 PROCEDURE Register_undefined_pointer_type* (typ : Type; base_typ_name : String);
-	VAR
-		undef : UndefPtrList;
+	VAR undef : UndefPtrList;
 BEGIN
 	NEW (undef);
 	undef.ptr_typ := typ;
@@ -412,8 +367,7 @@ BEGIN
 END Register_undefined_pointer_type;
 	
 PROCEDURE Check_undefined_pointer_list* (obj : Object);
-	VAR
-		p, prev : UndefPtrList;
+	VAR p, prev : UndefPtrList;
 BEGIN
 	p := undef_ptr_list;
 	REPEAT
@@ -456,10 +410,8 @@ END Adjust_alignment;
 	
 PROCEDURE Is_extension_type* (ext, bas : Type) : BOOLEAN;
 BEGIN
-	IF ext.form = type_pointer THEN ext := ext.base
-	END;
-	IF bas.form = type_pointer THEN bas := bas.base
-	END;
+	IF ext.form = type_pointer THEN ext := ext.base END;
+	IF bas.form = type_pointer THEN bas := bas.base END;
 	RETURN (ext = bas) OR (ext.base # NIL) & Is_extension_type (ext.base, bas)
 END Is_extension_type;
 	
@@ -471,15 +423,6 @@ BEGIN
 		& (typ1.base.len < 0) & (typ2.base.len < 0)
 		& Compatible_open_array (typ1, typ2)
 END Compatible_open_array;
-
-PROCEDURE Same_paramtype (typ1, typ2 : Type) : BOOLEAN;
-BEGIN
-	RETURN (typ1 = typ2)
-	OR
-		(typ1.form = type_array) & (typ1.len < 0)
-		& (typ2.form = type_array) & (typ1.len < 0)
-		& Compatible_open_array (typ1, typ2)
-END Same_paramtype;
 	
 PROCEDURE Same_parlist (parlist1, parlist2 : Object) : BOOLEAN;
 BEGIN
@@ -487,8 +430,11 @@ BEGIN
 	OR
 		(parlist1 # guard) & (parlist2 # guard)
 		& (parlist1.class = parlist2.class)
-		& ~ (flag_readOnly IN parlist1.flag / parlist2.flag)
-		& Same_paramtype (parlist1.type, parlist2.type)
+		& (parlist1.readonly = parlist2.readonly)
+		& ((parlist1.type = parlist2.type)
+			OR (parlist1.type.form = type_array) & (parlist1.type.len < 0)
+			& (parlist2.type.form = type_array) & (parlist2.type.len < 0)
+			& Compatible_open_array (parlist1.type, parlist2.type))
 END Same_parlist;
 	
 PROCEDURE Compatible_proc1 (proc1, proc2 : Object) : BOOLEAN;
@@ -521,16 +467,15 @@ END Compatible_proc3;
 (* 5: Assignment with incompatible procedure *)
 (* 6: Source string is oversized *)
 PROCEDURE Assignable* (dst_type : Type; VAR src : Item) : INTEGER;
-	VAR
-		result : INTEGER;
+	VAR result : INTEGER;
 BEGIN
 	result := 0;
 	IF src.mode = class_proc THEN
 		IF dst_type.form # type_procedure THEN
 			result := 2
-		ELSIF src.proc.lev > 0 THEN
+		ELSIF src.obj.lev > 0 THEN
 			result := 4
-		ELSIF ~ Compatible_proc2 (src.proc, dst_type) THEN
+		ELSIF ~ Compatible_proc2 (src.obj, dst_type) THEN
 			result := 5
 		END
 	ELSIF ~ (src.mode IN cls_HasValue) THEN
@@ -601,7 +546,7 @@ BEGIN
 		(x.mode IN cls_HasValue)
 		& 
 			((x.type.form = type_pointer)
-			OR (x.type.form = type_record) & (flag_varParam IN x.flag))
+			OR (x.type.form = type_record) & x.param & ~ x.readonly)
 END Type_test_applied;
 
 PROCEDURE Comparable* (VAR x, y : Item) : BOOLEAN;
@@ -624,21 +569,19 @@ PROCEDURE Equalable* (VAR x, y : Item) : BOOLEAN;
 	VAR
 		xform, yform : INTEGER;
 BEGIN
-	IF x.mode = class_proc THEN xform := -1 ELSE xform := x.type.form
-	END;
-	IF y.mode = class_proc THEN yform := -1 ELSE yform := y.type.form
-	END;
+	IF x.mode = class_proc THEN xform := -1 ELSE xform := x.type.form END;
+	IF y.mode = class_proc THEN yform := -1 ELSE yform := y.type.form END;
 	RETURN
 		(xform = -1)
 		&
-			((yform = -1) & Compatible_proc1 (x.proc, y.proc)
+			((yform = -1) & Compatible_proc1 (x.obj, y.obj)
 			OR (y.type = nil_type)
-			OR (yform = type_procedure) & Compatible_proc2 (x.proc, y.type))
+			OR (yform = type_procedure) & Compatible_proc2 (x.obj, y.type))
 	OR
 		(yform = -1)
 		&
 			((x.type = nil_type)
-			OR (xform = type_procedure) & Compatible_proc2 (y.proc, x.type))
+			OR (xform = type_procedure) & Compatible_proc2 (y.obj, x.type))
 	OR
 		(x.type = y.type)
 	OR
@@ -680,37 +623,38 @@ PROCEDURE Check_parameter* (formal : Object; VAR actual : Item) : INTEGER;
 	VAR
 		result : INTEGER;
 BEGIN
-	IF (flag_readOnly IN actual.flag) & (flag_varParam IN formal.flag) THEN
+	IF actual.readonly & (formal.class = class_ref) & ~ formal.readonly THEN
 		result := 4
 	ELSIF (formal.type.form = type_array) & (formal.type.len < 0) THEN
 		(* Open array formal parameter *)
-		result := 1;
 		IF ~ (actual.mode IN cls_HasValue) THEN
 			result := 7
+		ELSIF (actual.type.form = type_array)
+		& Is_matching_array (formal.type, actual.type) THEN
+			result := 1
 		ELSIF actual.type.form = type_string THEN
-			IF formal.type.base # char_type THEN
-				result := 6
+			IF formal.type.base = char_type THEN result := 1
+			ELSE result := 6
 			END
-		ELSIF (actual.type.form # type_array)
-		OR ~ Is_matching_array (formal.type, actual.type) THEN
+		ELSE
 			result := 6
 		END
-	ELSIF flag_varParam IN formal.flag THEN
+	ELSIF (formal.class = class_ref) & ~ formal.readonly THEN
 		(* Variable parameter *)
 		IF ~ (actual.mode IN cls_Variable) THEN
 			result := 5
+		ELSIF formal.type = actual.type THEN
+			result := 2
 		ELSIF formal.type.form = type_record THEN
 			IF actual.type.form # type_record THEN
 				result := 6
-			ELSIF ~ Is_extension_type (actual.type, formal.type) THEN
-				result := 8
-			ELSE
+			ELSIF Is_extension_type (actual.type, formal.type) THEN
 				result := 2
+			ELSE
+				result := 8
 			END
-		ELSIF formal.type # actual.type THEN
-			result := 6
 		ELSE
-			result := 2
+			result := 6
 		END
 	ELSE
 		(* Value parameter *)
@@ -718,16 +662,18 @@ BEGIN
 			1: result := 7 |
 			3: result := 8 |
 			0:
-				IF formal.class = class_var THEN result := 0
-				ELSIF actual.type.form = type_string THEN result := 9
-				ELSE result := 2
-				END
+			IF formal.class = class_var THEN result := 0
+			ELSIF actual.type.form = type_string THEN result := 9
+			ELSE result := 2
+			END
 		ELSE
 			result := 6
 		END
 	END;
 	RETURN result
 END Check_parameter;
+
+(*
 	
 PROCEDURE Detect_type (typ : Type);
 	BEGIN
@@ -817,9 +763,10 @@ PROCEDURE Write_symbols_file;
 		obj := obj.next
 		END
 	END Write_symbols_file;
+*)
 	
 PROCEDURE Init* (modid : String);
-	BEGIN
+BEGIN
 	NEW (universe);
 	universe.class := class_head;
 	universe.name := modid;
@@ -861,14 +808,12 @@ PROCEDURE Init* (modid : String);
 	Enter (class_sproc, 31, Make_string ('SIZE'), int_type);
 	Enter (class_sproc, 33, Make_string ('VAL'), int_type);
 	
-	exportno := 0;
-	
-	compiler_flag := {integer_overflow_check, array_bound_check,
-	                  alignment_flag};
-	END Init;
+	exportno := 0;	
+	compiler_flag := {integer_overflow_check, array_bound_check, alignment_flag}
+END Init;
 	
 BEGIN
-	_Export_type := Export_type;
+	(* _Export_type := Export_type; *)
 
 	NEW (guard);
 	guard.class := class_head;
