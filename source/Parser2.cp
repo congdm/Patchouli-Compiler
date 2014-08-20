@@ -2,6 +2,10 @@ MODULE Parser2;
 
 IMPORT
 	Sys, Base, Scanner, Generator := GeneratorWin64v2, Console;
+	
+CONST
+	classes_Variable = Base.classes_Variable;
+	classes_Value = Base.classes_Value;
 
 VAR
 	sym : INTEGER;
@@ -15,7 +19,7 @@ PROCEDURE Assignable (VAR dst, src : Base.Item) : BOOLEAN;
 		result : BOOLEAN;
 BEGIN
 	result := FALSE;
-	IF ~ (dst.mode IN Base.cls_Variable) THEN
+	IF ~ (dst.mode IN classes_Variable) THEN
 		Scanner.Mark ('Assignment destination is not a variable')
 	ELSIF dst.readonly THEN
 		Scanner.Mark ('Assignment destination is read-only')
@@ -557,20 +561,17 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 		identdef (obj, Base.class_head); (* Defense again circular definition *)
 		Check (Base.sym_equal, 'No = in const declaration');
 		expression (x);
-		IF x.mode = Base.class_const THEN
-			obj.class := Base.class_const;
+		obj.class := Base.class_const;
+		IF x.mode = Base.class_const THEN	
 			obj.val := x.a;
 			obj.type := x.type
 		ELSIF (x.mode = Base.class_var) & (x.type.form = Base.type_string) THEN
-			obj.readonly := TRUE;
-			obj.class := Base.class_var;
-			obj.lev := Base.cur_lev;
+			obj.lev := x.lev;
 			obj.val := x.a;
 			obj.val2 := x.b;
 			obj.type := x.type
 		ELSE
 			Scanner.Mark ('Expect a const expression');
-			obj.class := Base.class_const;
 			obj.type := Base.int_type;
 			obj.val := 0
 		END
@@ -740,7 +741,11 @@ PROCEDURE ActualParameters
 		expression (y);
 		IF param # Base.guard THEN
 			CASE Base.Check_parameter (param, y) OF
-				0: Generator.Normal_parameter (y, procinfo) |
+				0:	IF y.type.form = Base.type_string THEN
+						Generator.Make_const (y, Base.char_type, y.b)
+					END;
+					Generator.Normal_parameter (y, procinfo)
+				|
 				1: Generator.Open_array_parameter (y, procinfo, param.type) |
 				2: Generator.Reference_parameter (y, procinfo) |
 				3: Generator.Record_var_parameter (y, procinfo) |
@@ -796,9 +801,9 @@ END FunctionCall;
 
 (*
 PROCEDURE StandProc (VAR x : Base.Item);
-	VAR
-		y : Base.Item;
-		
+	VAR y : Base.Item;
+	
+	(*
 	PROCEDURE SProc_NEW;
 		VAR
 			x : Base.Item;
@@ -828,48 +833,39 @@ PROCEDURE StandProc (VAR x : Base.Item);
 			Scanner.Mark ('Expect a pointer')
 		END
 	END SProc_DISPOSE;
+	*)
 		
 	PROCEDURE SProc_GET;
-		VAR
-			x, y : Base.Item;
+		VAR x, y : Base.Item;
 	BEGIN
 		expression (x); Check_int (x);
 		Check (Base.sym_comma, 'Not enough parameters');
 		expression (y);
 		
-		IF (y.mode IN Base.cls_Variable)
-		& (y.type.size > 0) & (y.type.size <= 8)
-		& (y.type.size IN {1, 2, 4, 8}) THEN
-			IF Base.flag_readOnly IN y.flag THEN
-				Scanner.Mark ('Can not modify read-only variable')
-			ELSE
-				Generator.SProc_GET (x, y)
+		IF (y.mode IN classes_Variable)
+		& (y.type.form IN Base.types_Scalar) THEN
+			IF ~ y.readonly THEN Generator.SProc_GET (x, y)
+			ELSE Scanner.Mark ('Cannot modify read only variable')
 			END
-		ELSE
-			Scanner.Mark ('Expect a variable with basic size')
+		ELSE Scanner.Mark ('Expect a scalar variable')
 		END
 	END SProc_GET;
 	
 	PROCEDURE SProc_PUT;
-		VAR
-			x, y : Base.Item;
+		VAR x, y : Base.Item;
 	BEGIN
 		expression (x); Check_int (x);
 		Check (Base.sym_comma, 'Not enough parameters');
 		expression (y);
 		
-		IF (y.mode IN Base.cls_HasValue)
-		& (y.type.size > 0) & (y.type.size <= 8)
-		& (y.type.size IN {1, 2, 4, 8}) THEN
+		IF (y.mode IN classes_Value) & (y.type.form IN Base.types_Scalar) THEN
 			Generator.SProc_PUT (x, y)
-		ELSE
-			Scanner.Mark ('Expect a value with basic size')
+		ELSE Scanner.Mark ('Expect a scalar value')
 		END
 	END SProc_PUT;
 	
 	PROCEDURE SProc_COPY;
-		VAR
-			x, y, z : Base.Item;
+		VAR x, y, z : Base.Item;
 	BEGIN
 		expression (x); Check_int (x);
 		Check (Base.sym_comma, 'Not enough parameters');
@@ -887,26 +883,29 @@ PROCEDURE StandProc (VAR x : Base.Item);
 	BEGIN
 		no_error := TRUE;
 		expression (x);
+		IF (y.mode IN classes_Variable) & (y.type = Base.int_type) THEN
+			Generator.Store (y, x)
+		ELSE Scanner.Mark ('Expect an integer variable');
+			Generator.Free_item (y); Generator.Free_item (x)
+		END
 		
-		IF ~ (x.mode IN Base.cls_HasValue)
-		OR (x.type.form # Base.type_string)
-		& ((x.type.form # Base.type_array) OR (x.type.base # Base.char_type))
-		THEN
-			Scanner.Mark ('Expect a string or character array');
+		IF (x.mode IN classes_Value)
+		& ((x.type.form = Base.type_string)
+			OR (x.type.form = Base.type_array) & (x.type.base = Base.char_type))
+		THEN Generator.SProc_LoadLibrary (x)
+		ELSE Scanner.Mark ('Expect a string or character array');
 			no_error := FALSE
-		ELSE
-			Generator.SProc_LoadLibrary (x)
 		END;
 		
 		Check (Base.sym_comma, 'Not enough parameters');
 		expression (y);
 		
-		IF ~ (y.mode IN Base.cls_Variable) OR (y.type # Base.int_type) THEN
-			Scanner.Mark ('Expect an integer variable');
-			no_error := FALSE
-		END;
-		
-		IF no_error THEN Generator.Store (y, x)
+		IF no_error THEN
+			IF (y.mode IN classes_Variable) & (y.type = Base.int_type) THEN
+				Generator.Store (y, x)
+			ELSE Scanner.Mark ('Expect an integer variable');
+				Generator.Free_item (y); Generator.Free_item (x)
+			END
 		END
 	END SProc_LoadLibrary;
 		
@@ -915,7 +914,6 @@ PROCEDURE StandProc (VAR x : Base.Item);
 			x, y, z : Base.Item;
 			no_error : BOOLEAN;
 	BEGIN
-		no_error := TRUE;
 		expression (x); Check_int (x); Generator.load (x);
 		Check (Base.sym_comma, 'Not enough parameters');
 		expression (y); Check_int (y); Generator.load (y);
@@ -924,6 +922,12 @@ PROCEDURE StandProc (VAR x : Base.Item);
 		
 		Check (Base.sym_comma, 'Not enough parameters');
 		expression (z);
+		
+		IF (z.mode IN classes_Variable) & (z.type.form IN Base.int_type) THEN
+			Generator.Store (y, x)
+		ELSE Scanner.Mark ('Expect an integer variable');
+			Generator.Free_item (y); Generator.Free_item (x)
+		END
 		
 		IF ~ (z.mode IN Base.cls_Variable)
 		OR (z.type.form # Base.type_procedure) THEN
@@ -957,7 +961,9 @@ BEGIN (* StandProc *)
 	END;
 	Check (Base.sym_rparen, 'No closing )')
 END StandProc;
-	
+*)
+
+(*
 PROCEDURE StandFunc (VAR x : Base.Item);
 	VAR
 		result : Base.Item;
@@ -1267,7 +1273,7 @@ BEGIN
 			END
 		END
 	ELSIF sym = Base.sym_string THEN
-		(* Generator.Make_string (x, Scanner.id); *)
+		Generator.Make_string (x, Scanner.id);
 		Scanner.Get (sym)
 	ELSIF sym = Base.sym_nil THEN
 		Generator.Make_const (x, Base.nil_type, 0);
@@ -1512,17 +1518,21 @@ BEGIN
 		designator (x);
 		IF sym = Base.sym_becomes THEN
 			Scanner.Get (sym); expression (y);
-			IF Assignable (x, y) THEN Generator.Store (x, y) END
+			IF Assignable (x, y) THEN
+				IF (x.type = Base.char_type) & (y.type # Base.char_type) THEN
+					Generator.Make_const (y, Base.char_type, y.b)
+				END;
+				Generator.Store (x, y)
+			END
 		ELSIF x.mode = Base.class_proc THEN
 			ProcedureCall (x)
 		ELSIF x.mode = Base.class_sproc THEN
-			(*
-			IF x.type # NIL THEN
-				Scanner.Mark ('Function procedure must be called in expression')
+		(*
+			IF x.type = NIL THEN StandProc (x)
 			ELSE
-				StandProc (x)
+				Scanner.Mark ('Function procedure must be called in expression')
 			END
-			*)
+		*)
 		ELSIF (sym = Base.sym_lparen) & (x.mode IN Base.cls_HasValue)
 		& (x.type.form = Base.type_procedure) THEN
 			ProcedureCall (x)

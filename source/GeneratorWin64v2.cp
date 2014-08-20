@@ -18,8 +18,7 @@ CONST
 	mode_mem = {Base.class_var, Base.class_ref, mode_regI};
 	
 	if_skipped = 0; if_REX = 1; if_16bit_prefix = 2; if_disp = 3;
-	if_32bit_disp = 4; if_global_var = 5; if_static_var = 6;
-	if_direct_call = 7;
+	if_32bit_disp = 4; if_fix1 = 5;
 
 	W_bit = 8; R_bit = 4; X_bit = 2; B_bit = 1; (* REX prefix *)
 	d_bit = 2; w_bit = 1; s_bit = 2; w_bit_1byte = 8;
@@ -402,13 +401,13 @@ END PopR;
 PROCEDURE EmitRGv (d : UBYTE; op : INTEGER; reg, rsize : UBYTE; disp : INTEGER);
 BEGIN
 	EmitRMip (d, op, reg, rsize, varbase + disp);
-	INCL (codeinfo [pc - 1].flag, if_global_var)
+	INCL (codeinfo [pc - 1].flag, if_fix1)
 END EmitRGv;
 
 PROCEDURE EmitRSv (d : UBYTE; op : INTEGER; reg, rsize : UBYTE; disp : INTEGER);
 BEGIN
 	EmitRMip (d, op, reg, rsize, staticbase + disp);
-	INCL (codeinfo [pc - 1].flag, if_static_var)
+	INCL (codeinfo [pc - 1].flag, if_fix1)
 END EmitRSv;
 
 PROCEDURE Branch (disp : INTEGER);
@@ -449,7 +448,7 @@ BEGIN
 	Emit.iflag := {}; Emit.i := 0;
 	code [pc, Emit.i] := 0E8H; INC (Emit.i);
 	SYSTEM.PUT (SYSTEM.ADR (code [pc, Emit.i]), disp); INC (Emit.i, 4);
-	INCL (Emit.iflag, if_direct_call);
+	INCL (Emit.iflag, if_fix1);
 	Next_inst
 END EmitCall;
 
@@ -481,7 +480,7 @@ END EmitCallMip;
 PROCEDURE EmitCallSv (disp : INTEGER);
 BEGIN
 	EmitCallMip (staticbase + disp);
-	INCL (codeinfo [pc - 1].flag, if_static_var)
+	INCL (codeinfo [pc - 1].flag, if_fix1)
 END EmitCallSv;
 
 (* -------------------------------------------------------------------------- *)
@@ -509,30 +508,51 @@ BEGIN
 	x.obj := obj;
 	x.a := obj.val;
 	x.b := obj.val2;
-	x.c := 0
+	x.c := 0;
+	
+	IF x.mode # Base.class_const THEN (* Do nothing *)
+	ELSIF x.type.form = Base.type_string THEN
+		x.mode := Base.class_var
+	END
 END Make_item;
 	
-(*
 PROCEDURE Make_string* (VAR x : Base.Item; str : Base.String);
 	VAR
-		i : INTEGER;
+		bufoffset, strlen, i, charsize : INTEGER; b : UBYTE;
 BEGIN
-	x.flag := {Base.flag_readOnly};
+	x.readonly := TRUE; x.param := FALSE;
 	x.mode := Base.class_var;
-	x.lev := 0;
+	x.lev := -1;
+	
+	charsize := Base.char_type.size;
+	strlen := str.len + 1;
 	
 	Base.New_typ (x.type, Base.type_string);
-	x.type.len := str.len + 1;
-	x.type.size := (str.len + 1) * Base.char_type.size;
+	x.type.len := strlen;
+	x.type.size := strlen * charsize;
 	x.type.base := Base.char_type;
-	x.a := str_offset * Base.char_type.size;
 	
-	FOR i := 0 TO str.len DO
-		strings [str_offset + i] := str.content [i]
-	END;
-	INC (str_offset, str.len + 1)
+	INC (staticsize, strlen * charsize);
+	i := -staticsize; x.a := i;
+	
+	bufoffset := i + LEN(staticdata); i := 0;
+	IF charsize = 1 THEN
+		WHILE i < strlen DO
+			b := USHORT (ORD (str.content [i]) MOD 256);
+			staticdata [bufoffset] := b;
+			INC (i); INC (bufoffset)
+		END;
+	ELSIF charsize = 2 THEN
+		WHILE i < strlen DO
+			b := USHORT (ORD (str.content [i]) MOD 256);
+			staticdata [bufoffset] := b;
+			b := USHORT (ORD (str.content [i]) DIV 256 MOD 256);
+			staticdata [bufoffset + 1] := b;
+			INC (i); INC (bufoffset, 2)
+		END;
+	ELSE Scanner.Mark ('Fault: Unsupported char size')
+	END
 END Make_string;
-*)
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -656,6 +676,7 @@ BEGIN
 			x.r := Alloc_reg();
 			IF x.lev > 0 THEN EmitRM (1, MOVr, x.r, rsize, reg_BP, SHORT(x.a))
 			ELSIF x.lev = 0 THEN EmitRGv (1, MOVr, x.r, rsize, SHORT(x.a))
+			ELSIF x.lev < 0 THEN EmitRSv (1, MOVr, x.r, rsize, SHORT(x.a)) 
 			END
 		ELSIF x.mode = Base.class_ref THEN
 			Ref_to_regI (x);
@@ -684,12 +705,9 @@ PROCEDURE Load_adr (VAR x : Base.Item);
 BEGIN
 	IF x.mode = Base.class_var THEN
 		x.r := Alloc_reg();
-		IF x.lev > 0 THEN
-			IF x.type.form # Base.type_string THEN
-				EmitRM (0, LEAr, x.r, 8, reg_BP, SHORT(x.a))
-			ELSE EmitRSv (0, LEAr, x.r, 8, SHORT(x.a))
-			END
+		IF x.lev > 0 THEN EmitRM (0, LEAr, x.r, 8, reg_BP, SHORT(x.a))
 		ELSIF x.lev = 0 THEN EmitRGv (0, LEAr, x.r, 8, SHORT(x.a))
+		ELSIF x.lev < 0 THEN EmitRSv (0, LEAr, x.r, 8, SHORT(x.a))
 		END
 	ELSIF x.mode = Base.class_ref THEN
 		Ref_to_regI (x);
@@ -710,15 +728,12 @@ END Load_cond;
 PROCEDURE Store* (VAR x, y : Base.Item);
 	VAR rsize : UBYTE;
 BEGIN
-	IF (x.type = Base.char_type) & (y.type.form = Base.type_string) THEN
-		Make_const (y, Base.char_type, y.b)
-	END;
-	
 	IF x.type.form IN Base.types_Scalar THEN
 		load (y); rsize := USHORT (x.type.size);
 		IF x.mode = Base.class_var THEN
 			IF x.lev > 0 THEN EmitRM (0, MOVr, y.r, rsize, reg_BP, SHORT(x.a))
 			ELSIF x.lev = 0 THEN EmitRGv (0, MOVr, y.r, rsize, SHORT(x.a))
+			ELSIF x.lev < 0 THEN EmitRSv (0, MOVr, y.r, rsize, SHORT(x.a))
 			END
 		ELSIF x.mode = Base.class_ref THEN
 			Ref_to_regI (x); EmitRM (1, MOVr, y.r, rsize, x.r, SHORT(x.a));
@@ -1422,10 +1437,7 @@ PROCEDURE Write_to_file* (from, to : INTEGER);
 BEGIN (* Write_to_file *)
 	ASSERT ((from > 0) & (to > 0) & (from <= pc) & (to <= pc));
 	FOR i := from TO to DO
-		IF {if_global_var, if_static_var, if_direct_call}
-			* codeinfo [i].flag # {}
-		THEN Fixup_disp (i)
-		END;
+		IF if_fix1 IN codeinfo [i].flag THEN Fixup_disp (i) END;
 		FOR j := 0 TO codeinfo [i].size - 1 DO
 			Sys.Write_byte (out, code [i, j])
 		END
@@ -1676,9 +1688,9 @@ BEGIN
 	Sys.SeekRel (out, 8 * 14);
 	
 	Write_SectionHeader
-		('.text', 60000020H, code_rva, code_rawsize, code_size, code_fadr);
-	Write_SectionHeader
 		('.data', -1073741760, data_rva, data_rawsize, data_size, data_fadr);
+	Write_SectionHeader
+		('.text', 60000020H, code_rva, code_rawsize, code_size, code_fadr);
 	Write_SectionHeader
 		('.idata', -1073741760, idata_rva, 200H, 130H, idata_fadr);
 	(*
@@ -1732,7 +1744,14 @@ BEGIN
 		idata_rva, idata_fadr
 	);
 
-	Sys.Close (out)
+	Sys.Close (out);
+	
+	Sys.Console_WriteString ('Code size: ');
+	Sys.Console_WriteInt (code_size); Sys.Console_WriteLn;
+	Sys.Console_WriteString ('Global variables size: ');
+	Sys.Console_WriteInt (varsize); Sys.Console_WriteLn;
+	Sys.Console_WriteString ('Static data size: ');
+	Sys.Console_WriteInt (staticsize); Sys.Console_WriteLn
 END Finish;
 
 BEGIN

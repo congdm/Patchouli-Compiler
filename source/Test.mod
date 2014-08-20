@@ -1,4 +1,5 @@
 MODULE Test;
+	CONST str = 'Hello';
 	VAR x : ARRAY 512 OF BYTE;
 
 	PROCEDURE Main (input : INTEGER);

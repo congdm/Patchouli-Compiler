@@ -43,6 +43,8 @@ CONST
 	class_sproc* = 8; mode_reg* = 9; mode_regI* = 10; mode_cond* = 11;
 	mode_xreg* = 12;
 	
+	classes_Variable* = {class_var, class_ref, mode_regI};
+	classes_Value* = classes_Variable + {class_const, mode_reg, mode_cond};
 	cls_Variable* = {class_var, class_ref, mode_regI};
 	cls_HasValue* = cls_Variable + {class_const, mode_reg, mode_cond};
 	modes_UseReg* = {mode_reg, mode_regI};
@@ -55,7 +57,6 @@ CONST
 	types_Simple* = {type_integer, type_boolean, type_set, type_real, type_char};
 	types_Address* = {type_pointer, type_procedure};
 	types_Scalar* = types_Simple + types_Address;
-	
 	types_Numberic* = {type_integer, type_real};
 	types_Character* = {type_char, type_string};
 	
