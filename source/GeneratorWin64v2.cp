@@ -263,7 +263,7 @@ BEGIN
 	Emit.iflag := {}; Emit.i := 0;
 	Emit_REX_prefix (rsize, 0, rm, 0, 0); Emit_16bit_prefix (rsize);
 	
-	op := USHORT (0B0H + rm);
+	op := USHORT (0B0H + rm MOD 8);
 	IF rsize > 1 THEN INC (op, w_bit_1byte) END;
 	code [pc, Emit.i] := op;	(* Opcode byte *)
 	INC (Emit.i);
@@ -695,7 +695,8 @@ BEGIN
 			EmitRM (1, MOVr, x.r, rsize, x.r, SHORT(x.a))
 		ELSIF x.mode = mode_imm THEN
 			x.r := Alloc_reg();
-			IF (rsize = 8) & (x.a >= 0) & (x.a <= MAX_UINT32) THEN
+			IF x.a = 0 THEN EmitRR (XORr, x.r, 4, x.r)
+			ELSIF (rsize = 8) & (x.a > 0) & (x.a <= MAX_UINT32) THEN
 				MoveRI (x.r, 4, x.a)
 			ELSE MoveRI (x.r, rsize, x.a)
 			END
