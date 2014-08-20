@@ -64,9 +64,9 @@ TYPE
 	END;
 	
 	ProcInfo* = RECORD
-		has_retval, procvar : BOOLEAN;
-		oldi : UBYTE; oldrs : INTEGER;
-		memstack, parblksize, paradr : INTEGER
+		proper*, procvar*, adr_saved_to_stack : BOOLEAN;
+		oldi : UBYTE; oldrs : INTEGER; oldcurRegs : SET;
+		parblksize*, memstack, paradr : INTEGER
 	END;
 	
 VAR
@@ -482,6 +482,12 @@ BEGIN
 	EmitCallMip (staticbase + disp);
 	INCL (codeinfo [pc - 1].flag, if_fix1)
 END EmitCallSv;
+
+PROCEDURE EmitCallGv (disp : INTEGER);
+BEGIN
+	EmitCallMip (varbase + disp);
+	INCL (codeinfo [pc - 1].flag, if_fix1)
+END EmitCallGv;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -1258,6 +1264,8 @@ PROCEDURE Save_reg_stacks (VAR pinfo : ProcInfo);
 BEGIN
 	pinfo.oldrs := crs;
 	pinfo.oldi := reg_stacks [crs].i;
+	pinfo.oldcurRegs := curRegs;
+	
 	FOR i := 0 TO reg_stacks [crs].i - 1 DO
 		PushR (reg_stacks [crs].ord [i])
 	END;
@@ -1265,31 +1273,30 @@ BEGIN
 END Save_reg_stacks;
 
 PROCEDURE Restore_reg_stacks (VAR pinfo : ProcInfo);
-	VAR r : UBYTE; i : INTEGER;
+	VAR r, newreg : UBYTE; i : INTEGER;
 BEGIN
 	crs := pinfo.oldrs;
 	reg_stacks [crs].i := pinfo.oldi;
-	FOR i := reg_stacks [crs].i - 1 TO 0 BY -1 DO
+	curRegs := pinfo.oldcurRegs;
+	
+	i := reg_stacks [crs].i - 1;
+	WHILE i >= 0 DO
 		r := reg_stacks [crs].ord [i];
-		IF (r = reg_A) & pinfo.has_retval THEN
-			r := Alloc_reg();
-			EmitRR (MOVr, r, 8, reg_A)
+		IF (r = reg_A) & ~ pinfo.proper THEN
+			newreg := Alloc_reg();
+			EmitRR (MOVr, newreg, 8, reg_A)
 		END;
-		PopR (r)
+		PopR (r); DEC (i)
 	END
 END Restore_reg_stacks;
 	
 PROCEDURE Prepare_to_call* (VAR x : Base.Item; VAR pinfo : ProcInfo);
 BEGIN
-	IF x.mode = Base.class_proc THEN
-		pinfo.has_retval := x.type # NIL;
-		pinfo.parblksize := x.obj.parblksize;
-		pinfo.procvar := FALSE
+	IF ~ (x.mode IN {mode_regI, Base.class_ref}) THEN
+		pinfo.adr_saved_to_stack := FALSE
 	ELSE
 		load (x); PushR (x.r); Free_reg;
-		pinfo.parblksize := x.type.len;
-		pinfo.has_retval := x.type.base # NIL;
-		pinfo.procvar := TRUE
+		pinfo.adr_saved_to_stack := TRUE
 	END;
 	
 	Save_reg_stacks (pinfo);
@@ -1307,7 +1314,12 @@ END Prepare_to_call;
 PROCEDURE Call* (VAR x : Base.Item; VAR pinfo : ProcInfo);
 	VAR n : INTEGER;
 BEGIN
-	IF ~ pinfo.procvar THEN EmitCall (SHORT(x.a)); n := 0
+	IF x.mode = Base.class_proc THEN EmitCall (SHORT(x.a)); n := 0
+	ELSIF x.mode = Base.class_var THEN n := 0;
+		IF x.lev < 0 THEN EmitCallSv (SHORT (x.a))
+		ELSIF x.lev = 0 THEN EmitCallGv (SHORT (x.a))
+		ELSE EmitCallM (reg_BP, SHORT (x.a))
+		END
 	ELSE EmitCallM (reg_SP, pinfo.parblksize); n := 8
 	END;
 	
@@ -1318,9 +1330,13 @@ BEGIN
 	Restore_reg_stacks (pinfo);
 	
 	(* Return value *)
-	IF pinfo.has_retval THEN
+	IF ~ pinfo.proper THEN
 		IF pinfo.procvar THEN x.type := x.type.base END;
-		x.r := Reg_stack(-1); x.mode := mode_reg
+		IF reg_A IN curRegs THEN x.r := Reg_stack(-1)
+		ELSE x.r := Alloc_reg();
+			IF x.r # reg_A THEN EmitRR (MOVr, x.r, 8, reg_A) END
+		END;
+		x.mode := mode_reg
 	END
 END Call;
 	

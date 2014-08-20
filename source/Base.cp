@@ -408,6 +408,12 @@ END Adjust_alignment;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
+
+PROCEDURE Is_string* (type : Type) : BOOLEAN;
+BEGIN
+	RETURN (type.form = type_string)
+	OR (type.form = type_array) & (type.base = char_type)
+END Is_string;
 	
 PROCEDURE Is_extension_type* (ext, bas : Type) : BOOLEAN;
 BEGIN
