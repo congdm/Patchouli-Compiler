@@ -355,6 +355,12 @@ BEGIN
 	obj.next := universe.next;
 	universe.next := obj
 END Enter;
+
+PROCEDURE Enter2 (cl, n : INTEGER; name : String; typ : Type; n2 : INTEGER);
+BEGIN
+	Enter (cl, n, name, typ);
+	universe.next.val2 := n2
+END Enter2;
 	
 PROCEDURE Register_undefined_pointer_type* (typ : Type; base_typ_name : String);
 	VAR undef : UndefPtrList;
@@ -789,6 +795,7 @@ BEGIN
 	Enter (class_type, 0, Make_string ('REAL'), real_type);
 	Enter (class_type, 0, Make_string ('LONGREAL'), longreal_type);
 	
+	(*
 	Enter (class_sproc, 0, Make_string ('INC'), NIL);
 	Enter (class_sproc, 1, Make_string ('DEC'), NIL);
 	Enter (class_sproc, 2, Make_string ('INCL'), NIL);
@@ -798,22 +805,25 @@ BEGIN
 	Enter (class_sproc, 6, Make_string ('PACK'), NIL);
 	Enter (class_sproc, 7, Make_string ('UNPK'), NIL);
 	Enter (class_sproc, 8, Make_string ('DISPOSE'), NIL);
+	*)
 	
-	Enter (class_sproc, 10, Make_string ('GET'), NIL);
-	Enter (class_sproc, 11, Make_string ('PUT'), NIL);
-	Enter (class_sproc, 12, Make_string ('COPY'), NIL);
-	Enter (class_sproc, 13, Make_string ('LoadLibrary'), NIL);
-	Enter (class_sproc, 14, Make_string ('GetProcAddress'), NIL);
+	Enter (class_sproc, 100, Make_string ('GET'), NIL);
+	Enter (class_sproc, 101, Make_string ('PUT'), NIL);
+	Enter (class_sproc, 102, Make_string ('COPY'), NIL);
+	Enter2 (class_sproc, 103, Make_string ('LoadLibrary'), NIL, -48);
+	Enter2 (class_sproc, 104, Make_string ('GetProcAddress'), NIL, -40);
 	
-	Enter (class_sproc, 20, Make_string ('ABS'), int_type);
-	Enter (class_sproc, 21, Make_string ('ODD'), bool_type);
-	Enter (class_sproc, 22, Make_string ('LEN'), int_type);
-	Enter (class_sproc, 25, Make_string ('ORD'), int_type);
-	Enter (class_sproc, 26, Make_string ('CHR'), char_type);
+	(*
+	Enter (class_sproc, 200, Make_string ('ABS'), int_type);
+	Enter (class_sproc, 201, Make_string ('ODD'), bool_type);
+	Enter (class_sproc, 202, Make_string ('LEN'), int_type);
+	Enter (class_sproc, 205, Make_string ('ORD'), int_type);
+	Enter (class_sproc, 206, Make_string ('CHR'), char_type);
+	*)
 	
-	Enter (class_sproc, 30, Make_string ('ADR'), int_type);
-	Enter (class_sproc, 31, Make_string ('SIZE'), int_type);
-	Enter (class_sproc, 33, Make_string ('VAL'), int_type);
+	Enter (class_sproc, 300, Make_string ('ADR'), int_type);
+	Enter (class_sproc, 301, Make_string ('SIZE'), int_type);
+	(* Enter (class_sproc, 303, Make_string ('VAL'), int_type); *)
 	
 	exportno := 0;	
 	compiler_flag := {integer_overflow_check, array_bound_check, alignment_flag}

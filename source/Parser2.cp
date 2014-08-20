@@ -792,16 +792,14 @@ PROCEDURE ProcedureCall (VAR x : Base.Item; proper : BOOLEAN);
 		has_error : BOOLEAN;
 		rtype : Base.Type;
 BEGIN
-	pinfo.proper := proper;
 	IF x.mode = Base.class_proc THEN
-		pinfo.procvar := FALSE;
 		pinfo.parblksize := x.obj.parblksize;
 		rtype := x.type
 	ELSE
-		pinfo.procvar := TRUE;
 		pinfo.parblksize := x.type.len;
 		rtype := x.type.base
 	END;
+	pinfo.rtype := rtype;
 	
 	has_error := TRUE;
 	IF proper THEN
@@ -823,7 +821,7 @@ BEGIN
 	END
 END ProcedureCall;
 
-(* PROCEDURE StandProc (VAR x : Base.Item);
+PROCEDURE StandProc (VAR x : Base.Item);
 	VAR y : Base.Item;
 	
 	(*
@@ -902,6 +900,7 @@ END ProcedureCall;
 	PROCEDURE SProc_LoadLibrary (adr : INTEGER);
 		VAR
 			x, y, proc : Base.Item;
+			pinfo : Generator.ProcInfo;
 			no_error : BOOLEAN;
 	BEGIN
 		expression (x);
@@ -909,13 +908,17 @@ END ProcedureCall;
 			no_error := TRUE;
 			IF ~ x.readonly THEN
 			ELSE Scanner.Mark ('Cannot modify read only variable')
-			END;
-			proc.mode := Base.class_var;
-			proc.lev := -1;
-			proc.a := adr;
+			END
 		ELSE
 			Scanner.Mark ('Expect an INTEGER variable');
 			Generator.Free_item (x); no_error := FALSE
+		END;
+		
+		IF no_error THEN
+			proc.mode := Base.class_var; proc.type := Base.int_type;
+			proc.lev := -1; proc.a := adr;
+			pinfo.parblksize := 8; pinfo.rtype := Base.int_type;	
+			Generator.Prepare_to_call (proc, pinfo);
 		END;
 		
 		Check (Base.sym_comma, 'Not enough parameters');
@@ -923,17 +926,18 @@ END ProcedureCall;
 		
 		IF no_error THEN
 			IF (y.mode IN classes_Value) & Base.Is_string (y.type) THEN
-				Generator.Prepare_to_call (proc, pinfo);
-				Generator.SProc_LoadLibrary (x, y)
+				Generator.Reference_parameter (y, pinfo)
 			ELSE Scanner.Mark ('Expect a string or character array');
-			END
+			END;
+			Generator.Call (proc, pinfo); Generator.Store (x, proc)
 		ELSE Generator.Free_item (y)
 		END
 	END SProc_LoadLibrary;
 		
-	PROCEDURE SProc_GetProcAddress;
+	PROCEDURE SProc_GetProcAddress (adr : INTEGER);
 		VAR
-			x, y, z : Base.Item;
+			x, y, z, proc : Base.Item;
+			pinfo : Generator.ProcInfo;
 			no_error : BOOLEAN;
 	BEGIN
 		expression (x);
@@ -948,60 +952,54 @@ END ProcedureCall;
 			Generator.Free_item (x); no_error := FALSE
 		END;
 		
-		expression (y); Check_int (y); Generator.load (y);
-		Check (Base.sym_comma, 'Not enough parameters');
-		expression (y); Check_int (y); Generator.load (y);
-		
-		Generator.SProc_GetProcAddress (x, y);
-		
-		Check (Base.sym_comma, 'Not enough parameters');
-		expression (z);
-		
-		IF (z.mode IN classes_Variable) & (z.type.form IN Base.int_type) THEN
-			Generator.Store (y, x)
-		ELSE Scanner.Mark ('Expect an integer variable');
-			Generator.Free_item (y); Generator.Free_item (x)
-		END
-		
-		IF ~ (z.mode IN Base.cls_Variable)
-		OR (z.type.form # Base.type_procedure) THEN
-			Scanner.Mark ('Expect a procedure variable');
-			no_error := FALSE
-		ELSIF Base.flag_readOnly IN z.flag THEN
-			Scanner.Mark ('Can not modify read-only variable');
-			no_error := FALSE
+		IF no_error THEN
+			proc.mode := Base.class_var; proc.type := Base.int_type;
+			proc.lev := -1; proc.a := adr;
+			pinfo.parblksize := 16; pinfo.rtype := Base.int_type;	
+			Generator.Prepare_to_call (proc, pinfo);
 		END;
 		
+		Check (Base.sym_comma, 'Not enough parameters');
+		expression (y); Check_int (y);
+		
+		IF no_error THEN Generator.Normal_parameter (y, pinfo)
+		ELSE Generator.Free_item (y)
+		END;
+		
+		Check (Base.sym_comma, 'Not enough parameters');
+		expression (z); Check_int (z);
+		
 		IF no_error THEN
-			x.type := z.type;
-			Generator.Store (z, x)
+			Generator.Normal_parameter (z, pinfo);
+			Generator.Call (proc, pinfo); Generator.Store (x, proc)
+		ELSE Generator.Free_item (y)
 		END
 	END SProc_GetProcAddress;
 
 BEGIN (* StandProc *)
 	Check (Base.sym_lparen, 'No parameter list or missing (');
 	CASE SHORT (x.a) OF
-		4: SProc_NEW |
-		8: SProc_DISPOSE |
-		10: SProc_GET |
-		11: SProc_PUT |
-		12: SProc_COPY |
-		13: SProc_LoadLibrary |
-		14: SProc_GetProcAddress 
+		(* 4: SProc_NEW |
+		8: SProc_DISPOSE | *)
+		100: SProc_GET |
+		101: SProc_PUT |
+		102: SProc_COPY |
+		103: SProc_LoadLibrary (x.b) |
+		104: SProc_GetProcAddress (x.b)
 	END;
 	WHILE sym = Base.sym_comma DO
 		Scanner.Mark ('Too much parameters');
-		expression (y)
+		expression (y); Generator.Free_item (y)
 	END;
 	Check (Base.sym_rparen, 'No closing )')
-END StandProc; *)
+END StandProc;
 
-(*
+
 PROCEDURE StandFunc (VAR x : Base.Item);
-	VAR
-		result : Base.Item;
+	VAR funcno : INTEGER; rtype : Base.Type;
+		y : Base.Item;
 
-	PROCEDURE SFunc_ABS (VAR x : Base.Item);
+(*	PROCEDURE SFunc_ABS (VAR x : Base.Item);
 	BEGIN
 		expression (x);
 		IF ~ (x.mode IN Base.cls_HasValue)
@@ -1060,12 +1058,12 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 		expression (x); Check_int (x);
 		Generator.SFunc_CHR (x)
 	END SFunc_CHR;
+*)
 		
 	PROCEDURE SFunc_ADR (VAR x : Base.Item);
 	BEGIN
 		expression (x);
-		IF x.mode IN Base.cls_Variable THEN
-			Generator.SFunc_ADR (x)
+		IF x.mode IN classes_Variable THEN Generator.SFunc_ADR (x)
 		ELSE
 			Scanner.Mark ('Expect a variable');
 			Generator.Make_const (x, Base.int_type, 0)
@@ -1083,7 +1081,7 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 		END
 	END SFunc_SIZE;
 		
-	PROCEDURE SFunc_VAL (VAR x : Base.Item);
+(*	PROCEDURE SFunc_VAL (VAR x : Base.Item);
 		VAR
 			y : Base.Item;
 	BEGIN
@@ -1105,36 +1103,36 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 		
 		Generator.SFunc_VAL (x, y)
 	END SFunc_VAL;
+*)
 		
 BEGIN (* StandFunc *)
 	Check (Base.sym_lparen, 'No parameter list or missing (');
-	CASE SHORT(x.a) OF
-		20: SFunc_ABS (result) |
-		21: SFunc_ODD (result) |
-		22: SFunc_LEN (result) |
-		(*23: SFunc_FLOOR (result) |
-		24: SFunc_FLT (result) |*)
-		25: SFunc_ORD (result) |
-		26: SFunc_CHR (result) |
-		(*27: SFunc_LSL (result) |
-		28: SFunc_ASR (result) |
-		29: SFunc_ROR (result) |*)
-		30: SFunc_ADR (result) |
-		31: SFunc_SIZE (result) |
-		33: SFunc_VAL (result)
+	funcno := SHORT (x.a); rtype := x.type;
+	
+	CASE funcno OF
+	(*	200: SFunc_ABS (result) |
+		201: SFunc_ODD (result) |
+		202: SFunc_LEN (result) |
+		203: SFunc_FLOOR (result) |
+		204: SFunc_FLT (result) |
+		205: SFunc_ORD (result) |
+		206: SFunc_CHR (result) |
+		207: SFunc_LSL (result) |
+		208: SFunc_ASR (result) |
+		209: SFunc_ROR (result) | *)
+		300: SFunc_ADR (x) |
+		301: SFunc_SIZE (y) |
+	(*	303: SFunc_VAL (result) *)
 	END;
 	
-	IF (x.a # 33) & (x.a # 20) THEN result.type := x.type
-	END;
-	x := result;
+	IF (funcno # 303) & (funcno # 200) THEN x.type := rtype END;
 	
 	WHILE sym = Base.sym_comma DO
 		Scanner.Mark ('Too much parameters');
-		expression (result)
+		expression (y); Generator.Free_item (y)
 	END;
 	Check (Base.sym_rparen, 'No closing )')
 END StandFunc;
-*)
 	
 PROCEDURE selector (VAR x : Base.Item);
 		
@@ -1292,13 +1290,11 @@ BEGIN
 		designator (x);
 		IF sym = Base.sym_lparen THEN
 			IF x.mode = Base.class_sproc THEN
-				(*
 				IF x.type # NIL THEN StandFunc (x)
 				ELSE
 					Scanner.Mark ('Found proper procedure in expression');
 					Generator.Make_const (x, Base.int_type, 0)
 				END
-				*)
 			ELSIF (x.mode = Base.class_proc) OR (x.mode IN Base.cls_HasValue)
 			& (x.type.form = Base.type_procedure) THEN
 				ProcedureCall (x, FALSE)
@@ -1541,12 +1537,10 @@ BEGIN
 		ELSIF x.mode = Base.class_proc THEN
 			ProcedureCall (x, TRUE)
 		ELSIF x.mode = Base.class_sproc THEN
-		(*
 			IF x.type = NIL THEN StandProc (x)
 			ELSE
 				Scanner.Mark ('Function procedure must be called in expression')
 			END
-		*)
 		ELSIF (sym = Base.sym_lparen) & (x.mode IN Base.cls_HasValue)
 		& (x.type.form = Base.type_procedure) THEN
 			ProcedureCall (x, TRUE)

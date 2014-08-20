@@ -64,9 +64,9 @@ TYPE
 	END;
 	
 	ProcInfo* = RECORD
-		proper*, procvar*, adr_saved_to_stack : BOOLEAN;
 		oldi : UBYTE; oldrs : INTEGER; oldcurRegs : SET;
-		parblksize*, memstack, paradr : INTEGER
+		parblksize*, memstack, paradr : INTEGER;
+		rtype* : Base.Type;
 	END;
 	
 VAR
@@ -491,6 +491,7 @@ END EmitCallGv;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
+(* Item constructor *)
 
 PROCEDURE Make_const* (VAR x : Base.Item; typ : Base.Type; val : LONGINT);
 BEGIN
@@ -562,6 +563,7 @@ END Make_string;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
+(* Branch Fixup *)
 
 PROCEDURE Fix_link* (L : INTEGER);
 	VAR L1, i, size : INTEGER;
@@ -620,6 +622,7 @@ END negated;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
+(* Register stack *)
 
 PROCEDURE Reset_reg_stack;
 BEGIN
@@ -664,6 +667,7 @@ END Free_item;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
+(* Load/Store *)
 
 PROCEDURE Ref_to_regI (VAR x : Base.Item);
 BEGIN
@@ -749,7 +753,7 @@ BEGIN
 		END;
 		Free_reg
 	ELSIF x.type.form IN {Base.type_array, Base.type_record} THEN
-
+		(* IMPLEMENT LATER *)
 	END
 END Store;
 
@@ -764,6 +768,7 @@ END Trap;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
+(* SET construction *)
 
 PROCEDURE Set1* (VAR x : Base.Item);
 	VAR r : UBYTE;
@@ -850,6 +855,7 @@ END Set3;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
+(* Arithmetic *)
 
 PROCEDURE Op1* (op : INTEGER; VAR x : Base.Item);
 	VAR
@@ -1258,6 +1264,34 @@ END Index;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
+(* Standard procedure *)
+
+PROCEDURE SProc_GET* (VAR x, y : Base.Item);
+BEGIN
+	load (x); x.mode := mode_regI; x.a := 0;
+	x.type := y.type; Store (y, x)
+END SProc_GET;
+	
+PROCEDURE SProc_PUT* (VAR x, y : Base.Item);
+BEGIN
+	load (x); x.mode := mode_regI; x.a := 0; x.type := y.type;
+	Store (x, y)
+END SProc_PUT;
+	
+PROCEDURE SProc_COPY* (VAR x, y, z : Base.Item);
+	VAR	i : INTEGER;
+BEGIN
+	(* Implement later *)
+END SProc_COPY;
+
+PROCEDURE SFunc_ADR* (VAR x : Base.Item);
+BEGIN
+	Load_adr (x)
+END SFunc_ADR;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+(* Procedure calling *)
 
 PROCEDURE Save_reg_stacks (VAR pinfo : ProcInfo);
 	VAR i : INTEGER;
@@ -1282,7 +1316,7 @@ BEGIN
 	i := reg_stacks [crs].i - 1;
 	WHILE i >= 0 DO
 		r := reg_stacks [crs].ord [i];
-		IF (r = reg_A) & ~ pinfo.proper THEN
+		IF (r = reg_A) & (pinfo.rtype # NIL) THEN
 			newreg := Alloc_reg();
 			EmitRR (MOVr, newreg, 8, reg_A)
 		END;
@@ -1292,11 +1326,8 @@ END Restore_reg_stacks;
 	
 PROCEDURE Prepare_to_call* (VAR x : Base.Item; VAR pinfo : ProcInfo);
 BEGIN
-	IF ~ (x.mode IN {mode_regI, Base.class_ref}) THEN
-		pinfo.adr_saved_to_stack := FALSE
-	ELSE
-		load (x); PushR (x.r); Free_reg;
-		pinfo.adr_saved_to_stack := TRUE
+	IF ~ (x.mode IN {mode_regI, Base.class_ref}) THEN (* Do nothing *)
+	ELSE load (x); PushR (x.r); Free_reg
 	END;
 	
 	Save_reg_stacks (pinfo);
@@ -1330,8 +1361,8 @@ BEGIN
 	Restore_reg_stacks (pinfo);
 	
 	(* Return value *)
-	IF ~ pinfo.proper THEN
-		IF pinfo.procvar THEN x.type := x.type.base END;
+	IF pinfo.rtype # NIL THEN
+		IF x.mode # Base.class_proc THEN x.type := pinfo.rtype END;
 		IF reg_A IN curRegs THEN x.r := Reg_stack(-1)
 		ELSE x.r := Alloc_reg();
 			IF x.r # reg_A THEN EmitRR (MOVr, x.r, 8, reg_A) END
@@ -1395,6 +1426,7 @@ END Open_array_parameter;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
+(* Conditional *)
 
 PROCEDURE FJump* (VAR L : INTEGER);
 BEGIN
@@ -1436,6 +1468,7 @@ END Fixup;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
+(* Procedure Prolog, Epilog - Code Generation to File *)
 
 PROCEDURE Write_to_file* (from, to : INTEGER);
 	VAR	file : Sys.FileHandle; i, j : INTEGER;
