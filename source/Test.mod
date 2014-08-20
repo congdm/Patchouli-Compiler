@@ -1,4 +1,5 @@
 MODULE Test;
+	VAR x : ARRAY 512 OF BYTE;
 
 	PROCEDURE Main (input : INTEGER);
 		VAR i : INTEGER;

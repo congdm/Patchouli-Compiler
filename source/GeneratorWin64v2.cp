@@ -467,6 +467,23 @@ BEGIN
 	Next_inst
 END EmitCallM;
 
+PROCEDURE EmitCallMip (disp : INTEGER);
+BEGIN
+	Emit.iflag := {}; Emit.i := 0;
+	code [pc, Emit.i] := 0FFH; INC (Emit.i);
+	
+	code [pc, Emit.i] := USHORT (2 * 8 + reg_BP); INC (Emit.i);
+	SYSTEM.PUT (SYSTEM.ADR (code [pc, Emit.i]), disp); INC (Emit.i, 4);
+	
+	Next_inst
+END EmitCallMip;
+
+PROCEDURE EmitCallSv (disp : INTEGER);
+BEGIN
+	EmitCallMip (staticbase + disp);
+	INCL (codeinfo [pc - 1].flag, if_static_var)
+END EmitCallSv;
+
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
@@ -1422,7 +1439,10 @@ BEGIN
 END Write_padding;
 
 PROCEDURE Enter* (proc : Base.Object; locblksize : INTEGER);
+	VAR k : INTEGER;
 BEGIN
+	k := ip MOD 16; IF k # 0 THEN INC (ip, 16 - k); Write_padding (16 - k) END;
+	
 	IF proc # NIL THEN
 		ProcState.locblksize := locblksize;
 		ProcState.parlist := proc.dsc;
@@ -1494,9 +1514,15 @@ BEGIN (* Return *)
 	
 	ProcState.prolog_size := ip - endIP;
 	Write_to_file (endPC, pc - 1);
-	Write_to_file (1, endPC - 1);
-	k := ip MOD 16; IF k # 0 THEN INC (ip, 16 - k); Write_padding (16 - k) END
+	Write_to_file (1, endPC - 1)
 END Return;
+
+PROCEDURE Module_exit*;
+BEGIN
+	EmitRI (SUBi, reg_SP, 8, 32);
+	EmitRR (XORr, reg_C, 4, reg_C);
+	EmitCallSv (-56);
+END Module_exit;
 
 PROCEDURE Set_varsize* (n : INTEGER);
 BEGIN
@@ -1511,52 +1537,32 @@ END Set_varsize;
 PROCEDURE Init* (modname : Base.String);
 BEGIN
 	ip := 0; varbase := 0; staticsize := 56;
-	Sys.Rewrite (out, 'output.bin');
+	Sys.Rewrite (out, 'output.exe');
 	Sys.Seek (out, 400H)
 END Init;
 
-PROCEDURE Write_ansi_str (s : ARRAY OF SHORTCHAR);
-	VAR i : INTEGER;
-BEGIN
-	i := 0;
-	WHILE i < LEN(s) DO
-		Sys.Write_byte (out, ORD (s[i]));
-		INC (i)
-	END
-END Write_ansi_str;
-
-PROCEDURE Write_idata_section (idata_fadr, idata_rva, data_rva : INTEGER);
+PROCEDURE Write_idata_section (
+	idata_fadr, idata_rva, data_rva, data_size : INTEGER
+);
 	CONST
 		table_len = 7;
 		table_size = table_len * 8;
 		table_rva = 40;
 		name_rva = table_rva + table_size;
 		hint_rva = name_rva + 16;
-
-	TYPE
-		ImportDirectory = RECORD
-			ImportLookupTableRVA, TimeDateStamp, ForwarderChain : INTEGER;
-			NameRVA, ImportAddressTableRVA  : INTEGER;
-		END;
 		
-	VAR impdir : ImportDirectory;
-		i, j : INTEGER; b : UBYTE;
+	VAR i, j : INTEGER; b : UBYTE;
 		kernel32table : ARRAY table_len OF LONGINT;
 BEGIN
 	Sys.Seek (out, idata_fadr);
+	
+	(* Import Directory Entry - Kernel32.dll *)
+	Sys.Write_4bytes (out, idata_rva + table_rva);
+	Sys.Write_4bytes (out, 0);
+	Sys.Write_4bytes (out, 0);
+	Sys.Write_4bytes (out, idata_rva + name_rva);
+	Sys.Write_4bytes (out, data_rva + data_size + staticbase - table_size);
 
-	impdir.ImportLookupTableRVA := idata_rva + table_rva;
-	impdir.TimeDateStamp := 0;
-	impdir.ForwarderChain := 0;
-	impdir.NameRVA := idata_rva + name_rva;
-	impdir.ImportAddressTableRVA := data_rva + staticsize - table_size;
-	
-	i := 0; b := 0;
-	WHILE i < 20 DO
-		SYSTEM.GET (SYSTEM.ADR (impdir) + i, b);
-		Sys.Write_byte (out, b); INC (i)
-	END;
-	
 	Sys.Seek (out, idata_fadr + table_rva);
 	FOR i := 0 TO 5 DO
 		kernel32table [i] := idata_rva + hint_rva + 32 * i
@@ -1564,68 +1570,56 @@ BEGIN
 	kernel32table [6] := 0;
 	i := 0; j := LEN(staticdata) - table_size;
 	WHILE i < table_size DO
-		SYSTEM.GET (SYSTEM.ADR (kernel32table [0]) + i, b);
+		SYSTEM.GET (SYSTEM.ADR(kernel32table[0]) + i, b);
 		staticdata [j] := b; Sys.Write_byte (out, b); INC (i); INC (j)
 	END;
 	
 	Sys.Seek (out, idata_fadr + name_rva);
-	Write_ansi_str ('kernel32.dll');
+	Sys.Write_ansi_str (out, 'KERNEL32.DLL');
 	
 	Sys.Seek (out, idata_fadr + hint_rva + 2);
-	Write_ansi_str ('ExitProcess');
+	Sys.Write_ansi_str (out, 'ExitProcess');
 	Sys.Seek (out, idata_fadr + hint_rva + (32 + 2));
-	Write_ansi_str ('LoadLibrary');
+	Sys.Write_ansi_str (out, 'LoadLibraryW');
 	Sys.Seek (out, idata_fadr + hint_rva + (64 + 2));
-	Write_ansi_str ('GetProcAddress');
+	Sys.Write_ansi_str (out, 'GetProcAddress');
 	Sys.Seek (out, idata_fadr + hint_rva + (96 + 2));
-	Write_ansi_str ('GetProcessHeap');
+	Sys.Write_ansi_str (out, 'GetProcessHeap');
 	Sys.Seek (out, idata_fadr + hint_rva + (128 + 2));
-	Write_ansi_str ('HeapAlloc');
+	Sys.Write_ansi_str (out, 'HeapAlloc');
 	Sys.Seek (out, idata_fadr + hint_rva + (160 + 2));
-	Write_ansi_str ('HeapFree')
+	Sys.Write_ansi_str (out, 'HeapFree')
 END Write_idata_section;
 
 
 PROCEDURE Write_reloc_section (data_rva : INTEGER);
 BEGIN
-
+	Sys.Write_4bytes (out, 4);
+	Sys.Write_4bytes (out, 12);
+	Sys.Write_2bytes (out, 0);
+	Sys.Write_2bytes (out, 0)
 END Write_reloc_section;
 
 
 PROCEDURE Write_SectionHeader (
-	name : ARRAY OF SHORTCHAR;
+	name : ARRAY OF CHAR;
 	chr, rva, rawsize, size, fileadr : INTEGER
-);
-	TYPE
-		SectionHeader = RECORD
-			Name : LONGINT;
-			VirtualSize, VirtualAddress, SizeOfRawData : INTEGER;
-			PointerToRawData : INTEGER;
-			PointerToRelocations, PointerToLinenumbers : INTEGER;
-			NumberOfRelocations, NumberOfLinenumbers : SHORTINT;
-			Characteristics : INTEGER
-		END;
-		
+);	
 	VAR
-		sh : SectionHeader; b : UBYTE; i : INTEGER;
-		
+		b : UBYTE; i : INTEGER;	
 BEGIN
-	b := 0;
-	FOR i := 0 TO 40 - 1 DO SYSTEM.PUT (SYSTEM.ADR(sh.Name[0]) + i, b) END;
-	Sys.Console_WriteInt (LEN(name));
-	FOR i := 0 TO LEN(name) - 1 DO
-		sh.Name[i] :=
-			name[i]
-	END;
-	sh.VirtualAddress := rva;
-	sh.VirtualSize := size;
-	sh.SizeOfRawData := rawsize;
-	sh.PointerToRawData := fileadr;
-	sh.Characteristics := chr;
-	FOR i := 0 TO 40 - 1 DO
-		SYSTEM.GET (SYSTEM.ADR(sh.Name) + i, b);
+	FOR i := 0 TO 7 DO
+		b := 0; IF i < LEN(name) THEN b := USHORT (ORD (name[i])) END;
 		Sys.Write_byte (out, b)
-	END
+	END;
+	Sys.Write_4bytes (out, size);
+	Sys.Write_4bytes (out, rva);
+	Sys.Write_4bytes (out, rawsize);
+	Sys.Write_4bytes (out, fileadr);
+	Sys.Write_4bytes (out, 0);
+	Sys.Write_4bytes (out, 0);
+	Sys.Write_4bytes (out, 0);
+	Sys.Write_4bytes (out, chr)
 END Write_SectionHeader;
 
 PROCEDURE Write_PEHeader (
@@ -1634,93 +1628,63 @@ PROCEDURE Write_PEHeader (
 	data_rva, data_size, data_rawsize, data_fadr,
 	idata_rva, idata_fadr : INTEGER
 );
-	TYPE
-		PEHeader = RECORD
-			Stub : ARRAY 60 OF UBYTE;
-			PESignatureOffset : INTEGER;
-			Stub2 : ARRAY 64 OF UBYTE;
-			PESignature : INTEGER;
-			Machine, NumberOfSection : SHORTINT;
-			TimeDateStamp, PointerToSymbolTable, NumberOfSymbols : INTEGER;
-			SizeOfOptionalHeader, Characteristics : SHORTINT;
-			
-			(* Optional Header *)
-			Magic : SHORTINT;
-			MajorLinkerVersion, MinorLinkerVersion : UBYTE;
-			SizeOfCode, SizeOfInitializedData, SizeOfUninitializedData: INTEGER;
-			AddressOfEntryPoint, BaseOfCode : INTEGER;
-			
-			(* Optional Header - Windows specific *)
-			ImageBase : LONGINT;
-			SectionAlignment, FileAlignment : INTEGER;
-			MajorOperatingSystemVersion, MinorOperatingSystemVersion : SHORTINT;
-			MajorImageVersion, MinorImageVersion : SHORTINT;
-			MajorSubsystemVersion, MinorSubsystemVersion : SHORTINT;
-			Win32VersionValue, SizeOfImage, SizeOfHeaders, CheckSum : INTEGER;
-			Subsystem, DllCharacteristics : SHORTINT;
-			SizeOfStackReserve, SizeOfStackCommit : LONGINT;
-			SizeOfHeapReserve, SizeOfHeapCommit : LONGINT;
-			LoaderFlags, NumberOfRvaAndSizes : INTEGER;
-			
-			(* Optional Header - Data Directories *)
-			ExportTable, ImportTable, ResourceTable, ExceptionTable,
-			CertificateTable, BaseRelocationTable, Debug, Architecture,
-			GlobalPtr, TLSTable, LoadConfigTable, BoundImport, IAT,
-			DelayImportDescriptor, CLRRuntimeHeader
-				: RECORD VirtualAddress, Size : INTEGER END
-		END;
-
-	VAR
-		h : PEHeader; b : UBYTE; i : INTEGER;
-			
-BEGIN (* Write_PEHeader *)
-	(* Zero fill *)
-	b := 0; FOR i := 0 TO 368 - 1 DO SYSTEM.PUT (SYSTEM.ADR(h.Stub) + i, b) END;
-
-	h.PESignatureOffset := 128;
-	Sys.Seek (out, 60); Sys.Write_2
-	h.PESignature := 4550H;
-	h.Machine := -31132; (* AMD64/Intel 64 *)
-	h.NumberOfSection := 3;
-	h.SizeOfOptionalHeader := 88 + 16 * 8;
-	h.Characteristics := 20H + 2;
+	VAR k : INTEGER;
+BEGIN
+	Sys.Seek (out, 0);
+	Sys.Write_2bytes (out, 5A4DH);
+	Sys.Seek (out, 60);
+	Sys.Write_4bytes (out, 128);
+	Sys.Seek (out, 128);
+	Sys.Write_4bytes (out, 4550H);
 	
-	h.Magic := 20BH;
-	h.SizeOfCode := code_size;
-	h.SizeOfInitializedData := data_size;
-	h.AddressOfEntryPoint := code_rva + entry;
-	h.BaseOfCode := code_rva;
+	Sys.Write_2bytes (out, 8664H); (* Machine = AMD64/Intel 64 *)
+	Sys.Write_2bytes (out, 3); (* NumberOfSections *)
+	Sys.SeekRel (out, 4 * 3);
+	Sys.Write_2bytes (out, 240);
+	Sys.Write_2bytes (out, 20H + 2 + 1);
 	
-	h.ImageBase := imagebase;
-	h.SectionAlignment := 4096;
-	h.FileAlignment := 512;
-	h.MajorOperatingSystemVersion := 5; (* XP/2003 *)
-	h.MajorSubsystemVersion := 5;
-	h.SizeOfImage := code_size + data_size + 4096 * 2;
-	h.SizeOfHeaders := 400H;
-	h.Subsystem := 2; (* GUI app *)
-	h.SizeOfStackReserve := 10000H;
-	h.SizeOfStackCommit := 4096;
-	h.SizeOfHeapReserve := 0;
-	h.SizeOfHeapCommit := 0;
-	h.NumberOfRvaAndSizes := 16;
+	Sys.Write_2bytes (out, 20BH);
+	Sys.SeekRel (out, 2);
+	Sys.Write_4bytes (out, code_rawsize);
+	Sys.Write_4bytes (out, data_rawsize + 200H);
+	Sys.SeekRel (out, 4);
+	Sys.Write_4bytes (out, code_rva + entry);
+	Sys.Write_4bytes (out, code_rva);
 	
-	h.ImportTable.VirtualAddress := idata_rva;
-	h.ImportTable.Size := 4096;
+	Sys.Write_8bytes (out, imagebase);
+	Sys.Write_4bytes (out, 4096);
+	Sys.Write_4bytes (out, 512);
+	Sys.Write_2bytes (out, 1); (* MajorOSVer *)
+	Sys.SeekRel (out, 2 * 3);
+	Sys.Write_2bytes (out, 5);
+	Sys.SeekRel (out, 2 + 4);
+	k := (4096 - code_size) MOD 4096 + code_size + data_size + 4096 * 2;
+	Sys.Write_4bytes (out, k);
+	Sys.Write_4bytes (out, 400H);
+	Sys.SeekRel (out, 4);
+	Sys.Write_2bytes (out, 2); (* Subsys = GUI *)
+	Sys.SeekRel (out, 2);
+	Sys.Write_8bytes (out, 1000H);
+	Sys.Write_8bytes (out, 1000H);
+	Sys.Write_8bytes (out, 10000H);
+	Sys.SeekRel (out, 8 + 4);
+	Sys.Write_4bytes (out, 16);
 	
-	(* Write to file *)
-	FOR i := 0 TO 368 - 1 DO
-		SYSTEM.GET (SYSTEM.ADR(h.Stub) + i, b);
-		Sys.Write_byte (out, b)
-	END;
+	Sys.SeekRel (out, 8);
+	Sys.Write_4bytes (out, idata_rva);
+	Sys.Write_4bytes (out, 130H);
+	Sys.SeekRel (out, 8 * 14);
 	
 	Write_SectionHeader
 		('.text', 60000020H, code_rva, code_rawsize, code_size, code_fadr);
 	Write_SectionHeader
 		('.data', -1073741760, data_rva, data_rawsize, data_size, data_fadr);
 	Write_SectionHeader
-		('.idata', -1073741760, idata_rva, 200H, 4096, idata_fadr);
-	(* Write_SectionHeader ('.reloc', 42000040H) *)
+		('.idata', -1073741760, idata_rva, 200H, 130H, idata_fadr);
+	(*
+	Write_SectionHeader
+		('.reloc', 42000040H, idata_rva + 4096, 200H, 4096, idata_fadr + 200H)
+	*)
 END Write_PEHeader;
 
 PROCEDURE Finish*;
@@ -1728,29 +1692,31 @@ PROCEDURE Finish*;
 		code_size, data_size, idata_size : INTEGER;
 		code_rva, data_rva, idata_rva : INTEGER;
 		code_fadr, data_fadr, idata_fadr, reloc_fadr : INTEGER;
-		i : INTEGER; k, imagebase : LONGINT;
+		i, padding : INTEGER; k, imagebase : LONGINT;
 BEGIN
 	imagebase := 400000H;
 
 	code_rawsize := (512 - ip) MOD 512 + ip;
-	code_size := (4096 - ip) MOD 4096 + ip;
+	code_size := ip;
+	
 	data_size := staticsize + varsize;
 	data_size := (4096 - data_size) MOD 4096 + data_size;
-	data_rawsize := data_size - varsize;
+	padding := data_size - staticsize - varsize;
+	data_rawsize := padding + staticsize;
+	data_rawsize := (512 - data_rawsize) MOD 512 + data_rawsize;
 	
-	data_rva := 0;
-	code_rva := data_rva + data_size;
-	idata_rva := code_rva + code_size;
+	data_rva := 1000H;
+	code_rva := data_rva + (4096 - data_size) MOD 4096 + data_size;
+	idata_rva := code_rva + (4096 - code_size) MOD 4096 + code_size;
 	
 	code_fadr := 400H;
 	data_fadr := code_fadr + code_rawsize;
 	idata_fadr := data_fadr + data_rawsize;
 	reloc_fadr := idata_fadr + 200H;
 	
-	Write_idata_section (idata_fadr, idata_rva, data_rva);
+	Write_idata_section (idata_fadr, idata_rva, data_rva, data_size);
 	
-	Sys.Console_WriteInt (staticsize);
-	Sys.Seek (out, data_fadr + data_rawsize - staticsize);
+	Sys.Seek (out, data_fadr + padding);
 	i := LEN(staticdata) - staticsize;
 	WHILE i < LEN(staticdata) DO
 		Sys.Write_byte (out, staticdata [i]); INC (i)
@@ -1758,8 +1724,8 @@ BEGIN
 	
 	Sys.Seek (out, reloc_fadr);
 	Write_reloc_section (data_rva);
+	Sys.Seek (out, reloc_fadr + 200H);
 	
-	Sys.Seek (out, 0);
 	Write_PEHeader (imagebase,
 		code_rva, code_size, code_rawsize, code_fadr,
 		data_rva, data_size, data_rawsize, data_fadr,

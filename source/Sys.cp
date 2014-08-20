@@ -13,8 +13,7 @@ CONST
 TYPE
 	FileHandle* = RECORD
 		f : IO.FileStream;
-		r : IO.StreamReader;
-		w : IO.StreamWriter
+		r : IO.StreamReader
 	END;
 	
 PROCEDURE Get_executable_path* (VAR out : ARRAY OF CHAR; VAR n : INTEGER);
@@ -49,15 +48,13 @@ END Open;
 	
 PROCEDURE Rewrite* (VAR file : FileHandle; filename : ARRAY OF CHAR);
 BEGIN
-	file.f := IO.File.Create (MKSTR (filename));
-	file.w := IO.StreamWriter.init (file.f)
+	file.f := IO.File.Create (MKSTR (filename))
 END Rewrite;
 
 PROCEDURE Close* (VAR file : FileHandle);
 BEGIN
 	IF file.f # NIL THEN
-		IF file.w # NIL THEN file.w.Flush; END;
-		file.f.Close; file.f := NIL; file.w := NIL; file.r := NIL
+		file.f.Close; file.f := NIL; file.r := NIL
 	END
 END Close;
 
@@ -72,16 +69,64 @@ BEGIN
 	RETURN result
 END Read_char;
 	
-PROCEDURE Write_string* (VAR file : FileHandle; str : ARRAY OF CHAR);
+PROCEDURE Write_byte* (VAR file : FileHandle; n : INTEGER);
+	VAR b : UBYTE;
 BEGIN
-	file.w.Write (MKSTR(str))
-END Write_string;
-	
-PROCEDURE Write_newline* (VAR file : FileHandle);
+	b := USHORT(n);
+	file.f.WriteByte (b)
+END Write_byte;
+
+PROCEDURE Write_ansi_str* (VAR file : FileHandle; str : ARRAY OF CHAR);
+	VAR b : UBYTE; i : INTEGER;
 BEGIN
-	file.w.WriteLine
-END Write_newline;
+	i := 0;
+	WHILE i < LEN(str) DO
+		b := USHORT (ORD (str[i])); file.f.WriteByte (b); INC (i)
+	END
+END Write_ansi_str;
 	
+PROCEDURE Write_2bytes* (VAR file : FileHandle; n : INTEGER);
+	VAR b : UBYTE;
+BEGIN
+	b := USHORT(n MOD 256); file.f.WriteByte (b);
+	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b)
+END Write_2bytes;
+	
+PROCEDURE Write_4bytes* (VAR file : FileHandle; n : INTEGER);
+	VAR b : UBYTE;
+BEGIN
+	b := USHORT(n MOD 256); file.f.WriteByte (b);
+	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b);
+	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b);
+	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b)
+END Write_4bytes;
+	
+PROCEDURE Write_8bytes* (VAR file : FileHandle; n : LONGINT);
+	VAR b : UBYTE;
+BEGIN
+	b := USHORT(n MOD 256); file.f.WriteByte (b);
+	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b);
+	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b);
+	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b);
+	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b);
+	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b);
+	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b);
+	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b)
+END Write_8bytes;
+
+PROCEDURE Seek* (VAR file : FileHandle; pos : LONGINT);
+	VAR res : LONGINT;
+BEGIN
+	res := file.f.Seek (pos, IO.SeekOrigin.Begin);
+	ASSERT (res = pos)
+END Seek;
+
+PROCEDURE SeekRel* (VAR file : FileHandle; offset : LONGINT);
+	VAR res : LONGINT;
+BEGIN
+	res := file.f.Seek (offset, IO.SeekOrigin.Current)
+END SeekRel;
+
 PROCEDURE Int_to_string* (x : LONGINT; VAR str : ARRAY OF CHAR);
 	VAR
 		negative : BOOLEAN;
@@ -110,59 +155,6 @@ BEGIN
 		END
 	END
 END Int_to_string;
-	
-PROCEDURE Write_number* (VAR file : FileHandle; x : LONGINT);
-	VAR
-		s : ARRAY 22 OF CHAR;
-BEGIN
-	Int_to_string (x, s);
-	file.w.Write (MKSTR(s))
-END Write_number;
-	
-PROCEDURE Write_char* (VAR file : FileHandle; ch : CHAR);
-BEGIN
-	file.w.Write (ch)
-END Write_char;
-	
-PROCEDURE Write_byte* (VAR file : FileHandle; n : INTEGER);
-	VAR i : UBYTE;
-BEGIN
-	i := USHORT(n);
-	file.f.WriteByte (i)
-END Write_byte;
-	
-PROCEDURE Write_2bytes* (VAR file : FileHandle; n : INTEGER);
-BEGIN
-END Write_2bytes;
-	
-PROCEDURE Write_4bytes* (VAR file : FileHandle; n : INTEGER);
-BEGIN
-END Write_4bytes;
-	
-PROCEDURE Write_8bytes* (VAR file : FileHandle; n : LONGINT);
-BEGIN
-END Write_8bytes;
-
-PROCEDURE Seek* (VAR file : FileHandle; pos : LONGINT);
-	VAR res : LONGINT;
-BEGIN
-	res := file.f.Seek (pos, IO.SeekOrigin.Begin);
-	ASSERT (res = pos)
-END Seek;
-	
-PROCEDURE Copy_file* (VAR dst, src : FileHandle; n : INTEGER);
-	VAR
-		buffer : POINTER TO ARRAY OF CHAR;
-		res : INTEGER;
-BEGIN
-	NEW (buffer, 4096);
-	WHILE n > 0 DO
-		IF n <= LEN(buffer) THEN res := src.r.ReadBlock (buffer, 0, n)
-		ELSE res := src.r.ReadBlock (buffer, 0, LEN(buffer)) END;
-		dst.w.Write (buffer, 0, res);
-		DEC (n, LEN(buffer))
-	END
-END Copy_file;
 	
 PROCEDURE Console_WriteInt* (x : LONGINT);
 	VAR

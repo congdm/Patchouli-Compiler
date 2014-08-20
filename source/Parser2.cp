@@ -1576,6 +1576,7 @@ BEGIN
 		Scanner.Get (sym);
 		StatementSequence
 	END;
+	Generator.Module_exit;
 	Generator.Return;
 
 	Check (Base.sym_end, 'No END for module');
