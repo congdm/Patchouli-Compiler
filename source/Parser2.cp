@@ -716,14 +716,11 @@ BEGIN (* DeclarationSequence *)
 		END
 	END;
 	IF sym = Base.sym_var THEN
-		IF Base.cur_lev = 0 THEN varsize := Generator.varsize END;
-		
 		Scanner.Get (sym);
 		WHILE sym = Base.sym_ident DO
 			VariableDeclaration (varsize);
 			Check (Base.sym_semicolon, 'No ; after variable declaration')
 		END;
-		
 		IF Base.cur_lev = 0 THEN Generator.Set_varsize (varsize) END
 	END;
 	WHILE sym = Base.sym_procedure DO

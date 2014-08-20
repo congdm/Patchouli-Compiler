@@ -142,6 +142,13 @@ END Write_4bytes;
 PROCEDURE Write_8bytes* (VAR file : FileHandle; n : LONGINT);
 BEGIN
 END Write_8bytes;
+
+PROCEDURE Seek* (VAR file : FileHandle; pos : LONGINT);
+	VAR res : LONGINT;
+BEGIN
+	res := file.f.Seek (pos, IO.SeekOrigin.Begin);
+	ASSERT (res = pos)
+END Seek;
 	
 PROCEDURE Copy_file* (VAR dst, src : FileHandle; n : INTEGER);
 	VAR
