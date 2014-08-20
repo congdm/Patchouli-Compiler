@@ -6,9 +6,9 @@ This compiler is based on the Oberon-0 compiler in Prof. Niklaus Wirth "Compiler
 
 The goal is to implement the recursive descent compiler for Oberon-07 language, Intel 64 architecture.
 
-Written in Component Pascal, compiled by Gardens Point Component Pascal, and the generated output of this compiler is FASM-syntax assembly code.
+Written in Component Pascal, compiled by Gardens Point Component Pascal, and require .NET 2.0 to run.
 
-Binary is also supply with source. At current stage, the compiler can build some simple Win64 program, without import/export abilities and some language constructs is still missing.
+Binary is also supply with source.
 
 **(\*UPDATE\*)**
 I have changed the design again. The output this time will be native machine code. It isn't runable as the old version yet.
