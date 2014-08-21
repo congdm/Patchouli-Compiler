@@ -158,11 +158,9 @@ BEGIN
 		fail := FALSE
 	END;
 	IF fail THEN
-		Generator.Free_item (x);
-		Generator.Free_item (y);
+		Generator.Free_item (x); Generator.Free_item (y);
 		Generator.Make_const (x, Base.nil_type, 0);
-		y.mode := Base.class_type;
-		y.type := Base.nil_type
+		y.mode := Base.class_type; y.type := Base.nil_type
 	END
 END Check_type_test;
 
@@ -180,8 +178,7 @@ BEGIN
 		fail := FALSE
 	END;
 	IF fail THEN
-		Generator.Free_item (x);
-		Generator.Free_item (y);
+		Generator.Free_item (x); Generator.Free_item (y);
 		Generator.Make_const (x, Base.int_type, 0);
 		Generator.Make_const (y, Base.int_type, 0)
 	END
@@ -233,12 +230,10 @@ PROCEDURE ident (VAR obj : Base.Object; class : INTEGER);
 	BEGIN
 	IF sym = Base.sym_ident THEN
 		Base.New_obj (obj, Scanner.id, class);
-		IF obj = Base.guard THEN
-			Scanner.Mark ('Duplicate identifer definition')
+		IF obj = Base.guard THEN Scanner.Mark ('Duplicate identifer definition')
 		END;
 		Scanner.Get (sym)
-	ELSE
-		Scanner.Mark ('Identifier expected'); obj := Base.guard
+	ELSE Scanner.Mark ('Identifier expected'); obj := Base.guard
 	END
 END ident;
 
@@ -561,17 +556,21 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 		identdef (obj, Base.class_head); (* Defense again circular definition *)
 		Check (Base.sym_equal, 'No = in const declaration');
 		expression (x);
-		obj.class := Base.class_const;
-		IF x.mode = Base.class_const THEN	
-			obj.val := x.a;
-			obj.type := x.type
+		
+		IF x.mode = Base.class_const THEN
+			obj.class := Base.class_const;
+			obj.type := x.type;
+			obj.val := x.a
 		ELSIF (x.mode = Base.class_var) & (x.type.form = Base.type_string) THEN
+			obj.readonly := TRUE;
+			obj.class := Base.class_var;
 			obj.lev := x.lev;
+			obj.type := x.type;
 			obj.val := x.a;
-			obj.val2 := x.b;
-			obj.type := x.type
+			obj.val2 := x.b
 		ELSE
 			Scanner.Mark ('Expect a const expression');
+			obj.class := Base.class_const;
 			obj.type := Base.int_type;
 			obj.val := 0
 		END
@@ -612,7 +611,7 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 		Check (Base.sym_colon, 'No colon after identifier list');
 		defobj := NIL;
 		type (tp);
-		
+				
 		Base.Adjust_alignment (varsize, tp.alignment);
 		WHILE first # Base.guard DO
 			INC (varsize, tp.size);
@@ -1010,44 +1009,49 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 		END;
 		Generator.SFunc_ABS (x)
 	END SFunc_ABS;
+*)
 		
 	PROCEDURE SFunc_ODD (VAR x : Base.Item);
 	BEGIN
-		expression (x); Check_int (x);
-		Generator.SFunc_ODD (x)
+		expression (x); Check_int (x); Generator.SFunc_ODD (x)
 	END SFunc_ODD;
 		
 	PROCEDURE SFunc_LEN (VAR x : Base.Item);
 	BEGIN
 		expression (x);
-		IF ~ (x.mode IN Base.cls_HasValue)
-		OR (x.type.form # Base.type_array) THEN
+		IF (x.mode IN classes_Variable) & (x.type.form = Base.type_array) THEN
+			Generator.SFunc_LEN (x)
+		ELSE
 			Scanner.Mark ('Expect an array');
 			Generator.Make_const (x, Base.int_type, 0)
-		ELSE
-			Generator.SFunc_LEN (x)
 		END
 	END SFunc_LEN;
+	
+	PROCEDURE SFunc_SHIFT (shf : INTEGER; VAR x : Base.Item);
+	BEGIN
+		expression (x); Check_int (x);
+		IF x.mode IN classes_Variable THEN Generator.load (x) END;
+		Check (Base.sym_comma, 'Not enough parameters');
+		expression (y); Check_int (y);
+		Generator.SFunc_SHIFT (shf, x, y)
+	END SFunc_SHIFT;
 		
 	PROCEDURE SFunc_ORD (VAR x : Base.Item);
 		CONST
 			valid_types = {Base.type_char, Base.type_set, Base.type_boolean};
-		VAR
-			no_error : BOOLEAN;
+		VAR no_error : BOOLEAN;
 	BEGIN
-		expression (x);
-		no_error := TRUE;
-		IF ~ (x.mode IN Base.cls_HasValue) THEN
-			no_error := FALSE
-		ELSIF ~ (x.type.form IN valid_types) THEN
-			IF (x.type.form # Base.type_string) OR (x.type.len # 2) THEN
-				no_error := FALSE
+		expression (x); no_error := TRUE;
+		IF (x.mode IN classes_Value) THEN
+			IF x.type.form IN valid_types THEN
+				IF x.mode IN classes_Variable THEN Generator.load (x) END;
+			ELSIF (x.type.form = Base.type_string) & (x.type.len = 2) THEN
+				x.mode := Base.class_const; x.a := x.b
+			ELSE no_error := FALSE;
 			END
+		ELSE no_error := FALSE
 		END;
-		
-		IF no_error THEN
-			Generator.SFunc_ORD (x)
-		ELSE
+		IF no_error THEN (* Do nothing *) ELSE
 			Scanner.Mark ('Expect a character, set or boolean value');
 			Generator.Make_const (x, Base.int_type, 0)
 		END
@@ -1056,9 +1060,8 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 	PROCEDURE SFunc_CHR (VAR x : Base.Item);
 	BEGIN
 		expression (x); Check_int (x);
-		Generator.SFunc_CHR (x)
+		IF x.mode IN classes_Variable THEN Generator.load (x) END
 	END SFunc_CHR;
-*)
 		
 	PROCEDURE SFunc_ADR (VAR x : Base.Item);
 	BEGIN
@@ -1071,62 +1074,62 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 	END SFunc_ADR;
 		
 	PROCEDURE SFunc_SIZE (VAR x : Base.Item);
+		VAR size : INTEGER;
 	BEGIN
 		expression (x);
-		IF x.mode = Base.class_type THEN
-			Generator.Make_const (x, Base.int_type, x.type.size)
-		ELSE
-			Scanner.Mark ('Expect a type identifier');
-			Generator.Make_const (x, Base.int_type, 0)
-		END
+		IF x.mode = Base.class_type THEN size := x.type.size
+		ELSE Scanner.Mark ('Expect a type identifier'); size := 0
+		END;
+		Generator.Make_const (x, Base.int_type, size)
 	END SFunc_SIZE;
+	
+	PROCEDURE SFunc_BIT (VAR x : Base.Item);
+	BEGIN
+		expression (x); Check_int (x);
+		IF x.mode IN classes_Variable THEN Generator.load (x) END;
+		Check (Base.sym_comma, 'Not enough parameters');
+		expression (y); Check_int (y);
+		Generator.SFunc_BIT (x, y)
+	END SFunc_BIT;
 		
-(*	PROCEDURE SFunc_VAL (VAR x : Base.Item);
-		VAR
-			y : Base.Item;
+	PROCEDURE SFunc_VAL (VAR x : Base.Item);
+		VAR y : Base.Item;
+			cast_type : Base.Type;
 	BEGIN
 		expression (x);
-		IF (x.mode # Base.class_type)
-		OR ~ (x.type.form IN Base.types_Scalar) THEN
+		IF (x.mode = Base.class_type) & (x.type.form IN Base.types_Scalar) THEN
+			cast_type := x.type
+		ELSE
 			Scanner.Mark ('Expect a scalar type identifier');
-			x.type := Base.int_type
+			cast_type := Base.int_type; Generator.Free_item (x)
 		END;
 		
 		Check (Base.sym_comma, 'Not enough parameters');
 		expression (y);
-		
-		IF ~ (y.mode IN Base.cls_HasValue) THEN
-			Scanner.Mark ('Expect a value');
-			Generator.Free_item (y);
-			Generator.Make_const (y, Base.int_type, 0)
-		END;
-		
-		Generator.SFunc_VAL (x, y)
+		IF y.mode IN classes_Value THEN x := y; x.type := cast_type
+		ELSE Scanner.Mark ('Expect a value'); Generator.Free_item (y);
+			Generator.Make_const (x, cast_type, 0)
+		END
 	END SFunc_VAL;
-*)
 		
 BEGIN (* StandFunc *)
 	Check (Base.sym_lparen, 'No parameter list or missing (');
 	funcno := SHORT (x.a); rtype := x.type;
-	
 	CASE funcno OF
-	(*	200: SFunc_ABS (result) |
-		201: SFunc_ODD (result) |
-		202: SFunc_LEN (result) |
-		203: SFunc_FLOOR (result) |
-		204: SFunc_FLT (result) |
-		205: SFunc_ORD (result) |
-		206: SFunc_CHR (result) |
-		207: SFunc_LSL (result) |
-		208: SFunc_ASR (result) |
-		209: SFunc_ROR (result) | *)
+	(*	200: SFunc_ABS (result) | *)
+		201: SFunc_ODD (x) |
+		202: SFunc_LEN (x) |
+		203 .. 205: SFunc_SHIFT (funcno - 203, x) |
+	(*	206: SFunc_FLOOR (x) |
+		207: SFunc_FLT (x) | *)
+		208: SFunc_ORD (x) |
+		209: SFunc_CHR (x) |
 		300: SFunc_ADR (x) |
-		301: SFunc_SIZE (y) |
-	(*	303: SFunc_VAL (result) *)
+		301: SFunc_SIZE (x) |
+		302: SFunc_BIT (x) |
+		303: SFunc_VAL (x)
 	END;
-	
 	IF (funcno # 303) & (funcno # 200) THEN x.type := rtype END;
-	
 	WHILE sym = Base.sym_comma DO
 		Scanner.Mark ('Too much parameters');
 		expression (y); Generator.Free_item (y)
@@ -1370,112 +1373,49 @@ END SimpleExpression;
 PROCEDURE expression (VAR x : Base.Item);
 	VAR op, x_form : INTEGER;
 		y : Base.Item;
-BEGIN
-	SimpleExpression (x);
-	(*
-	IF (sym >= Base.sym_equal) & (sym <= Base.sym_is) THEN
-		op := sym;
-		Check_relation (op, x);
 		
-		IF x.mode = Base.mode_cond THEN
-			Generator.load (x)
-		ELSIF x.mode IN Base.cls_Variable THEN
+	PROCEDURE Check_for_string_const (VAR x, y : Base.Item);
+	BEGIN
+		IF (x.mode IN classes_Value) & (x.type = Base.char_type)
+				& (y.type # Base.char_type) THEN
+			Generator.Make_const (y, Base.char_type, y.b)
+		ELSIF (y.mode IN classes_Value) & (y.type = Base.char_type)
+				& (x.type # Base.char_type) THEN
+			Generator.Make_const (x, Base.char_type, x.b)
+		END
+	END Check_for_string_const;
+		
+BEGIN (* expression *)
+	SimpleExpression (x);
+	IF (sym >= Base.sym_equal) & (sym <= Base.sym_is) THEN
+		op := sym; Check_relation (op, x);
+		
+		IF x.mode = Base.mode_cond THEN Generator.load (x)
+		ELSIF x.mode IN classes_Variable THEN
 			IF (op # Base.sym_is) & (x.type.form # Base.type_string) THEN
 				Generator.load (x)
 			END
 		END;
 		
-		Scanner.Get (sym);
-		SimpleExpression (y);
+		Scanner.Get (sym); SimpleExpression (y);
 
 		IF op = Base.sym_in THEN
-			Check_set (y);
-			Generator.Membership (x, y)
+			Check_set (y); Generator.Membership (x, y)
 		ELSIF op = Base.sym_is THEN
-			Check_type_test (x, y);
-			Generator.Type_test (x, y.type)
+			Check_type_test (x, y); (* Generator.Type_test (x, y.type) *)
 		ELSIF (op = Base.sym_equal) OR (op = Base.sym_not_equal) THEN
-			Check_equal_comparison (x, y);
+			Check_equal_comparison (x, y); Check_for_string_const (x, y);
 			Generator.Comparison (op, x, y)
-		ELSIF ((op = Base.sym_less_equal) OR (op = Base.sym_greater_equal))
-		& (x.type = Base.set_type) THEN
-			Check_set (y);
-			Generator.Inclusion (op, x, y)
+		ELSIF x.type # Base.set_type THEN
+			Check_order_comparison (x, y); Check_for_string_const (x, y);
+			Generator.Comparison (op, x, y)
 		ELSE
-			Check_order_comparison (x, y);
-			Generator.Comparison (op, x, y)
+			Check_set (y); Generator.Inclusion (op, x, y)
 		END
 	END
-	*)
 END expression;
 
-(*
-PROCEDURE IfStatement;
-	VAR
-		x : Base.Item;
-		L : INTEGER;
-BEGIN
-	L := 0;
-	Scanner.Get (sym);
-	expression (x); Check_bool (x); Generator.CFJump (x);
-	Check (Base.sym_then, 'No THEN after IF condition');
-	StatementSequence;
-	
-	WHILE sym = Base.sym_elsif DO
-		Generator.FJump (L); Generator.Fix_link (SHORT (x.a));
-		Scanner.Get (sym);
-		expression (x); Check_bool (x); Generator.CFJump (x);
-		Check (Base.sym_then, 'No THEN after ELSIF condition');
-		StatementSequence
-	END;
-		
-	IF sym = Base.sym_else THEN
-		Generator.FJump (L); Generator.Fix_link (SHORT (x.a));
-		Scanner.Get (sym);
-		StatementSequence
-	ELSE
-		Generator.Fix_link (SHORT (x.a))
-	END;
-		
-	Generator.Fix_link (L);
-	Check (Base.sym_end, 'No END for IF statement')
-END IfStatement;
-	
-PROCEDURE WhileStatement;
-	VAR
-		x : Base.Item;
-		L : INTEGER;
-BEGIN
-	L := Generator.pc;
-	Scanner.Get (sym);
-	expression (x); Check_bool (x); Generator.CFJump (x);
-	Check (Base.sym_do, 'No DO after WHILE condition');
-	StatementSequence;
-	
-	WHILE sym = Base.sym_elsif DO
-		Generator.BJump (L); Generator.Fix_link (SHORT (x.a));
-		Scanner.Get (sym);
-		expression (x); Check_bool (x); Generator.CFJump (x);
-		Check (Base.sym_do, 'No DO after ELSIF condition');
-		StatementSequence
-	END;
-		
-	Generator.BJump (L); Generator.Fix_link (SHORT (x.a));
-	Check (Base.sym_end, 'No END for WHILE statement')
-END WhileStatement;
-	
-PROCEDURE RepeatStatement;
-	VAR
-		L : INTEGER;
-		x : Base.Item;
-BEGIN
-	L := Generator.pc;
-	Scanner.Get (sym);
-	StatementSequence;
-	Check (Base.sym_until, 'No UNTIL for REPEAT statement');
-	expression (x); Check_bool (x); Generator.CBJump (x, L)
-END RepeatStatement;
-	
+(*	
 PROCEDURE ForStatement;
 	VAR
 		x, beg, end, rel, inc : Base.Item;
@@ -1521,53 +1461,91 @@ BEGIN
 END ForStatement;
 *)
 	
-PROCEDURE statement;
-	VAR x, y : Base.Item;
-BEGIN
-	IF sym = Base.sym_ident THEN
-		designator (x);
-		IF sym = Base.sym_becomes THEN
-			Scanner.Get (sym); expression (y);
-			IF Assignable (x, y) THEN
-				IF (x.type = Base.char_type) & (y.type # Base.char_type) THEN
-					Generator.Make_const (y, Base.char_type, y.b)
-				END;
-				Generator.Store (x, y)
-			END
-		ELSIF x.mode = Base.class_proc THEN
-			ProcedureCall (x, TRUE)
-		ELSIF x.mode = Base.class_sproc THEN
-			IF x.type = NIL THEN StandProc (x)
-			ELSE
-				Scanner.Mark ('Function procedure must be called in expression')
-			END
-		ELSIF (sym = Base.sym_lparen) & (x.mode IN Base.cls_HasValue)
-		& (x.type.form = Base.type_procedure) THEN
-			ProcedureCall (x, TRUE)
-		ELSE Scanner.Mark ('Invalid statement')
-		END
-	(*
-	ELSIF sym = Base.sym_if THEN
-		IfStatement
-	ELSIF sym = Base.sym_while THEN
-		WhileStatement
-	ELSIF sym = Base.sym_repeat THEN
-		RepeatStatement
-	ELSIF sym = Base.sym_for THEN
-		ForStatement
-	ELSIF sym = Base.sym_case THEN
-		CaseStatement
-	*)
-	END
-END statement;
-	
 PROCEDURE StatementSequence;
+	CONST err1 = 'Invalid statement';
+		err2 = 'Function procedure must be called in expression';
+		err3 = 'Missing semicolon?';
+		err4 = 'No THEN after IF condition';
+		err5 = 'No THEN after ELSIF condition';
+		err6 = 'No END for structured statement';
+		err7 = 'No DO after WHILE condition';
+		err8 = 'No DO after ELSIF condition';
+		err9 = 'No UNTIL for REPEAT statement';
+	VAR
+		x, y : Base.Item;
+		L : INTEGER;
 BEGIN
-	statement;
-	WHILE sym = Base.sym_semicolon DO
-		Scanner.Get (sym);
-		statement
-	END
+	REPEAT
+		IF ~ ((sym = Base.sym_ident) OR (sym >= Base.sym_if)
+				& (sym <= Base.sym_for)	OR (sym = Base.sym_semicolon)) THEN
+			Scanner.Mark (err1);
+			REPEAT Scanner.Get (sym)
+			UNTIL (sym = Base.sym_ident) OR (sym >= Base.sym_if)
+		END;
+		
+		IF sym = Base.sym_ident THEN
+			designator (x);
+			IF sym = Base.sym_becomes THEN
+				Scanner.Get (sym); expression (y);
+				IF Assignable (x, y) THEN
+					IF (x.type = Base.char_type)
+					& (y.type # Base.char_type) THEN
+						Generator.Make_const (y, Base.char_type, y.b)
+					END;
+					Generator.Store (x, y)
+				END
+			ELSIF x.mode = Base.class_proc THEN
+				ProcedureCall (x, TRUE)
+			ELSIF x.mode = Base.class_sproc THEN
+				IF x.type = NIL THEN StandProc (x) ELSE Scanner.Mark (err2) END
+			ELSIF (sym = Base.sym_lparen) & (x.mode IN Base.cls_HasValue)
+			& (x.type.form = Base.type_procedure) THEN
+				ProcedureCall (x, TRUE)
+			ELSE Scanner.Mark (err1)
+			END
+		ELSIF sym = Base.sym_if THEN
+			L := 0; Scanner.Get (sym); expression (x); Check_bool (x);
+			Generator.CFJump (x); Check (Base.sym_then, err4);
+			StatementSequence;
+			WHILE sym = Base.sym_elsif DO
+				Generator.FJump (L); Generator.Fix_link (SHORT (x.a));
+				Scanner.Get (sym); expression (x); Check_bool (x);
+				Generator.CFJump (x); Check (Base.sym_then, err5);
+				StatementSequence
+			END;			
+			IF sym = Base.sym_else THEN
+				Generator.FJump (L); Generator.Fix_link (SHORT (x.a));
+				Scanner.Get (sym); StatementSequence
+			ELSE Generator.Fix_link (SHORT (x.a))
+			END;
+			Generator.Fix_link (L); Check (Base.sym_end, err6)
+		ELSIF sym = Base.sym_while THEN
+			L := Generator.pc;
+			Scanner.Get (sym); expression (x); Check_bool (x);
+			Generator.CFJump (x); Check (Base.sym_do, err7);
+			StatementSequence;
+			WHILE sym = Base.sym_elsif DO
+				Generator.BJump (L); Generator.Fix_link (SHORT (x.a));
+				Scanner.Get (sym); expression (x); Check_bool (x);
+				Generator.CFJump (x); Check (Base.sym_do, err8);
+				StatementSequence
+			END;
+			Generator.BJump (L); Generator.Fix_link (SHORT (x.a));
+			Check (Base.sym_end, err6)
+		ELSIF sym = Base.sym_repeat THEN
+			L := Generator.pc; Scanner.Get (sym); StatementSequence;
+			Check (Base.sym_until, err9);
+			expression (x); Check_bool (x); Generator.CBJump (x, L)
+		ELSIF sym = Base.sym_for THEN
+			(* Implement later *)
+		ELSIF sym = Base.sym_case THEN
+			(* Implement later *)
+		END;
+		
+		IF sym = Base.sym_semicolon THEN Scanner.Get(sym)
+		ELSIF sym < Base.sym_semicolon THEN Scanner.Mark (err3)
+		END
+	UNTIL sym > Base.sym_semicolon
 END StatementSequence;
 
 PROCEDURE Module*;

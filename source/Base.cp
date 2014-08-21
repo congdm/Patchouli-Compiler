@@ -18,24 +18,33 @@ CONST
 	sym_null* = 0;
 	sym_times* = 1; sym_slash* = 2; sym_div* = 3; sym_mod* = 4;
 	sym_and* = 5; sym_plus* = 6; sym_minus* = 7; sym_or* = 8;
+	
 	sym_equal* = 9; sym_not_equal* = 10; sym_less* = 11;
 	sym_greater_equal* = 12; sym_greater* = 13; sym_less_equal* = 14;
-	sym_in* = 15; sym_is* = 16; sym_arrow* = 17;
-	sym_period* = 18; sym_comma* = 19; sym_colon* = 20; sym_upto* = 21;
-	sym_rparen* = 22; sym_rbrak* = 23; sym_rbrace* = 24;
-	sym_of* = 25; sym_then* = 26; sym_do* = 27; sym_to* = 28;
+	sym_in* = 15; sym_is* = 16;
+	
+	sym_arrow* = 17; sym_period* = 18;
 	sym_lparen* = 29; sym_lbrak* = 30; sym_lbrace* = 31;
-	sym_not* = 32; sym_becomes* = 33;
+	
+	sym_not* = 32;
 	sym_number* = 34; sym_nil* = 35; sym_true* = 36; sym_false* = 37;
-	sym_string* = 38; sym_ident* = 39; sym_by* = 40;
-	sym_semicolon* = 50; sym_end* = 51; sym_else* = 52;
-	sym_elsif* = 53; sym_until* = 54;
+	sym_string* = 38; sym_ident* = 39;
+	
 	sym_if* = 55; sym_while* = 56; sym_repeat* = 57; sym_for* = 58;
-	sym_array* = 60; sym_record* = 61; sym_pointer* = 62;
-	sym_const* = 63; sym_type* = 64; sym_var* = 65; sym_procedure* = 66;
-	sym_begin* = 67; sym_return* = 68; 
-	sym_module* = 69;
-	sym_eof* = 70;
+	sym_case* = 59;
+	
+	sym_comma* = 60; sym_colon* = 61; sym_becomes* = 62; sym_upto* = 63;
+	sym_rparen* = 64; sym_rbrak* = 65; sym_rbrace* = 66; sym_then* = 67;
+	sym_of* = 68; sym_do* = 69; sym_to* = 70; sym_by* = 71;
+	
+	sym_semicolon* = 72; sym_end* = 73; sym_bar* = 74; sym_else* = 75;
+	sym_elsif* = 76; sym_until* = 77; sym_return* = 78;
+	
+	sym_array* = 79; sym_record* = 80; sym_pointer* = 81;
+	sym_const* = 82; sym_type* = 83; sym_var* = 84; sym_procedure* = 85;
+	sym_begin* = 86; sym_module* = 88;
+	sym_eof* = 89;
+
 
 	(* Object class/Item mode *)
 	class_head* = 0; class_module* = 1; class_var* = 2; class_ref* = 3;
@@ -291,9 +300,9 @@ BEGIN
 			ELSE
 				Find_obj_in_scope (obj, name, scope);
 				IF obj # guard THEN loop_exit := TRUE END
-			END;
-			scope := scope.dsc
-		END
+			END
+		END;
+		scope := scope.dsc
 	UNTIL loop_exit
 END Find_obj;
 	
@@ -309,9 +318,7 @@ BEGIN
 	ELSE Find_obj (obj, name)
 	END;
 	
-	IF obj # guard THEN
-		obj := guard
-	ELSE
+	IF obj = guard THEN
 		obj := top_scope;
 		WHILE obj.next # guard DO obj := obj.next END;
 		NEW (obj.next); obj := obj.next;
@@ -321,7 +328,10 @@ BEGIN
 		obj.name := name;
 		obj.class := class;
 		obj.lev := cur_lev;
-		obj.next := guard
+		obj.next := guard;
+		obj.val2 := 0
+	ELSE
+		obj := guard
 	END
 END New_obj;
 
@@ -813,17 +823,23 @@ BEGIN
 	Enter2 (class_sproc, 103, Make_string ('LoadLibrary'), NIL, -48);
 	Enter2 (class_sproc, 104, Make_string ('GetProcAddress'), NIL, -40);
 	
-	(*
 	Enter (class_sproc, 200, Make_string ('ABS'), int_type);
 	Enter (class_sproc, 201, Make_string ('ODD'), bool_type);
 	Enter (class_sproc, 202, Make_string ('LEN'), int_type);
-	Enter (class_sproc, 205, Make_string ('ORD'), int_type);
-	Enter (class_sproc, 206, Make_string ('CHR'), char_type);
-	*)
+	Enter (class_sproc, 203, Make_string ('LSL'), int_type);
+	Enter (class_sproc, 204, Make_string ('ASR'), int_type);
+	Enter (class_sproc, 205, Make_string ('ROR'), int_type);
+	
+(*	Enter (class_sproc, 206, Make_string ('FLOOR'), int_type);
+	Enter (class_sproc, 207, Make_string ('FLT'), int_type);
+*)
+	Enter (class_sproc, 208, Make_string ('ORD'), int_type);
+	Enter (class_sproc, 209, Make_string ('CHR'), char_type);
 	
 	Enter (class_sproc, 300, Make_string ('ADR'), int_type);
 	Enter (class_sproc, 301, Make_string ('SIZE'), int_type);
-	(* Enter (class_sproc, 303, Make_string ('VAL'), int_type); *)
+	Enter (class_sproc, 302, Make_string ('BIT'), bool_type);
+	Enter (class_sproc, 303, Make_string ('VAL'), int_type);
 	
 	exportno := 0;	
 	compiler_flag := {integer_overflow_check, array_bound_check, alignment_flag}
@@ -832,8 +848,7 @@ END Init;
 BEGIN
 	(* _Export_type := Export_type; *)
 
-	NEW (guard);
-	guard.class := class_head;
+	NEW (guard); guard.class := class_head;
 
 	New_predefined_typ (int_type, type_integer, Word_size);
 	New_predefined_typ (bool_type, type_boolean, 1);

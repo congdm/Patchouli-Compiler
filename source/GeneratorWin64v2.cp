@@ -34,7 +34,7 @@ CONST
 	
 	MOVr = 88H; XCHGr = 86H; LEAr = 8DH;
 	ADDr = 00H; SUBr = 28H; IMULr = 0AF0FH; IDIVr = 7F7H; NEGr = 3F6H;
-	SHLcl = 4D2H; SHRcl = 5D2H; SARcl = 7D2H;
+	SHLcl = 4D2H; SHRcl = 5D2H; SARcl = 7D2H; RORcl = 1D0H;
 	ANDr = 20H; ORr = 08H; XORr = 30H; NOTr = 2F6H;
 	TESTr = 84H; CMPr = 38H;
 	BTr = 0A30FH; BTSr = 0AB0FH;
@@ -42,7 +42,7 @@ CONST
 	MOVZX = 0B60FH;
 	
 	ADDi = 80H; SUBi = 580H; IMULi = 69H; NEGi = NEGr;
-	SHLi = 4C0H; SHRi = 5C0H; SARi = 7C0H;
+	SHLi = 4C0H; SHRi = 5C0H; SARi = 7C0H; RORi = 1C0H;
 	ANDi = 480H; ORi = 180H; XORi = 680H;
 	TESTi = 0F6H; CMPi = 780H;
 	BTi = 4BA0FH; BTSi = 5BA0FH;
@@ -74,7 +74,7 @@ VAR
 
 	code : ARRAY 65536 OF Instruction;
 	codeinfo : ARRAY 65536 OF InstructionInfo;
-	pc, ip, entry : INTEGER;
+	pc*, ip, entry : INTEGER;
 	
 	staticdata : ARRAY 100000H OF UBYTE;
 	varbase, staticbase, varsize, staticsize : INTEGER;
@@ -95,6 +95,10 @@ VAR
 		parlist : Base.Object;
 		usedRegs : SET
 	END;
+	
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+(* Machine code emitter *)
 
 PROCEDURE Emit_REX_prefix (rsize, reg, r2, bas, idx : UBYTE);
 	VAR n : UBYTE;
@@ -398,17 +402,23 @@ BEGIN
 	Next_inst
 END PopR;
 
-PROCEDURE EmitRGv (d : UBYTE; op : INTEGER; reg, rsize : UBYTE; disp : INTEGER);
+PROCEDURE EmitRGv (d : UBYTE; op : INTEGER; reg, rsize : UBYTE; adr : INTEGER);
 BEGIN
-	EmitRMip (d, op, reg, rsize, varbase + disp);
+	EmitRMip (d, op, reg, rsize, varbase + adr);
 	INCL (codeinfo [pc - 1].flag, if_fix1)
 END EmitRGv;
 
-PROCEDURE EmitRSv (d : UBYTE; op : INTEGER; reg, rsize : UBYTE; disp : INTEGER);
+PROCEDURE EmitRSv (d : UBYTE; op : INTEGER; reg, rsize : UBYTE; adr : INTEGER);
 BEGIN
-	EmitRMip (d, op, reg, rsize, staticbase + disp);
+	EmitRMip (d, op, reg, rsize, staticbase + adr);
 	INCL (codeinfo [pc - 1].flag, if_fix1)
 END EmitRSv;
+
+PROCEDURE EmitRPr (d : UBYTE; op : INTEGER; reg, rsize : UBYTE; adr : INTEGER);
+BEGIN
+	EmitRMip (d, op, reg, rsize, adr);
+	INCL (codeinfo [pc - 1].flag, if_fix1)
+END EmitRPr;
 
 PROCEDURE Branch (disp : INTEGER);
 BEGIN
@@ -515,12 +525,7 @@ BEGIN
 	x.obj := obj;
 	x.a := obj.val;
 	x.b := obj.val2;
-	x.c := 0;
-	
-	IF x.mode # Base.class_const THEN (* Do nothing *)
-	ELSIF x.type.form = Base.type_string THEN
-		x.mode := Base.class_var
-	END
+	x.c := 0
 END Make_item;
 	
 PROCEDURE Make_string* (VAR x : Base.Item; str : Base.String);
@@ -608,6 +613,18 @@ BEGIN
     RETURN L1
 END merged;
 
+PROCEDURE ccCodeOf (op : INTEGER) : INTEGER;
+BEGIN
+	IF op = Base.sym_equal THEN op := ccZ
+	ELSIF op = Base.sym_not_equal THEN op := ccNZ
+	ELSIF op = Base.sym_less THEN op := ccL
+	ELSIF op = Base.sym_greater THEN op := ccG
+	ELSIF op = Base.sym_less_equal THEN op := ccLE
+	ELSE op := ccGE
+	END;
+	RETURN op
+END ccCodeOf;
+
 PROCEDURE Set_cond (VAR x : Base.Item; n : INTEGER);
 BEGIN
 	x.mode := Base.mode_cond;
@@ -680,8 +697,13 @@ PROCEDURE load* (VAR x : Base.Item);
 	VAR
 		rsize : UBYTE;
 BEGIN
+	ASSERT ((x.mode IN Base.classes_Value) & (x.type.size IN {1, 2, 4, 8})
+			OR (x.mode = Base.class_proc), 100H);
+
 	IF x.mode # mode_reg THEN
-		rsize := USHORT (x.type.size);
+		IF x.mode # Base.class_proc THEN rsize := USHORT (x.type.size)
+		ELSE rsize := 8
+		END;
 		IF x.mode = Base.class_var THEN
 			x.r := Alloc_reg();
 			IF x.lev > 0 THEN EmitRM (1, MOVr, x.r, rsize, reg_BP, SHORT(x.a))
@@ -700,17 +722,14 @@ BEGIN
 				MoveRI (x.r, 4, x.a)
 			ELSE MoveRI (x.r, rsize, x.a)
 			END
+		ELSIF x.mode = Base.class_proc THEN
+			x.r := Alloc_reg();
+			EmitRPr (0, LEAr, x.r, 8, SHORT(x.a))
 		END;
+		IF rsize < 4 THEN EmitRR2 (MOVZX, x.r, 4, x.r, rsize) END;
 		x.mode := mode_reg
 	END
 END load;
-
-PROCEDURE ConvertToInt64 (VAR x : Base.Item);
-BEGIN
-	IF x.type # Base.byte_type THEN (* Do nothing *)
-	ELSE load (x); EmitRR2 (MOVZX, x.r, 4, x.r, 1); x.type := Base.int_type
-	END
-END ConvertToInt64;
 
 PROCEDURE Load_adr (VAR x : Base.Item);
 BEGIN
@@ -732,7 +751,7 @@ END Load_adr;
 PROCEDURE Load_cond (VAR x : Base.Item);
 BEGIN
 	IF x.mode = mode_imm THEN Set_cond (x, ccNever - SHORT (x.a))
-	ELSE load (x); EmitRRnd (TESTr, x.r, 8, x.r); Free_reg; Set_cond (x, ccNZ)
+	ELSE load (x); EmitRRnd (TESTr, x.r, 4, x.r); Free_reg; Set_cond (x, ccNZ)
 	END
 END Load_cond;
 
@@ -750,7 +769,7 @@ BEGIN
 			Ref_to_regI (x); EmitRM (1, MOVr, y.r, rsize, x.r, SHORT(x.a));
 			Free_reg
 		ELSIF x.mode = mode_regI THEN
-			EmitRM (1, MOVr, y.r, rsize, x.r, SHORT(x.a)); Free_reg
+			EmitRM (0, MOVr, y.r, rsize, x.r, SHORT(x.a)); Free_reg
 		END;
 		Free_reg
 	ELSIF x.type.form IN {Base.type_array, Base.type_record} THEN
@@ -1089,7 +1108,6 @@ BEGIN
 		END
 	ELSE
 		IF x.type.form = Base.type_integer THEN
-			ConvertToInt64 (x); ConvertToInt64 (y);
 			CASE op OF
 				Base.sym_plus: IntegerOp (ADDr, ADDi, x, y) |
 				Base.sym_minus: Subtract (x, y) |
@@ -1290,6 +1308,71 @@ BEGIN
 	Load_adr (x)
 END SFunc_ADR;
 
+PROCEDURE SFunc_ODD* (VAR x : Base.Item);
+BEGIN
+	IF x.mode = mode_imm THEN x.a := x.a MOD 2
+	ELSE EmitRI (ANDi, x.r, 8, 1)
+	END
+END SFunc_ODD;
+
+PROCEDURE SFunc_LEN* (VAR x : Base.Item);
+BEGIN
+	IF x.type.len > 0 THEN x.a := x.type.len; x.mode := mode_imm
+	ELSE (* Open array *)
+		x.r := Alloc_reg();
+		IF x.b = 0 THEN x.b := SHORT (x.a) + 8 END;
+		EmitRM (1, MOVr, x.r, 8, reg_BP, x.b);
+		x.mode := mode_reg
+	END
+END SFunc_LEN;
+
+PROCEDURE SFunc_SHIFT* (shf : INTEGER; VAR x, y : Base.Item);
+	VAR opR, opI : INTEGER; dst : UBYTE;
+BEGIN
+	opR := 0; opI := 0;
+	ASSERT ((x.mode IN {mode_reg, mode_imm}) & (y.mode IN Base.classes_Value));
+	IF shf = 0 THEN opR := SHLcl; opI := SHLi
+	ELSIF shf = 1 THEN opR := SARcl; opI := SARi
+	ELSIF shf = 2 THEN opR := RORcl; opI := RORi
+	ELSE ASSERT (FALSE)
+	END;
+	
+	IF (x.mode = mode_imm) & (y.mode = mode_imm) THEN
+		IF shf = 0 THEN x.a := ASH (x.a, y.a)
+		ELSIF shf = 1 THEN x.a := ASH (x.a, -y.a)
+		ELSE x.a := 0 (* Implement later *)
+		END
+	ELSE
+		load (x);
+		IF (y.mode = mode_imm) & (y.a >= 0) & (y.a < 100H) THEN
+			IF y.a # 0 THEN EmitRI8 (opI, x.r, 8, y.a) END
+		ELSE
+			load (y); dst := Reg_stack(-2);
+			IF x.r = reg_C THEN
+				EmitRR (XCHGr, reg_C, 8, y.r); EmitR (opR, y.r, 8);
+				IF dst # y.r THEN EmitRR (MOVr, dst, 8, y.r) END
+			ELSIF y.r = reg_C THEN
+				EmitR (opR, x.r, 8);
+				IF dst # x.r THEN EmitRR (MOVr, dst, 8, x.r) END
+			ELSE
+				IF reg_C IN curRegs THEN PushR (reg_C) END;
+				EmitRR (MOVr, reg_C, 8, y.r); EmitR (opR, x.r, 8);
+				IF reg_C IN curRegs THEN PopR (reg_C) END;
+				IF dst # x.r THEN EmitRR (MOVr, dst, 8, x.r) END
+			END;
+			Free_reg; x.r := dst
+		END
+	END
+END SFunc_SHIFT;
+
+PROCEDURE SFunc_BIT* (VAR x, y : Base.Item);
+BEGIN
+	ASSERT ((x.mode IN {mode_reg, mode_imm}) & (y.mode IN Base.classes_Value));
+	load (x); x.mode := mode_regI; x.a := 0; load (x);
+	load (y); EmitRR (BTr, y.r, 8, x.r); Free_reg; Free_reg;
+	Set_cond (x, ccB)
+END SFunc_BIT;
+
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 (* Procedure calling *)
@@ -1427,7 +1510,142 @@ END Open_array_parameter;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
-(* Conditional *)
+(* Relation expression *)
+
+PROCEDURE Scalar_comparison (op : INTEGER; VAR x, y : Base.Item);
+	VAR r1, r2 : INTEGER;
+		rsize : UBYTE;
+		
+	PROCEDURE Invert_op (VAR op : INTEGER);
+	BEGIN
+		IF op > Base.sym_not_equal THEN
+			IF op = Base.sym_less THEN op := Base.sym_greater
+			ELSIF op = Base.sym_less_equal THEN op := Base.sym_greater_equal
+			ELSIF op = Base.sym_greater THEN op := Base.sym_less
+			ELSIF op = Base.sym_greater_equal THEN op := Base.sym_less_equal
+			END
+		END
+	END Invert_op;
+		
+BEGIN
+	IF x.mode = Base.class_proc THEN load (x); rsize := 8
+	ELSE rsize := USHORT (x.type.size)
+	END;
+	IF ~ (y.mode IN {mode_imm, mode_reg}) THEN load (y) END;
+	
+	IF x.mode = mode_reg THEN
+		IF Small_const (y) THEN EmitRI (CMPi, x.r, rsize, y.a)
+		ELSE load (y); EmitRR (CMPr, x.r, rsize, y.r); Free_reg
+		END
+	ELSIF x.mode = mode_imm THEN
+		IF Small_const (x) THEN EmitRI (CMPi, y.r, rsize, x.a); Invert_op (op)
+		ELSE load (x); EmitRR (CMPr, x.r, rsize, y.r); Free_reg
+		END
+	END;
+	Free_reg
+END Scalar_comparison;
+	
+PROCEDURE String_comparison (op : INTEGER; VAR x, y : Base.Item);
+BEGIN
+	(* Implement later *)
+END String_comparison;
+	
+PROCEDURE Comparison* (op : INTEGER; VAR x, y : Base.Item);
+BEGIN
+	IF (x.mode = mode_imm) & (y.mode = mode_imm) THEN
+		IF op = Base.sym_equal THEN
+			IF x.a = y.a THEN x.a := 1 ELSE x.a := 0 END
+		ELSIF op = Base.sym_not_equal THEN
+			IF x.a # y.a THEN x.a := 1 ELSE x.a := 0 END
+		ELSIF op = Base.sym_greater THEN
+			IF x.a > y.a THEN x.a := 1 ELSE x.a := 0 END
+		ELSIF op = Base.sym_greater_equal THEN
+			IF x.a >= y.a THEN x.a := 1 ELSE x.a := 0 END
+		ELSIF op = Base.sym_less THEN
+			IF x.a < y.a THEN x.a := 1 ELSE x.a := 0 END
+		ELSIF op = Base.sym_less_equal THEN
+			IF x.a <= y.a THEN x.a := 1 ELSE x.a := 0 END
+		END
+	ELSIF (x.mode = Base.class_proc) OR (x.type.form IN Base.types_Scalar) THEN
+		Scalar_comparison (op, x, y); Set_cond (x, ccCodeOf(op))
+	ELSE String_comparison (op, x, y); Set_cond (x, ccCodeOf(op))
+	END;
+	x.type := Base.bool_type
+END Comparison;
+	
+PROCEDURE Membership* (VAR x, y : Base.Item);
+BEGIN
+	IF (x.mode = mode_imm) & (y.mode = mode_imm) THEN
+		x.a := ASH (y.a, -x.a) MOD 2
+	ELSE
+		load (y);
+		IF x.mode = mode_reg THEN EmitRR (BTr, x.r, 8, y.r); Free_reg
+		ELSE EmitRI (BTi, y.r, 8, x.a)
+		END;
+		Free_reg; Set_cond (x, ccB)
+	END;
+	x.type := Base.bool_type
+END Membership;
+	
+PROCEDURE Inclusion* (op : INTEGER; VAR x, y : Base.Item);
+	VAR
+		xset, yset : ARRAY 2 OF SET;
+BEGIN
+	IF (x.mode = mode_imm) & (y.mode = mode_imm) THEN
+		xset[0] := {}; xset[1] := {}; SYSTEM.PUT (SYSTEM.ADR(xset[0]), x.a);
+		yset[0] := {}; yset[1] := {}; SYSTEM.PUT (SYSTEM.ADR(yset[0]), y.a);
+		IF op = Base.sym_less_equal THEN
+			IF (xset[0] - yset[0] = {}) & (xset[1] - yset[1] = {})
+				THEN x.a := 1 ELSE x.a := 0
+			END
+		ELSE
+			IF (yset[0] - xset[0] = {}) & (yset[1] - xset[1] = {})
+				THEN x.a := 1 ELSE x.a := 0
+			END
+		END
+	ELSE
+		IF op = Base.sym_less_equal THEN Difference (x, y)
+		ELSE Difference (y, x)
+		END;
+		Free_reg; Set_cond (x, ccZ)
+	END;
+	x.type := Base.bool_type
+END Inclusion;
+
+(*
+PROCEDURE Type_test* (VAR x : Base.Item; typ : Base.Type);
+	VAR
+		td : Base.Item;
+BEGIN
+	IF x.type # typ THEN
+		IF x.type.form = Base.type_pointer THEN
+			load (x);
+			x.mode := Base.mode_regI;
+			x.a := -8;
+			load (x);
+			x.mode := Base.mode_regI;
+			x.a := 8 + typ.base.len * 8;
+			Make_type_desc_item (td, typ.base)
+		ELSE
+			(* x is record variable parameter *)
+			INC (x.a, 8);
+			Ref_to_regI (x);
+			x.type := Base.nil_type;
+			x.a := 8 + typ.len * 8;
+			Make_type_desc_item (td, typ)
+		END;
+		Emit_op_reg_mem (op_LEA, reg_RAX, td);
+		Emit_op_reg_mem (op_CMP, reg_RAX, x);
+		Free_reg; Set_cond (x, op_JE); x.type := Base.bool_type
+	ELSE
+		Make_const (x, Base.bool_type, 1)
+	END
+END Type_test;
+*)
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+(* Conditional Branch *)
 
 PROCEDURE FJump* (VAR L : INTEGER);
 BEGIN
