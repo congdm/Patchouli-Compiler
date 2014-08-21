@@ -26,7 +26,7 @@ Most people feel the method of Niklaus Wirth is too extreme. I had the same thou
 ### Here are some of my mistakes:
 
 + **Using Pascal instead of Oberon/Component Pascal:** WHO WANT TO USE THE LANGUAGE THAT IS FULL OF ALLCAPS!!!??? It is not like that I am using Cee language or Cee-Plus-Plus anyway. Pascal is an awesome language! Long live Pascal lanaguage!
-**The result:** A total mess of pointer faults. Cannot track the origin of global variables => Rewriting all the compiler in Compenent Pascal.
+**The result:** A total mess of pointer faults. Cannot track the origin module of variables and procedures => Rewriting all the compiler in Compenent Pascal.
 
 + **Trying my best to generate x86 CISC code:** Optimize, optimize, MOARR OPTIMIZEEE!!
 **The result:** Confusing logic, wrong code generation, insanity ensure => Treat the x86 ISA as RISC one, forget about its CISC instructions.
@@ -34,4 +34,4 @@ Most people feel the method of Niklaus Wirth is too extreme. I had the same thou
 + **Output to assembly code instead of native machine code:** I don't want to deal with the mess of x86 machine code, so it is best to use someone's assembler.
 **The result:** Bloat the generator with string processing code. Almost turning the compiler into a word processor => Rewriting again.
 
-So, Niklaus Wirth was right after all.
+So, Niklaus Wirth was right after all...
