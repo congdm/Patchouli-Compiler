@@ -26,9 +26,11 @@ MODULE Test;
 		CONST mess = 'Oberon for Win64';
 		VAR i : INTEGER;
 			s : ARRAY 64 OF CHAR;
+			flag : BOOLEAN;
 	BEGIN
 		i := 2; s := mess;
-		IF s = mess THEN MessageBoxW (0, ADR(s), ADR('Hello, World!'), 0) END
+		flag := s = mess;
+		IF flag THEN MessageBoxW (0, ADR(s), ADR('Hello, World!'), 0) END
 	END Main;
 	
 BEGIN

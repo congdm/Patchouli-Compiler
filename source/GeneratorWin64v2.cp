@@ -15,6 +15,7 @@ CONST
 	
 	mode_reg = Base.mode_reg; mode_imm = Base.class_const;
 	mode_regI = Base.mode_regI;
+	mode_cond = Base.mode_cond;
 	mode_mem = {Base.class_var, Base.class_ref, mode_regI};
 	
 	if_skipped = 0; if_REX = 1; if_16bit_prefix = 2; if_disp = 3;
@@ -32,14 +33,12 @@ CONST
 	ccS = 8; ccNS = 9; ccP = 10; ccNP = 11; ccL = 12; ccGE = 13; ccLE = 14;
 	ccG = 15; ccAlways = 16; ccNever = 17;
 	
-	MOVr = 88H; XCHGr = 86H; LEAr = 8DH;
+	MOVr = 88H; XCHGr = 86H; LEAr = 8DH; MOVZXr = 0B60FH;
 	ADDr = 00H; SUBr = 28H; IMULr = 0AF0FH; IDIVr = 7F7H; NEGr = 3F6H;
 	SHLcl = 4D2H; SHRcl = 5D2H; SARcl = 7D2H; RORcl = 1D0H;
 	ANDr = 20H; ORr = 08H; XORr = 30H; NOTr = 2F6H;
 	TESTr = 84H; CMPr = 38H;
 	BTr = 0A30FH; BTSr = 0AB0FH;
-	
-	MOVZX = 0B60FH;
 	
 	ADDi = 80H; SUBi = 580H; IMULi = 69H; NEGi = NEGr;
 	SHLi = 4C0H; SHRi = 5C0H; SARi = 7C0H; RORi = 1C0H;
@@ -77,6 +76,7 @@ VAR
 	code : ARRAY 65536 OF Instruction;
 	codeinfo : ARRAY 65536 OF InstructionInfo;
 	pc*, ip, entry : INTEGER;
+	_16bit_allowed : BOOLEAN;
 	
 	staticdata : ARRAY 100000H OF UBYTE;
 	varbase, staticbase, varsize, staticsize : INTEGER;
@@ -118,7 +118,7 @@ END Emit_REX_prefix;
 
 PROCEDURE Emit_16bit_prefix (rsize : UBYTE);
 BEGIN
-	IF rsize = 2 THEN INCL (Emit.iflag, if_16bit_prefix);
+	IF (rsize = 2) & _16bit_allowed THEN INCL (Emit.iflag, if_16bit_prefix);
 		code [pc, Emit.i] := 66H; INC (Emit.i)
 	END
 END Emit_16bit_prefix;
@@ -169,6 +169,19 @@ BEGIN
 	codeinfo [pc].ip := ip; codeinfo [pc].size := Emit.i;
 	codeinfo [pc].flag := Emit.iflag; INC (pc); INC (ip, Emit.i)
 END Next_inst;
+
+(* This is a stupid hack for MOVZX with word operand, it is one of the
+   instructions which have different operands size for source and destination,
+   when I expected that source and destination always have same size.
+   A proper solution is need for this problem.
+*)
+PROCEDURE Inhibit_16bit_prefix;
+BEGIN _16bit_allowed := FALSE
+END Inhibit_16bit_prefix;
+
+PROCEDURE Allow_16bit_prefix;
+BEGIN _16bit_allowed := TRUE
+END Allow_16bit_prefix;
 
 (* -------------------------------------------------------------------------- *)
 
@@ -237,18 +250,6 @@ BEGIN
 	Emit_disp (disp);
 	Next_inst
 END EmitRM;
-
-PROCEDURE EmitRR2 (op : INTEGER; reg, rsize, rm, rmsize : UBYTE);
-BEGIN
-	Emit.iflag := {}; Emit.i := 0;
-	Emit_REX_prefix (rsize, reg, rm, 0, 0); Emit_opcodeR (op, rmsize, 1);
-	
-	(* ModR/M byte *)
-	code [pc, Emit.i] := USHORT (0C0H + reg MOD 8 * 8 + rm MOD 8);
-	INC (Emit.i);
-	
-	Next_inst
-END EmitRR2;
 
 PROCEDURE EmitRMip
 (d : UBYTE; op : INTEGER; reg, rsize : UBYTE; disp : INTEGER);
@@ -513,6 +514,16 @@ BEGIN
 	INCL (codeinfo [pc - 1].flag, if_fix1)
 END EmitCallGv;
 
+PROCEDURE EmitSetccR (cond : INTEGER; rm : UBYTE);
+BEGIN
+	Emit.iflag := {}; Emit.i := 0;
+	Emit_REX_prefix (1, 0, rm, 0, 0);
+	code [pc, Emit.i] := 0FH; INC (Emit.i);
+	code [pc, Emit.i] := USHORT (90H + cond); INC (Emit.i);
+	code [pc, Emit.i] := USHORT (0C0H + rm MOD 8); INC (Emit.i);
+	Next_inst
+END EmitSetccR;
+
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 (* Item constructor *)
@@ -640,7 +651,7 @@ END ccCodeOf;
 
 PROCEDURE Set_cond (VAR x : Base.Item; n : INTEGER);
 BEGIN
-	x.mode := Base.mode_cond;
+	x.mode := mode_cond;
 	x.a := 0; x.b := 0; x.c := n
 END Set_cond;
 
@@ -699,68 +710,121 @@ END Free_item;
 (* -------------------------------------------------------------------------- *)
 (* Load/Store *)
 
+(* For consistency purpose, all value with size
+   smaller than 64 bits are zero-extended when load to register *)
+   
+PROCEDURE Check_for_MOVZX (rsize : INTEGER) : INTEGER;
+BEGIN
+	IF rsize >= 4 THEN rsize := MOVr
+	ELSE rsize := MOVZXr; Inhibit_16bit_prefix
+	END;
+	RETURN rsize
+END Check_for_MOVZX;
+
+PROCEDURE Load_var (reg, rsize : UBYTE; VAR x : Base.Item);
+	VAR ins : INTEGER;
+BEGIN
+	ins := Check_for_MOVZX (rsize);
+	IF x.lev > 0 THEN EmitRM (1, ins, reg, rsize, reg_BP, SHORT(x.a))
+	ELSIF x.lev < 0 THEN EmitRSv (1, ins, reg, rsize, SHORT(x.a))
+	ELSE EmitRGv (1, ins, reg, rsize, SHORT(x.a))
+	END;
+	IF ins # MOVZXr THEN (* Do nothing *) ELSE Allow_16bit_prefix END
+END Load_var;
+
 PROCEDURE Ref_to_regI (VAR x : Base.Item);
 BEGIN
-	x.r := Alloc_reg();
-	IF x.lev > 0 THEN EmitRM (1, MOVr, x.r, 8, reg_BP, SHORT(x.a)) END;
+	x.r := Alloc_reg(); Load_var (x.r, 8, x);
 	x.a := x.c; x.mode := mode_regI
 END Ref_to_regI;
 
+(* Untyped (not safe) load and doesn't modify Item *)
+PROCEDURE Load_to_reg (reg, rsize : UBYTE; x : Base.Item);
+	VAR ins : INTEGER;
+BEGIN
+	IF x.mode = Base.class_var THEN Load_var (reg, rsize, x)
+	ELSIF x.mode = Base.class_ref THEN
+		Load_var (reg, 8, x);
+		ins := Check_for_MOVZX (rsize);
+		EmitRM (1, ins, reg, rsize, reg, x.c);
+		IF ins # MOVZXr THEN (* Do nothing *) ELSE Allow_16bit_prefix END
+	ELSIF x.mode = mode_regI THEN
+		ins := Check_for_MOVZX (rsize);
+		EmitRM (1, ins, reg, rsize, x.r, SHORT(x.a));
+		IF ins # MOVZXr THEN (* Do nothing *) ELSE Allow_16bit_prefix END
+	ELSIF x.mode = mode_imm THEN
+		IF x.a = 0 THEN EmitRR (XORr, reg, 4, reg)
+		ELSIF (rsize <= 4) OR (x.a > 0) & (x.a <= MAX_UINT32) THEN
+			MoveRI (reg, 4, x.a)
+		ELSE MoveRI (reg, rsize, x.a)
+		END
+	ELSIF x.mode = Base.class_proc THEN
+		IF x.lev >= 0 THEN EmitRPr (0, LEAr, reg, 8, SHORT(x.a))
+		ELSE EmitRSv (1, MOVr, reg, 8, SHORT(x.a))
+		END
+	ELSE ASSERT(FALSE)
+	END
+END Load_to_reg;
+
+(* Typed (safe) load and modify Item *)
 PROCEDURE load* (VAR x : Base.Item);
-	VAR
-		rsize : UBYTE;
+	VAR rsize : UBYTE; L : INTEGER;
 BEGIN
 	ASSERT ((x.mode IN Base.classes_Value) & (x.type.size IN {1, 2, 4, 8})
 			OR (x.mode = Base.class_proc));
 
 	IF x.mode # mode_reg THEN
-		IF x.mode # Base.class_proc THEN rsize := USHORT (x.type.size)
-		ELSE rsize := 8
-		END;
-		IF x.mode = Base.class_var THEN
+		IF x.mode # mode_cond THEN
+			IF x.mode # Base.class_proc THEN rsize := USHORT (x.type.size)
+			ELSE rsize := 8
+			END;
+			IF x.mode # mode_regI THEN x.r := Alloc_reg() END;
+			Load_to_reg (x.r, rsize, x)
+		ELSE
 			x.r := Alloc_reg();
-			IF x.lev > 0 THEN EmitRM (1, MOVr, x.r, rsize, reg_BP, SHORT(x.a))
-			ELSIF x.lev = 0 THEN EmitRGv (1, MOVr, x.r, rsize, SHORT(x.a))
-			ELSIF x.lev < 0 THEN EmitRSv (1, MOVr, x.r, rsize, SHORT(x.a)) 
+			IF (x.a = 0) & (x.b = 0) THEN
+				IF (x.c < 16) & (x.c >= 0) THEN
+					EmitSetccR (x.c, x.r); EmitRR (MOVZXr, x.r, 1, x.r)
+				ELSIF x.c = ccAlways THEN MoveRI (x.r, 4, 1)
+				ELSIF x.c = ccNever THEN EmitRR (XORr, x.r, 4, x.r)
+				ELSE ASSERT(FALSE)
+				END
+			ELSE
+				L := pc; CondBranch (negated(x.c), 0); Fix_link (x.b);
+				MoveRI (x.r, 4, 1);
+				Branch (0); Fix_link (L); Fix_link (SHORT (x.a)); L := pc - 1;
+				EmitRR (XORr, x.r, 4, x.r); Fix_link (L)
 			END
-		ELSIF x.mode = Base.class_ref THEN
-			Ref_to_regI (x);
-			EmitRM (1, MOVr, x.r, rsize, x.r, SHORT(x.a))
-		ELSIF x.mode = mode_regI THEN
-			EmitRM (1, MOVr, x.r, rsize, x.r, SHORT(x.a))
-		ELSIF x.mode = mode_imm THEN
-			x.r := Alloc_reg();
-			IF x.a = 0 THEN EmitRR (XORr, x.r, 4, x.r)
-			ELSIF (rsize = 8) & (x.a > 0) & (x.a <= MAX_UINT32) THEN
-				MoveRI (x.r, 4, x.a)
-			ELSE MoveRI (x.r, rsize, x.a)
-			END
-		ELSIF x.mode = Base.class_proc THEN
-			x.r := Alloc_reg();
-			EmitRPr (0, LEAr, x.r, 8, SHORT(x.a))
 		END;
-		IF rsize < 4 THEN EmitRR2 (MOVZX, x.r, 4, x.r, rsize) END;
 		x.mode := mode_reg
 	END
 END load;
 
-PROCEDURE Load_adr (VAR x : Base.Item);
+PROCEDURE Load_adr_to_reg (reg : UBYTE; x : Base.Item);
 BEGIN
 	IF x.mode = Base.class_var THEN
-		x.r := Alloc_reg();
-		IF x.lev > 0 THEN EmitRM (0, LEAr, x.r, 8, reg_BP, SHORT(x.a))
-		ELSIF x.lev = 0 THEN EmitRGv (0, LEAr, x.r, 8, SHORT(x.a))
-		ELSIF x.lev < 0 THEN EmitRSv (0, LEAr, x.r, 8, SHORT(x.a))
+		IF x.lev > 0 THEN EmitRM (0, LEAr, reg, 8, reg_BP, SHORT(x.a))
+		ELSIF x.lev = 0 THEN EmitRGv (0, LEAr, reg, 8, SHORT(x.a))
+		ELSE EmitRSv (0, LEAr, reg, 8, SHORT(x.a))
 		END
 	ELSIF x.mode = Base.class_ref THEN
-		Ref_to_regI (x);
-		IF x.a # 0 THEN EmitRI (ADDi, x.r, 8, x.a) END
+		Load_var (reg, 8, x);
+		IF x.c # 0 THEN EmitRI (ADDi, reg, 8, x.c) END
 	ELSIF x.mode = mode_regI THEN
-		IF x.a # 0 THEN EmitRI (ADDi, x.r, 8, x.a) END
-	END;
+		IF reg # x.r THEN EmitRR (MOVr, reg, 8, x.r) END;
+		IF x.a # 0 THEN EmitRI (ADDi, reg, 8, x.a) END
+	ELSE ASSERT(FALSE)
+	END
+END Load_adr_to_reg;
+
+PROCEDURE Load_adr (VAR x : Base.Item);
+BEGIN
+	IF x.mode # mode_regI THEN x.r := Alloc_reg() END;
+	Load_adr_to_reg (x.r, x);
 	x.mode := mode_reg
 END Load_adr;
 
+(* Load boolean value to condition flag. This is NOT load cond to reg! *)
 PROCEDURE Load_cond (VAR x : Base.Item);
 BEGIN
 	IF x.mode = mode_imm THEN Set_cond (x, ccNever - SHORT (x.a))
@@ -911,7 +975,7 @@ BEGIN
 		IF x.mode = mode_imm THEN
 			x.a := (x.a + 1) MOD 2
 		ELSE
-			IF x.mode # Base.mode_cond THEN Load_cond (x) END;
+			IF x.mode # mode_cond THEN Load_cond (x) END;
 			x.c := negated (x.c);
 			t := SHORT (x.a); x.a := x.b; x.b := t
 		END
@@ -928,23 +992,22 @@ BEGIN
 			END
 		ELSE
 			load (x);
-			IF x.type = Base.int_type THEN EmitR (NEGr, x.r, 8);
-				IF integer_check IN Base.compiler_flag THEN Trap (ccO, integer_check)
+			IF x.type.form = Base.type_integer THEN EmitR (NEGr, x.r, 8);
+				IF integer_check IN Base.compiler_flag THEN
+					Trap (ccO, integer_check)
 				END
-			ELSIF x.type = Base.byte_type THEN
-				EmitRR2 (MOVZX, x.r, 8, x.r, 1); EmitR (NEGr, x.r, 8)
 			ELSIF x.type = Base.set_type THEN EmitR (NOTr, x.r, 8)
 			END
 		END
 	ELSIF op = Scanner.and THEN
-		IF x.mode # Base.mode_cond THEN Load_cond (x) END;
+		IF x.mode # mode_cond THEN Load_cond (x) END;
 		cond := negated (x.c);
 		IF cond # ccNever THEN CondBranch (cond, SHORT (x.a));
 			x.a := pc - 1
 		END;
 		Fix_link (x.b); x.b := 0
 	ELSIF op = Scanner.or THEN
-		IF x.mode # Base.mode_cond THEN Load_cond (x) END;
+		IF x.mode # mode_cond THEN Load_cond (x) END;
 		IF x.c # ccNever THEN CondBranch (x.c, x.b);
 			x.b := pc - 1
 		END;
@@ -1148,7 +1211,7 @@ BEGIN
 				Scanner.slash: BitwiseOp (XORr, x, y) |
 			END
 		ELSIF x.type = Base.bool_type THEN
-			IF y.mode # Base.mode_cond THEN Load_cond (y) END;
+			IF y.mode # mode_cond THEN Load_cond (y) END;
 			IF op = Scanner.and THEN
 				x.a := merged (SHORT (y.a), SHORT (x.a));
 				x.b := y.b
@@ -1323,9 +1386,16 @@ BEGIN
 END SProc_PUT;
 	
 PROCEDURE SProc_COPY* (VAR x, y, z : Base.Item);
-	VAR	i : INTEGER;
+	VAR	i : INTEGER; rsize : UBYTE;
 BEGIN
-	(* Implement later *)
+	Load_to_reg (reg_SI, USHORT (x.type.size), x);
+	Load_to_reg (reg_DI, USHORT (y.type.size), y);
+	Load_to_reg (reg_C, USHORT (z.type.size), z);
+	
+	EmitREPop (MOVSrep, 1, 1);
+
+	i := reg_stacks [crs].i; WHILE i > 0 DO Free_reg; DEC (i) END;
+	ProcState.usedRegs := ProcState.usedRegs + {reg_DI, reg_SI}
 END SProc_COPY;
 
 PROCEDURE SFunc_ADR* (VAR x : Base.Item);
@@ -1547,7 +1617,7 @@ END FJump;
 PROCEDURE CFJump* (VAR x : Base.Item);
 	VAR cond : INTEGER;
 BEGIN
-	IF x.mode # Base.mode_cond THEN Load_cond (x) END;
+	IF x.mode # mode_cond THEN Load_cond (x) END;
     cond := negated (x.c);
 	IF cond < 16 THEN CondBranch (cond, SHORT (x.a)); x.a := pc - 1
 	ELSIF cond = ccAlways THEN Branch (SHORT (x.a)); x.a := pc - 1
@@ -1558,7 +1628,7 @@ END CFJump;
 PROCEDURE CBJump* (VAR x : Base.Item; L : INTEGER);
 	VAR cond : INTEGER;
 BEGIN
-	IF x.mode # Base.mode_cond THEN Load_cond (x) END;
+	IF x.mode # mode_cond THEN Load_cond (x) END;
     cond := negated (x.c);
 	IF cond < 16 THEN CondBranch (cond, codeinfo [L].ip - ip - 6)
 	ELSIF cond = ccAlways THEN Branch (codeinfo [L].ip - ip - 5)
@@ -1648,14 +1718,16 @@ BEGIN
 		L := pc; EmitRM (1, MOVr, r, 2, reg_DI, 0);
 		EmitRM (1, CMPr, r, 2, reg_SI, 0);
 		Set_cond (x, ccZ); CFJump (x);
-		EmitRR (TESTr, x.r, 4, x.r);
+		EmitRRnd (TESTr, x.r, 4, x.r);
 		Set_cond (x, ccNZ); CFJump (x);
 		EmitRI (SUBi, rc, 4, 2);
 		Set_cond (x, ccNZ); CFJump (x);
 		EmitRI (ADDi, reg_DI, 8, 2); EmitRI (ADDi, reg_SI, 8, 2);
 		BJump (L); Fixup (x);
 		EmitRM (1, CMPr, r, 2, reg_SI, 0);
-		Set_cond (x, ccZ)
+		Set_cond (x, ccZ);
+		
+		Free_reg; Free_reg
 	END
 END String_comparison;
 	
@@ -2090,6 +2162,8 @@ BEGIN
 END Finish;
 
 BEGIN
+	_16bit_allowed := TRUE;
+
 	reg_stacks [0].i := 0;
 	reg_stacks [0].n := 11;
 	reg_stacks [0].ord [0] := reg_A;
