@@ -23,10 +23,12 @@ MODULE Test;
 	END Init;
 	
 	PROCEDURE Main;
+		CONST mess = 'Oberon for Win64';
 		VAR i : INTEGER;
+			s : ARRAY 64 OF CHAR;
 	BEGIN
-		i := 2;
-		MessageBoxW (0, ADR('Oberon for Win64'), ADR('Hello, World!'), 0)
+		i := 2; s := mess;
+		IF s = mess THEN MessageBoxW (0, ADR(s), ADR('Hello, World!'), 0) END
 	END Main;
 	
 BEGIN

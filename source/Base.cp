@@ -10,41 +10,11 @@ CONST
 	MAX_INT* = 9223372036854775807;
 	MIN_INT* = -MAX_INT - 1;
 	MAX_CHAR* = 65535;
+	max_ident_len* = 63;
 	max_str_len* = 255;
 	type_extension_limit* = 7;
 	max_number_record_types* = 1024;
 	set_size_limit* = 64;
-
-	sym_null* = 0;
-	sym_times* = 1; sym_slash* = 2; sym_div* = 3; sym_mod* = 4;
-	sym_and* = 5; sym_plus* = 6; sym_minus* = 7; sym_or* = 8;
-	
-	sym_equal* = 9; sym_not_equal* = 10; sym_less* = 11;
-	sym_greater_equal* = 12; sym_greater* = 13; sym_less_equal* = 14;
-	sym_in* = 15; sym_is* = 16;
-	
-	sym_arrow* = 17; sym_period* = 18;
-	sym_lparen* = 29; sym_lbrak* = 30; sym_lbrace* = 31;
-	
-	sym_not* = 32;
-	sym_number* = 34; sym_nil* = 35; sym_true* = 36; sym_false* = 37;
-	sym_string* = 38; sym_ident* = 39;
-	
-	sym_if* = 55; sym_while* = 56; sym_repeat* = 57; sym_for* = 58;
-	sym_case* = 59;
-	
-	sym_comma* = 60; sym_colon* = 61; sym_becomes* = 62; sym_upto* = 63;
-	sym_rparen* = 64; sym_rbrak* = 65; sym_rbrace* = 66; sym_then* = 67;
-	sym_of* = 68; sym_do* = 69; sym_to* = 70; sym_by* = 71;
-	
-	sym_semicolon* = 72; sym_end* = 73; sym_bar* = 74; sym_else* = 75;
-	sym_elsif* = 76; sym_until* = 77; sym_return* = 78;
-	
-	sym_array* = 79; sym_record* = 80; sym_pointer* = 81;
-	sym_const* = 82; sym_type* = 83; sym_var* = 84; sym_procedure* = 85;
-	sym_begin* = 86; sym_module* = 88;
-	sym_eof* = 89;
-
 
 	(* Object class/Item mode *)
 	class_head* = 0; class_module* = 1; class_var* = 2; class_ref* = 3;
@@ -75,10 +45,8 @@ CONST
 	alignment_flag* = 2;
 
 TYPE
-	String* = POINTER TO RECORD
-		content* : ARRAY max_str_len + 1 OF CHAR;
-		len* : INTEGER
-	END;
+	String* = ARRAY max_ident_len + 1 OF CHAR;
+	LongString* = ARRAY max_str_len + 1 OF CHAR;
 
 	Type* = POINTER TO RECORD
 		hasExtension*, predefined* : BOOLEAN;
@@ -91,12 +59,11 @@ TYPE
 
 	Object* = POINTER TO RECORD
 		param*, readonly*, export* : BOOLEAN;
-		class*, lev*, parblksize* : INTEGER;
 		name* : String;
+		class*, lev*, parblksize* : INTEGER;
 		type* : Type;
 		next*, dsc* : Object;
-		val2* : INTEGER;
-		val* : LONGINT
+		val2* : INTEGER; val* : LONGINT
 	END;
 	
 	Item* = RECORD
@@ -133,57 +100,20 @@ VAR
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 	
-PROCEDURE Str_len* (s : ARRAY OF CHAR) : INTEGER;
+PROCEDURE Str_len* (IN s : ARRAY OF CHAR) : INTEGER;
 	VAR i : INTEGER;
 BEGIN
 	i := 0; WHILE (s[i] # 0X) & (i < LEN(s)) DO INC (i) END;
 	RETURN i
 END Str_len;
 
-PROCEDURE Str_equal* (s1 : String; s2 : ARRAY OF CHAR) : BOOLEAN;
-	VAR i : INTEGER; result : BOOLEAN;
-BEGIN
-	i := 0; result := TRUE;
-	WHILE (s1.content[i] # 0X) & (s2[i] # 0X) & result DO
-		IF s1.content[i] # s2[i] THEN result := FALSE END;
-		INC (i)
-	END;
-	RETURN result & (s1.content[i] = 0X) & (s2[i] = 0X)
-END Str_equal;
-
-PROCEDURE Str_equal2* (s1, s2 : String) : BOOLEAN;
-	VAR i : INTEGER; result : BOOLEAN;
-BEGIN
-	IF (s1 = NIL) OR (s2 = NIL) OR (s1.len # s2.len) THEN result := FALSE
-	ELSE
-		i := 0; result := TRUE;
-		WHILE (i < s1.len) & result DO
-			IF s1.content[i] # s2.content[i] THEN result := FALSE END;
-			INC (i)
-		END
-	END;
-	RETURN result
-END Str_equal2;
-
-PROCEDURE Make_string* (const_str : ARRAY OF CHAR) : String;
-	VAR i : INTEGER; s : String;
-BEGIN
-	NEW (s);
-	s.len := LEN(const_str) - 1;
-	FOR i := 0 TO s.len DO s.content[i] := const_str[i] END;
-	RETURN s
-END Make_string;
-	
-(* -------------------------------------------------------------------------- *)
-(* -------------------------------------------------------------------------- *)
-	
 PROCEDURE log2* (a : LONGINT) : INTEGER;
 	VAR e : INTEGER;
 BEGIN
 	IF a > 0 THEN
 		e := 0;
 		WHILE a > 1 DO
-			IF a MOD 2 = 0 THEN INC (e); a := a DIV 2
+			IF ~ ODD(a) THEN INC (e); a := a DIV 2
 			ELSE e := -1; a := 1
 			END
 		END
@@ -280,13 +210,13 @@ END Inc_level;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 	
-PROCEDURE Find_obj_in_scope (VAR obj : Object; name : String; scope : Object);
+PROCEDURE Find_obj_in_scope(VAR obj : Object; IN name : String; scope : Object);
 BEGIN
 	guard.name := name; obj := scope.next;
-	WHILE ~ Str_equal2 (obj.name, name) DO obj := obj.next END
+	WHILE obj.name # name DO obj := obj.next END
 END Find_obj_in_scope;
 
-PROCEDURE Find_obj* (VAR obj : Object; name : String);
+PROCEDURE Find_obj* (VAR obj : Object; IN name : String);
 	VAR	loop_exit : BOOLEAN;
 		scope : Object;
 BEGIN
@@ -295,7 +225,7 @@ BEGIN
 		IF scope = universe THEN
 			Find_obj_in_scope (obj, name, scope); loop_exit := TRUE
 		ELSIF scope = top_scope THEN
-			IF Str_equal2 (scope.name, name) THEN
+			IF scope.name = name THEN
 				Find_obj_in_scope (obj, name, scope.dsc); loop_exit := TRUE
 			ELSE
 				Find_obj_in_scope (obj, name, scope);
@@ -306,13 +236,13 @@ BEGIN
 	UNTIL loop_exit
 END Find_obj;
 	
-PROCEDURE Find_field* (VAR obj : Object; name : String; rec_typ : Type);
+PROCEDURE Find_field* (VAR obj : Object; IN name : String; rec_typ : Type);
 BEGIN
 	guard.name := name; obj := rec_typ.fields;
-	WHILE ~ Str_equal2 (obj.name, name) DO obj := obj.next END
+	WHILE obj.name # name DO obj := obj.next END
 END Find_field;
 
-PROCEDURE New_obj* (VAR obj : Object; name : String; class : INTEGER);
+PROCEDURE New_obj* (VAR obj : Object; IN name : String; class : INTEGER);
 BEGIN
 	IF class = class_field THEN	Find_obj_in_scope (obj, name, top_scope)
 	ELSE Find_obj (obj, name)
@@ -388,7 +318,7 @@ PROCEDURE Check_undefined_pointer_list* (obj : Object);
 BEGIN
 	p := undef_ptr_list;
 	REPEAT
-		IF Str_equal2 (p.base_typ_name, obj.name) THEN
+		IF p.base_typ_name = obj.name THEN
 			p.ptr_typ.base := obj.type;
 			IF p = undef_ptr_list THEN undef_ptr_list := p.next
 			ELSE prev.next := p.next
@@ -797,49 +727,49 @@ BEGIN
 	
 	top_scope := universe;
 	
-	Enter (class_type, 0, Make_string ('INTEGER'), int_type);
-	Enter (class_type, 0, Make_string ('BOOLEAN'), bool_type);
-	Enter (class_type, 0, Make_string ('SET'), set_type);
-	Enter (class_type, 0, Make_string ('BYTE'), byte_type);
-	Enter (class_type, 0, Make_string ('CHAR'), char_type);
-	Enter (class_type, 0, Make_string ('REAL'), real_type);
-	Enter (class_type, 0, Make_string ('LONGREAL'), longreal_type);
+	Enter (class_type, 0, 'INTEGER', int_type);
+	Enter (class_type, 0, 'BOOLEAN', bool_type);
+	Enter (class_type, 0, 'SET', set_type);
+	Enter (class_type, 0, 'BYTE', byte_type);
+	Enter (class_type, 0, 'CHAR', char_type);
+	Enter (class_type, 0, 'REAL', real_type);
+	Enter (class_type, 0, 'LONGREAL', longreal_type);
 	
 	(*
-	Enter (class_sproc, 0, Make_string ('INC'), NIL);
-	Enter (class_sproc, 1, Make_string ('DEC'), NIL);
-	Enter (class_sproc, 2, Make_string ('INCL'), NIL);
-	Enter (class_sproc, 3, Make_string ('EXCL'), NIL);
-	Enter (class_sproc, 4, Make_string ('NEW'), NIL);
-	Enter (class_sproc, 5, Make_string ('ASSERT'), NIL);
-	Enter (class_sproc, 6, Make_string ('PACK'), NIL);
-	Enter (class_sproc, 7, Make_string ('UNPK'), NIL);
-	Enter (class_sproc, 8, Make_string ('DISPOSE'), NIL);
+	Enter (class_sproc, 0, 'INC', NIL);
+	Enter (class_sproc, 1, 'DEC', NIL);
+	Enter (class_sproc, 2, 'INCL', NIL);
+	Enter (class_sproc, 3, 'EXCL', NIL);
+	Enter (class_sproc, 4, 'NEW', NIL);
+	Enter (class_sproc, 5, 'ASSERT', NIL);
+	Enter (class_sproc, 6, 'PACK', NIL);
+	Enter (class_sproc, 7, 'UNPK', NIL);
+	Enter (class_sproc, 8, 'DISPOSE', NIL);
 	*)
 	
-	Enter (class_sproc, 100, Make_string ('GET'), NIL);
-	Enter (class_sproc, 101, Make_string ('PUT'), NIL);
-	Enter (class_sproc, 102, Make_string ('COPY'), NIL);
-	Enter2 (class_sproc, 103, Make_string ('LoadLibrary'), NIL, -48);
-	Enter2 (class_sproc, 104, Make_string ('GetProcAddress'), NIL, -40);
+	Enter (class_sproc, 100, 'GET', NIL);
+	Enter (class_sproc, 101, 'PUT', NIL);
+	Enter (class_sproc, 102, 'COPY', NIL);
+	Enter2 (class_sproc, 103, 'LoadLibrary', NIL, -48);
+	Enter2 (class_sproc, 104, 'GetProcAddress', NIL, -40);
 	
-	Enter (class_sproc, 200, Make_string ('ABS'), int_type);
-	Enter (class_sproc, 201, Make_string ('ODD'), bool_type);
-	Enter (class_sproc, 202, Make_string ('LEN'), int_type);
-	Enter (class_sproc, 203, Make_string ('LSL'), int_type);
-	Enter (class_sproc, 204, Make_string ('ASR'), int_type);
-	Enter (class_sproc, 205, Make_string ('ROR'), int_type);
+	Enter (class_sproc, 200, 'ABS', int_type);
+	Enter (class_sproc, 201, 'ODD', bool_type);
+	Enter (class_sproc, 202, 'LEN', int_type);
+	Enter (class_sproc, 203, 'LSL', int_type);
+	Enter (class_sproc, 204, 'ASR', int_type);
+	Enter (class_sproc, 205, 'ROR', int_type);
 	
-(*	Enter (class_sproc, 206, Make_string ('FLOOR'), int_type);
-	Enter (class_sproc, 207, Make_string ('FLT'), int_type);
+(*	Enter (class_sproc, 206, 'FLOOR', int_type);
+	Enter (class_sproc, 207, 'FLT', int_type);
 *)
-	Enter (class_sproc, 208, Make_string ('ORD'), int_type);
-	Enter (class_sproc, 209, Make_string ('CHR'), char_type);
+	Enter (class_sproc, 208, 'ORD', int_type);
+	Enter (class_sproc, 209, 'CHR', char_type);
 	
-	Enter (class_sproc, 300, Make_string ('ADR'), int_type);
-	Enter (class_sproc, 301, Make_string ('SIZE'), int_type);
-	Enter (class_sproc, 302, Make_string ('BIT'), bool_type);
-	Enter (class_sproc, 303, Make_string ('VAL'), int_type);
+	Enter (class_sproc, 300, 'ADR', int_type);
+	Enter (class_sproc, 301, 'SIZE', int_type);
+	Enter (class_sproc, 302, 'BIT', bool_type);
+	Enter (class_sproc, 303, 'VAL', int_type);
 	
 	exportno := 0;	
 	compiler_flag := {integer_overflow_check, array_bound_check, alignment_flag}

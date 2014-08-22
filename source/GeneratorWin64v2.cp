@@ -47,6 +47,8 @@ CONST
 	TESTi = 0F6H; CMPi = 780H;
 	BTi = 4BA0FH; BTSi = 5BA0FH;
 	
+	MOVSrep = 0A4H;
+	
 	CQO = 9948H; LEAVE = 0C9H; RET = 0C3H;
 
 TYPE
@@ -183,7 +185,7 @@ END EmitBare;
 PROCEDURE EmitRR (op : INTEGER; reg, rsize, rm : UBYTE);
 BEGIN
 	Emit.iflag := {}; Emit.i := 0;
-	Emit_REX_prefix (rsize, reg, rm, 0, 0); Emit_16bit_prefix (rsize);
+	Emit_16bit_prefix (rsize); Emit_REX_prefix (rsize, reg, rm, 0, 0);
 	Emit_opcodeR (op, rsize, 1);
 	
 	(* ModR/M byte *)
@@ -196,7 +198,7 @@ END EmitRR;
 PROCEDURE EmitRRnd (op : INTEGER; reg, rsize, rm : UBYTE);
 BEGIN
 	Emit.iflag := {}; Emit.i := 0;
-	Emit_REX_prefix (rsize, reg, rm, 0, 0); Emit_16bit_prefix (rsize);
+	Emit_16bit_prefix (rsize); Emit_REX_prefix (rsize, reg, rm, 0, 0);
 	Emit_opcodeR (op, rsize, 0);
 	
 	(* ModR/M byte *)
@@ -210,7 +212,7 @@ PROCEDURE EmitRMs
 (d : UBYTE; op : INTEGER; reg, rsize, bas, idx, scl : UBYTE; disp : INTEGER);
 BEGIN
 	Emit.iflag := {}; Emit.i := 0;
-	Emit_REX_prefix (rsize, reg, 0, bas, idx); Emit_16bit_prefix (rsize);
+	Emit_16bit_prefix (rsize); Emit_REX_prefix (rsize, reg, 0, bas, idx);
 	Emit_opcodeR (op, rsize, d); Emit_ModRM (reg, reg_SP, bas, disp);
 	
 	(* SIB byte *)
@@ -225,7 +227,7 @@ PROCEDURE EmitRM
 (d : UBYTE; op : INTEGER; reg, rsize, rm : UBYTE; disp : INTEGER);
 BEGIN
 	Emit.iflag := {}; Emit.i := 0;
-	Emit_REX_prefix (rsize, reg, 0, rm, 0); Emit_16bit_prefix (rsize);
+	Emit_16bit_prefix (rsize); Emit_REX_prefix (rsize, reg, 0, rm, 0);
 	Emit_opcodeR (op, rsize, d); Emit_ModRM (reg, rm, 0, disp);
 	
 	IF rm IN {reg_R12, reg_SP} THEN
@@ -252,7 +254,7 @@ PROCEDURE EmitRMip
 (d : UBYTE; op : INTEGER; reg, rsize : UBYTE; disp : INTEGER);
 BEGIN
 	Emit.iflag := {}; Emit.i := 0;
-	Emit_REX_prefix (rsize, reg, 0, 0, 0); Emit_16bit_prefix (rsize);
+	Emit_16bit_prefix (rsize); Emit_REX_prefix (rsize, reg, 0, 0, 0);
 	Emit_opcodeR (op, rsize, d);
 	
 	code [pc, Emit.i] := USHORT (reg MOD 8 * 8 + reg_BP); INC (Emit.i);
@@ -265,7 +267,7 @@ PROCEDURE MoveRI (rm, rsize : UBYTE; imm : LONGINT);
 	VAR op : UBYTE;
 BEGIN
 	Emit.iflag := {}; Emit.i := 0;
-	Emit_REX_prefix (rsize, 0, rm, 0, 0); Emit_16bit_prefix (rsize);
+	Emit_16bit_prefix (rsize); Emit_REX_prefix (rsize, 0, rm, 0, 0);
 	
 	op := USHORT (0B0H + rm MOD 8);
 	IF rsize > 1 THEN INC (op, w_bit_1byte) END;
@@ -282,7 +284,7 @@ PROCEDURE EmitRRI (op : INTEGER; reg, rsize, rm : UBYTE; imm : LONGINT);
 	VAR isize : UBYTE;
 BEGIN
 	Emit.iflag := {}; Emit.i := 0;
-	Emit_REX_prefix (rsize, reg, rm, 0, 0); Emit_16bit_prefix (rsize);
+	Emit_16bit_prefix (rsize); Emit_REX_prefix (rsize, reg, rm, 0, 0);
 	
 	IF (rsize > 1) & (BITS(op) * BITS(w_bit) = {}) THEN INC (op, w_bit) END;
 	
@@ -310,7 +312,7 @@ PROCEDURE EmitRI (op : INTEGER; rm, rsize : UBYTE; imm : LONGINT);
 BEGIN
 	IF op # IMULi THEN
 		Emit.iflag := {}; Emit.i := 0;
-		Emit_REX_prefix (rsize, 0, rm, 0, 0); Emit_16bit_prefix (rsize);
+		Emit_16bit_prefix (rsize); Emit_REX_prefix (rsize, 0, rm, 0, 0);
 		
 		op3bit := USHORT (op DIV 256);
 		op := op MOD 256;
@@ -343,7 +345,7 @@ PROCEDURE EmitRI8 (op : INTEGER; rm, rsize : UBYTE; imm8 : LONGINT);
 	VAR op3bit : UBYTE;
 BEGIN
 	Emit.iflag := {}; Emit.i := 0;
-	Emit_REX_prefix (rsize, 0, rm, 0, 0); Emit_16bit_prefix (rsize);
+	Emit_16bit_prefix (rsize); Emit_REX_prefix (rsize, 0, rm, 0, 0);
 	
 	op3bit := USHORT (op DIV 256);
 	op := op MOD 256;
@@ -367,7 +369,7 @@ PROCEDURE EmitR (op : INTEGER; rm, rsize : UBYTE);
 	VAR op3bit : UBYTE;
 BEGIN
 	Emit.iflag := {}; Emit.i := 0;
-	Emit_REX_prefix (rsize, 0, rm, 0, 0); Emit_16bit_prefix (rsize);
+	Emit_16bit_prefix (rsize); Emit_REX_prefix (rsize, 0, rm, 0, 0);
 	
 	op3bit := USHORT (op DIV 256);
 	op := op MOD 256;
@@ -383,6 +385,18 @@ BEGIN
 	
 	Next_inst
 END EmitR;
+
+PROCEDURE EmitREPop (op : INTEGER; size, z : UBYTE);
+BEGIN
+	Emit.iflag := {}; Emit.i := 0;
+	code [pc, 0] := USHORT (0F2H + z); INC (Emit.i); (* REP prefix *)
+	Emit_16bit_prefix (size); Emit_REX_prefix (size, 0, 0, 0, 0);
+	
+	IF (size > 1) & (BITS(op) * BITS(w_bit) = {}) THEN INC (op, w_bit) END;
+	code [pc, Emit.i] := USHORT (op); INC (Emit.i);
+	
+	Next_inst
+END EmitREPop;
 
 (* -------------------------------------------------------------------------- *)
 
@@ -528,16 +542,15 @@ BEGIN
 	x.c := 0
 END Make_item;
 	
-PROCEDURE Make_string* (VAR x : Base.Item; str : Base.String);
+PROCEDURE Make_string* (VAR x : Base.Item);
 	VAR
 		bufoffset, strlen, i, charsize : INTEGER; b : UBYTE;
 BEGIN
 	x.readonly := TRUE; x.param := FALSE;
-	x.mode := Base.class_var;
-	x.lev := -1;
+	x.mode := Base.class_var; x.lev := -1;
 	
 	charsize := Base.char_type.size;
-	strlen := str.len + 1;
+	strlen := Base.Str_len (Scanner.str) + 1;
 	
 	Base.New_typ (x.type, Base.type_string);
 	x.type.len := strlen;
@@ -550,15 +563,15 @@ BEGIN
 	bufoffset := i + LEN(staticdata); i := 0;
 	IF charsize = 1 THEN
 		WHILE i < strlen DO
-			b := USHORT (ORD (str.content [i]) MOD 256);
+			b := USHORT (ORD (Scanner.str[i]) MOD 256);
 			staticdata [bufoffset] := b;
 			INC (i); INC (bufoffset)
 		END;
 	ELSIF charsize = 2 THEN
 		WHILE i < strlen DO
-			b := USHORT (ORD (str.content [i]) MOD 256);
+			b := USHORT (ORD (Scanner.str[i]) MOD 256);
 			staticdata [bufoffset] := b;
-			b := USHORT (ORD (str.content [i]) DIV 256 MOD 256);
+			b := USHORT (ORD (Scanner.str[i]) DIV 256 MOD 256);
 			staticdata [bufoffset + 1] := b;
 			INC (i); INC (bufoffset, 2)
 		END;
@@ -615,11 +628,11 @@ END merged;
 
 PROCEDURE ccCodeOf (op : INTEGER) : INTEGER;
 BEGIN
-	IF op = Base.sym_equal THEN op := ccZ
-	ELSIF op = Base.sym_not_equal THEN op := ccNZ
-	ELSIF op = Base.sym_less THEN op := ccL
-	ELSIF op = Base.sym_greater THEN op := ccG
-	ELSIF op = Base.sym_less_equal THEN op := ccLE
+	IF op = Scanner.equal THEN op := ccZ
+	ELSIF op = Scanner.not_equal THEN op := ccNZ
+	ELSIF op = Scanner.less THEN op := ccL
+	ELSIF op = Scanner.greater THEN op := ccG
+	ELSIF op = Scanner.less_equal THEN op := ccLE
 	ELSE op := ccGE
 	END;
 	RETURN op
@@ -698,7 +711,7 @@ PROCEDURE load* (VAR x : Base.Item);
 		rsize : UBYTE;
 BEGIN
 	ASSERT ((x.mode IN Base.classes_Value) & (x.type.size IN {1, 2, 4, 8})
-			OR (x.mode = Base.class_proc), 100H);
+			OR (x.mode = Base.class_proc));
 
 	IF x.mode # mode_reg THEN
 		IF x.mode # Base.class_proc THEN rsize := USHORT (x.type.size)
@@ -756,7 +769,7 @@ BEGIN
 END Load_cond;
 
 PROCEDURE Store* (VAR x, y : Base.Item);
-	VAR rsize : UBYTE;
+	VAR rsize : UBYTE; count : INTEGER;
 BEGIN
 	IF x.type.form IN Base.types_Scalar THEN
 		load (y); rsize := USHORT (x.type.size);
@@ -773,7 +786,19 @@ BEGIN
 		END;
 		Free_reg
 	ELSIF x.type.form IN {Base.type_array, Base.type_record} THEN
-		(* IMPLEMENT LATER *)
+		count := x.type.size;
+		IF (y.type.form = Base.type_string) & (y.type.size < count) THEN
+			count := y.type.size
+		END;
+		Load_adr (x); Load_adr (y); EmitRR (MOVr, reg_DI, 8, x.r);
+		EmitRR (MOVr, reg_SI, 8, y.r);
+		IF count MOD 8 = 0 THEN count := count DIV 8; rsize := 8
+		ELSIF count MOD 4 = 0 THEN count := count DIV 4; rsize := 4
+		ELSE rsize := 1
+		END;
+		MoveRI (reg_C, 4, count); EmitREPop (MOVSrep, rsize, 1);
+		Free_reg; Free_reg;
+		ProcState.usedRegs := ProcState.usedRegs + {reg_DI, reg_SI}
 	END
 END Store;
 
@@ -882,7 +907,7 @@ PROCEDURE Op1* (op : INTEGER; VAR x : Base.Item);
 		s : ARRAY 2 OF SET;
 		t, cond : INTEGER;
 BEGIN
-	IF op = Base.sym_not THEN
+	IF op = Scanner.not THEN
 		IF x.mode = mode_imm THEN
 			x.a := (x.a + 1) MOD 2
 		ELSE
@@ -890,7 +915,7 @@ BEGIN
 			x.c := negated (x.c);
 			t := SHORT (x.a); x.a := x.b; x.b := t
 		END
-	ELSIF op = Base.sym_minus THEN
+	ELSIF op = Scanner.minus THEN
 		IF x.mode = mode_imm THEN
 			IF x.type.form = Base.type_integer THEN
 				IF x.a = Base.MIN_INT THEN
@@ -911,14 +936,14 @@ BEGIN
 			ELSIF x.type = Base.set_type THEN EmitR (NOTr, x.r, 8)
 			END
 		END
-	ELSIF op = Base.sym_and THEN
+	ELSIF op = Scanner.and THEN
 		IF x.mode # Base.mode_cond THEN Load_cond (x) END;
 		cond := negated (x.c);
 		IF cond # ccNever THEN CondBranch (cond, SHORT (x.a));
 			x.a := pc - 1
 		END;
 		Fix_link (x.b); x.b := 0
-	ELSIF op = Base.sym_or THEN
+	ELSIF op = Scanner.or THEN
 		IF x.mode # Base.mode_cond THEN Load_cond (x) END;
 		IF x.c # ccNever THEN CondBranch (x.c, x.b);
 			x.b := pc - 1
@@ -995,7 +1020,7 @@ BEGIN
 		EmitRRnd (TESTr, reg_D, 8, reg_D);
 		CondBranchS (ccZ, L); L := pc - 1;
 		
-		IF op = Base.sym_div THEN EmitRI (SUBi, reg_A, 8, 1)
+		IF op = Scanner.div THEN EmitRI (SUBi, reg_A, 8, 1)
 		ELSIF ~ (y.r IN {reg_A, reg_D}) THEN EmitRR (ADDr, reg_D, 8, y.r)
 		ELSIF y.r = reg_D THEN EmitRR (ADDr, reg_D, 8, r2)
 		ELSE EmitRR (ADDr, reg_D, 8, r)
@@ -1003,7 +1028,7 @@ BEGIN
 		
 		Fix_link (L);
 		
-		IF op = Base.sym_div THEN
+		IF op = Scanner.div THEN
 			IF dst # reg_A THEN EmitRR (MOVr, dst, 8, reg_A) END
 		ELSIF dst # reg_D THEN EmitRR (MOVr, dst, 8, reg_D)
 		END;
@@ -1018,14 +1043,14 @@ BEGIN
 		x.r := dst; Free_reg
 	ELSE
 		IF y.a > 1 THEN
-			IF op = Base.sym_div THEN EmitRI8 (SARi, x.r, 8, Base.log2(y.a))
+			IF op = Scanner.div THEN EmitRI8 (SARi, x.r, 8, Base.log2(y.a))
 			ELSE DEC (y.a);
 				IF y.a <= MAX_INT32 THEN EmitRI (ANDi, x.r, 8, y.a)
 				ELSE load (y); EmitRR (ANDr, x.r, 8, y.r); Free_reg
 				END
 			END
 		ELSIF y.a = 1 THEN
-			IF op = Base.sym_mod THEN EmitRR (XORr, x.r, 4, x.r)
+			IF op = Scanner.mod THEN EmitRR (XORr, x.r, 4, x.r)
 			END
 		ELSE Scanner.Mark ('Division by non-positive number')
 		END
@@ -1055,27 +1080,27 @@ END Difference;
 PROCEDURE IntConstOp (op : INTEGER; x, y : LONGINT) : LONGINT;
 BEGIN
 	CASE op OF
-		Base.sym_plus:
+		Scanner.plus:
 		IF Base.Safe_to_add (x, y) THEN INC (x, y)
 		ELSE Scanner.Mark ('Integer overflow detected')
 		END |
 		
-		Base.sym_minus:
+		Scanner.minus:
 		IF Base.Safe_to_subtract (x, y) THEN DEC (x, y)
 		ELSE Scanner.Mark ('Integer overflow detected')
 		END |
 		
-		Base.sym_times:
+		Scanner.times:
 		IF Base.Safe_to_multiply (x, y) THEN x := x * y
 		ELSE Scanner.Mark ('Integer overflow detected')
 		END |
 		
-		Base.sym_div:
+		Scanner.div:
 		IF y > 0 THEN x := x DIV y
 		ELSE Scanner.Mark ('Division by non-positive number')
 		END |
 		
-		Base.sym_mod:
+		Scanner.mod:
 		IF y > 0 THEN x := x MOD y
 		ELSE Scanner.Mark ('Division by non-positive number')
 		END
@@ -1090,10 +1115,10 @@ BEGIN
 	SYSTEM.PUT (SYSTEM.ADR(dst[0]), x); SYSTEM.PUT (SYSTEM.ADR(src[0]), y);
 	
 	CASE op OF
-		Base.sym_plus: dst[0] := dst[0] + src[0]; dst[1] := dst[1] + src[1] |
-		Base.sym_minus: dst[0] := dst[0] - src[0]; dst[1] := dst[1] - src[1] |
-		Base.sym_times: dst[0] := dst[0] * src[0]; dst[1] := dst[1] * src[1] |
-		Base.sym_slash: dst[0] := dst[0] / src[0]; dst[1] := dst[1] / src[1]
+		Scanner.plus: dst[0] := dst[0] + src[0]; dst[1] := dst[1] + src[1] |
+		Scanner.minus: dst[0] := dst[0] - src[0]; dst[1] := dst[1] - src[1] |
+		Scanner.times: dst[0] := dst[0] * src[0]; dst[1] := dst[1] * src[1] |
+		Scanner.slash: dst[0] := dst[0] / src[0]; dst[1] := dst[1] / src[1]
 	END;
 	
 	SYSTEM.GET (SYSTEM.ADR(dst[0]), x);
@@ -1109,25 +1134,25 @@ BEGIN
 	ELSE
 		IF x.type.form = Base.type_integer THEN
 			CASE op OF
-				Base.sym_plus: IntegerOp (ADDr, ADDi, x, y) |
-				Base.sym_minus: Subtract (x, y) |
-				Base.sym_times: IntegerOp (IMULr, IMULi, x, y) |
-				Base.sym_div: Divide (Base.sym_div, x, y) |
-				Base.sym_mod: Divide (Base.sym_mod, x, y)
+				Scanner.plus: IntegerOp (ADDr, ADDi, x, y) |
+				Scanner.minus: Subtract (x, y) |
+				Scanner.times: IntegerOp (IMULr, IMULi, x, y) |
+				Scanner.div: Divide (Scanner.div, x, y) |
+				Scanner.mod: Divide (Scanner.mod, x, y)
 			END
 		ELSIF x.type = Base.set_type THEN
 			CASE op OF
-				Base.sym_plus: BitwiseOp (ORr, x, y) |
-				Base.sym_minus: Difference (x, y) |
-				Base.sym_times: BitwiseOp (ANDr, x, y) |
-				Base.sym_slash: BitwiseOp (XORr, x, y) |
+				Scanner.plus: BitwiseOp (ORr, x, y) |
+				Scanner.minus: Difference (x, y) |
+				Scanner.times: BitwiseOp (ANDr, x, y) |
+				Scanner.slash: BitwiseOp (XORr, x, y) |
 			END
 		ELSIF x.type = Base.bool_type THEN
 			IF y.mode # Base.mode_cond THEN Load_cond (y) END;
-			IF op = Base.sym_and THEN
+			IF op = Scanner.and THEN
 				x.a := merged (SHORT (y.a), SHORT (x.a));
 				x.b := y.b
-			ELSIF op = Base.sym_or THEN
+			ELSIF op = Scanner.or THEN
 				x.b := merged (y.b, x.b);
 				x.a := y.a
 			END;
@@ -1508,140 +1533,6 @@ BEGIN
 	END
 END Open_array_parameter;
 
-(* -------------------------------------------------------------------------- *)
-(* -------------------------------------------------------------------------- *)
-(* Relation expression *)
-
-PROCEDURE Scalar_comparison (op : INTEGER; VAR x, y : Base.Item);
-	VAR r1, r2 : INTEGER;
-		rsize : UBYTE;
-		
-	PROCEDURE Invert_op (VAR op : INTEGER);
-	BEGIN
-		IF op > Base.sym_not_equal THEN
-			IF op = Base.sym_less THEN op := Base.sym_greater
-			ELSIF op = Base.sym_less_equal THEN op := Base.sym_greater_equal
-			ELSIF op = Base.sym_greater THEN op := Base.sym_less
-			ELSIF op = Base.sym_greater_equal THEN op := Base.sym_less_equal
-			END
-		END
-	END Invert_op;
-		
-BEGIN
-	IF x.mode = Base.class_proc THEN load (x); rsize := 8
-	ELSE rsize := USHORT (x.type.size)
-	END;
-	IF ~ (y.mode IN {mode_imm, mode_reg}) THEN load (y) END;
-	
-	IF x.mode = mode_reg THEN
-		IF Small_const (y) THEN EmitRI (CMPi, x.r, rsize, y.a)
-		ELSE load (y); EmitRR (CMPr, x.r, rsize, y.r); Free_reg
-		END
-	ELSIF x.mode = mode_imm THEN
-		IF Small_const (x) THEN EmitRI (CMPi, y.r, rsize, x.a); Invert_op (op)
-		ELSE load (x); EmitRR (CMPr, x.r, rsize, y.r); Free_reg
-		END
-	END;
-	Free_reg
-END Scalar_comparison;
-	
-PROCEDURE String_comparison (op : INTEGER; VAR x, y : Base.Item);
-BEGIN
-	(* Implement later *)
-END String_comparison;
-	
-PROCEDURE Comparison* (op : INTEGER; VAR x, y : Base.Item);
-BEGIN
-	IF (x.mode = mode_imm) & (y.mode = mode_imm) THEN
-		IF op = Base.sym_equal THEN
-			IF x.a = y.a THEN x.a := 1 ELSE x.a := 0 END
-		ELSIF op = Base.sym_not_equal THEN
-			IF x.a # y.a THEN x.a := 1 ELSE x.a := 0 END
-		ELSIF op = Base.sym_greater THEN
-			IF x.a > y.a THEN x.a := 1 ELSE x.a := 0 END
-		ELSIF op = Base.sym_greater_equal THEN
-			IF x.a >= y.a THEN x.a := 1 ELSE x.a := 0 END
-		ELSIF op = Base.sym_less THEN
-			IF x.a < y.a THEN x.a := 1 ELSE x.a := 0 END
-		ELSIF op = Base.sym_less_equal THEN
-			IF x.a <= y.a THEN x.a := 1 ELSE x.a := 0 END
-		END
-	ELSIF (x.mode = Base.class_proc) OR (x.type.form IN Base.types_Scalar) THEN
-		Scalar_comparison (op, x, y); Set_cond (x, ccCodeOf(op))
-	ELSE String_comparison (op, x, y); Set_cond (x, ccCodeOf(op))
-	END;
-	x.type := Base.bool_type
-END Comparison;
-	
-PROCEDURE Membership* (VAR x, y : Base.Item);
-BEGIN
-	IF (x.mode = mode_imm) & (y.mode = mode_imm) THEN
-		x.a := ASH (y.a, -x.a) MOD 2
-	ELSE
-		load (y);
-		IF x.mode = mode_reg THEN EmitRR (BTr, x.r, 8, y.r); Free_reg
-		ELSE EmitRI (BTi, y.r, 8, x.a)
-		END;
-		Free_reg; Set_cond (x, ccB)
-	END;
-	x.type := Base.bool_type
-END Membership;
-	
-PROCEDURE Inclusion* (op : INTEGER; VAR x, y : Base.Item);
-	VAR
-		xset, yset : ARRAY 2 OF SET;
-BEGIN
-	IF (x.mode = mode_imm) & (y.mode = mode_imm) THEN
-		xset[0] := {}; xset[1] := {}; SYSTEM.PUT (SYSTEM.ADR(xset[0]), x.a);
-		yset[0] := {}; yset[1] := {}; SYSTEM.PUT (SYSTEM.ADR(yset[0]), y.a);
-		IF op = Base.sym_less_equal THEN
-			IF (xset[0] - yset[0] = {}) & (xset[1] - yset[1] = {})
-				THEN x.a := 1 ELSE x.a := 0
-			END
-		ELSE
-			IF (yset[0] - xset[0] = {}) & (yset[1] - xset[1] = {})
-				THEN x.a := 1 ELSE x.a := 0
-			END
-		END
-	ELSE
-		IF op = Base.sym_less_equal THEN Difference (x, y)
-		ELSE Difference (y, x)
-		END;
-		Free_reg; Set_cond (x, ccZ)
-	END;
-	x.type := Base.bool_type
-END Inclusion;
-
-(*
-PROCEDURE Type_test* (VAR x : Base.Item; typ : Base.Type);
-	VAR
-		td : Base.Item;
-BEGIN
-	IF x.type # typ THEN
-		IF x.type.form = Base.type_pointer THEN
-			load (x);
-			x.mode := Base.mode_regI;
-			x.a := -8;
-			load (x);
-			x.mode := Base.mode_regI;
-			x.a := 8 + typ.base.len * 8;
-			Make_type_desc_item (td, typ.base)
-		ELSE
-			(* x is record variable parameter *)
-			INC (x.a, 8);
-			Ref_to_regI (x);
-			x.type := Base.nil_type;
-			x.a := 8 + typ.len * 8;
-			Make_type_desc_item (td, typ)
-		END;
-		Emit_op_reg_mem (op_LEA, reg_RAX, td);
-		Emit_op_reg_mem (op_CMP, reg_RAX, x);
-		Free_reg; Set_cond (x, op_JE); x.type := Base.bool_type
-	ELSE
-		Make_const (x, Base.bool_type, 1)
-	END
-END Type_test;
-*)
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -1684,6 +1575,182 @@ PROCEDURE Fixup* (x : Base.Item);
 BEGIN
 	Fix_link (SHORT (x.a))
 END Fixup;
+
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+(* Relation expression *)
+
+PROCEDURE Scalar_comparison (op : INTEGER; VAR x, y : Base.Item);
+	VAR r1, r2 : INTEGER;
+		rsize : UBYTE;
+		
+	PROCEDURE Invert_op (VAR op : INTEGER);
+	BEGIN
+		IF op > Scanner.not_equal THEN
+			IF op = Scanner.less THEN op := Scanner.greater
+			ELSIF op = Scanner.less_equal THEN op := Scanner.greater_equal
+			ELSIF op = Scanner.greater THEN op := Scanner.less
+			ELSIF op = Scanner.greater_equal THEN op := Scanner.less_equal
+			END
+		END
+	END Invert_op;
+		
+BEGIN
+	IF x.mode = Base.class_proc THEN load (x); rsize := 8
+	ELSE rsize := USHORT (x.type.size)
+	END;
+	IF ~ (y.mode IN {mode_imm, mode_reg}) THEN load (y) END;
+	
+	IF x.mode = mode_reg THEN
+		IF Small_const (y) THEN EmitRI (CMPi, x.r, rsize, y.a)
+		ELSE load (y); EmitRR (CMPr, x.r, rsize, y.r); Free_reg
+		END
+	ELSIF x.mode = mode_imm THEN
+		IF Small_const (x) THEN EmitRI (CMPi, y.r, rsize, x.a); Invert_op (op)
+		ELSE load (x); EmitRR (CMPr, x.r, rsize, y.r); Free_reg
+		END
+	END;
+	Free_reg
+END Scalar_comparison;
+	
+PROCEDURE String_comparison (op : INTEGER; VAR x, y : Base.Item);
+	VAR xform, yform, xsize, ysize, i, xstr, ystr : INTEGER;
+		charsize, L : INTEGER; r, rc : UBYTE;
+BEGIN
+	xform := x.type.form; yform := y.type.form;
+	xsize := x.type.size; ysize := y.type.size;
+	charsize := Base.char_type.size;
+
+	IF {xform, yform} = {Base.type_string} THEN
+		IF xsize # ysize THEN x.a := 0
+		ELSE
+			i := 0; xstr := SHORT(x.a) + LEN(staticdata);
+			ystr := SHORT(y.a) + LEN(staticdata);
+			WHILE (i < xsize) & (staticdata[xstr + i] = staticdata[ystr + i]) DO
+				INC (i)
+			END;
+			IF staticdata[xstr + i] = staticdata[ystr + i] THEN x.a := 1
+			ELSE x.a := 0
+			END
+		END;
+		x.mode := mode_imm;
+	ELSIF (xform = Base.type_string) & (xsize - charsize > ysize)
+			OR (yform = Base.type_string) & (ysize - charsize > xsize) THEN
+		x.mode := mode_imm; x.a := 0
+	ELSE
+		Load_adr (x); Load_adr (y);
+		EmitRR (MOVr, reg_DI, 8, x.r); EmitRR (MOVr, reg_SI, 8, y.r);
+		r := x.r; rc := y.r;
+		IF xsize > ysize THEN xsize := ysize END;
+		MoveRI (rc, 4, xsize);
+		
+		L := pc; EmitRM (1, MOVr, r, 2, reg_DI, 0);
+		EmitRM (1, CMPr, r, 2, reg_SI, 0);
+		Set_cond (x, ccZ); CFJump (x);
+		EmitRR (TESTr, x.r, 4, x.r);
+		Set_cond (x, ccNZ); CFJump (x);
+		EmitRI (SUBi, rc, 4, 2);
+		Set_cond (x, ccNZ); CFJump (x);
+		EmitRI (ADDi, reg_DI, 8, 2); EmitRI (ADDi, reg_SI, 8, 2);
+		BJump (L); Fixup (x);
+		EmitRM (1, CMPr, r, 2, reg_SI, 0);
+		Set_cond (x, ccZ)
+	END
+END String_comparison;
+	
+PROCEDURE Comparison* (op : INTEGER; VAR x, y : Base.Item);
+BEGIN
+	IF (x.mode = mode_imm) & (y.mode = mode_imm) THEN
+		IF op = Scanner.equal THEN
+			IF x.a = y.a THEN x.a := 1 ELSE x.a := 0 END
+		ELSIF op = Scanner.not_equal THEN
+			IF x.a # y.a THEN x.a := 1 ELSE x.a := 0 END
+		ELSIF op = Scanner.greater THEN
+			IF x.a > y.a THEN x.a := 1 ELSE x.a := 0 END
+		ELSIF op = Scanner.greater_equal THEN
+			IF x.a >= y.a THEN x.a := 1 ELSE x.a := 0 END
+		ELSIF op = Scanner.less THEN
+			IF x.a < y.a THEN x.a := 1 ELSE x.a := 0 END
+		ELSIF op = Scanner.less_equal THEN
+			IF x.a <= y.a THEN x.a := 1 ELSE x.a := 0 END
+		END
+	ELSIF (x.mode = Base.class_proc) OR (x.type.form IN Base.types_Scalar) THEN
+		Scalar_comparison (op, x, y); Set_cond (x, ccCodeOf(op))
+	ELSE String_comparison (op, x, y); Set_cond (x, ccCodeOf(op))
+	END;
+	x.type := Base.bool_type
+END Comparison;
+	
+PROCEDURE Membership* (VAR x, y : Base.Item);
+BEGIN
+	IF (x.mode = mode_imm) & (y.mode = mode_imm) THEN
+		x.a := ASH (y.a, -x.a) MOD 2
+	ELSE
+		load (y);
+		IF x.mode = mode_reg THEN EmitRR (BTr, x.r, 8, y.r); Free_reg
+		ELSE EmitRI (BTi, y.r, 8, x.a)
+		END;
+		Free_reg; Set_cond (x, ccB)
+	END;
+	x.type := Base.bool_type
+END Membership;
+	
+PROCEDURE Inclusion* (op : INTEGER; VAR x, y : Base.Item);
+	VAR
+		xset, yset : ARRAY 2 OF SET;
+BEGIN
+	IF (x.mode = mode_imm) & (y.mode = mode_imm) THEN
+		xset[0] := {}; xset[1] := {}; SYSTEM.PUT (SYSTEM.ADR(xset[0]), x.a);
+		yset[0] := {}; yset[1] := {}; SYSTEM.PUT (SYSTEM.ADR(yset[0]), y.a);
+		IF op = Scanner.less_equal THEN
+			IF (xset[0] - yset[0] = {}) & (xset[1] - yset[1] = {})
+				THEN x.a := 1 ELSE x.a := 0
+			END
+		ELSE
+			IF (yset[0] - xset[0] = {}) & (yset[1] - xset[1] = {})
+				THEN x.a := 1 ELSE x.a := 0
+			END
+		END
+	ELSE
+		IF op = Scanner.less_equal THEN Difference (x, y)
+		ELSE Difference (y, x)
+		END;
+		Free_reg; Set_cond (x, ccZ)
+	END;
+	x.type := Base.bool_type
+END Inclusion;
+
+(*
+PROCEDURE Type_test* (VAR x : Base.Item; typ : Base.Type);
+	VAR
+		td : Base.Item;
+BEGIN
+	IF x.type # typ THEN
+		IF x.type.form = Base.type_pointer THEN
+			load (x);
+			x.mode := Base.mode_regI;
+			x.a := -8;
+			load (x);
+			x.mode := Base.mode_regI;
+			x.a := 8 + typ.base.len * 8;
+			Make_type_desc_item (td, typ.base)
+		ELSE
+			(* x is record variable parameter *)
+			INC (x.a, 8);
+			Ref_to_regI (x);
+			x.type := Base.nil_type;
+			x.a := 8 + typ.len * 8;
+			Make_type_desc_item (td, typ)
+		END;
+		Emit_op_reg_mem (op_LEA, reg_RAX, td);
+		Emit_op_reg_mem (op_CMP, reg_RAX, x);
+		Free_reg; Set_cond (x, op_JE); x.type := Base.bool_type
+	ELSE
+		Make_const (x, Base.bool_type, 1)
+	END
+END Type_test;
+*)
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)

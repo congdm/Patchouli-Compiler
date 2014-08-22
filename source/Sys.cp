@@ -8,7 +8,7 @@ IMPORT
 	
 CONST
 	failed = FALSE; success = TRUE;
-	MIN_INT = -2147483648;
+	MIN_INT = -9223372036854775807 - 1;
 	
 TYPE
 	FileHandle* = RECORD
@@ -114,6 +114,11 @@ BEGIN
 	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b)
 END Write_8bytes;
 
+PROCEDURE FilePos* (VAR file : FileHandle) : LONGINT;
+BEGIN
+	RETURN file.f.get_Position()
+END FilePos;
+
 PROCEDURE Seek* (VAR file : FileHandle; pos : LONGINT);
 	VAR res : LONGINT;
 BEGIN
@@ -128,16 +133,13 @@ BEGIN
 END SeekRel;
 
 PROCEDURE Int_to_string* (x : LONGINT; VAR str : ARRAY OF CHAR);
-	VAR
-		negative : BOOLEAN;
-		s : ARRAY 32 OF CHAR;
-		i, j : INTEGER;
+	VAR negative : BOOLEAN; s : ARRAY 32 OF CHAR; i, j : INTEGER;
 BEGIN
-	IF x = MIN_INT THEN
-		str := '-2147483648'
+	IF x = MIN_INT THEN str := '-9223372036854775808'
 	ELSE
 		IF x < 0 THEN negative := TRUE; x := -x
-		ELSE negative := FALSE END;
+		ELSE negative := FALSE
+		END;
 		
 		i := 0;
 		REPEAT

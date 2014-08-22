@@ -21,12 +21,42 @@ CONST
 	TWO_POWER_30 = 1073741824;
 	TWO_POWER_52 = 4503599627370496;
 	TWO_POWER_23 = 8388608;
+	
+	null* = 0;
+	times* = 1; slash* = 2; div* = 3; mod* = 4; and* = 5;
+	plus* = 6; minus* = 7; or* = 8;
+	
+	equal* = 9; not_equal* = 10; less* = 11; greater_equal* = 12;
+	greater* = 13; less_equal* = 14; in* = 15; is* = 16;
+	
+	arrow* = 17; period* = 18;
+	lparen* = 29; lbrak* = 30; lbrace* = 31;
+	
+	not* = 32; number* = 34; nil* = 35; true* = 36; false* = 37; string* = 38;
+	ident* = 39;
+	
+	if* = 55; while* = 56; repeat* = 57; for* = 58; case* = 59;
+	
+	comma* = 60; colon* = 61; becomes* = 62; upto* = 63;
+	rparen* = 64; rbrak* = 65; rbrace* = 66;
+	then* = 67; of* = 68; do* = 69; to* = 70; by* = 71;
+	
+	semicolon* = 72; end* = 73; bar* = 74; else* = 75;
+	elsif* = 76; until* = 77; return* = 78;
+	
+	array* = 79; record* = 80; pointer* = 81;
+	const* = 82; type* = 83; var* = 84; procedure* = 85;
+	begin* = 86; module* = 88;
+	eof* = 89;
+	
+	errLargeNumber = 'This number is too large to handle (compiler limit)';
 
 VAR
 	val* : LONGINT;
-	type_of_val* : Base.Type;
-	have_error* : BOOLEAN;
+	typeOfVal* : Base.Type;
+	haveError* : BOOLEAN;
 	id* : Base.String;
+	str* : Base.LongString;
 	
 	max_int : ARRAY 22 OF CHAR;
 	max_int_len : INTEGER;
@@ -34,186 +64,130 @@ VAR
 	
 	srcfile : Sys.FileHandle;
 	ch : CHAR;
-	char_num*, _i : INTEGER;
-	eof : BOOLEAN;
+	charNum, prevCharNum : INTEGER;
+	eofFlag : BOOLEAN;
 
 PROCEDURE Init* (VAR file : Sys.FileHandle);
-	BEGIN
-	srcfile := file;
-	ch := 0X;
-	char_num := 0;
-	have_error := FALSE;
-	eof := FALSE
-	END Init;
+BEGIN
+	srcfile := file; ch := 0X; charNum := 0; prevCharNum := 0;
+	haveError := FALSE; eofFlag := FALSE
+END Init;
 
 PROCEDURE Read_char;
-	BEGIN
-	IF Sys.Read_char (srcfile, ch) = failed THEN
-		eof := TRUE;
-		ch := 0X;
-	ELSE
-		INC (char_num)
-		END;
-	END Read_char;
+BEGIN
+	IF ~ Sys.Read_char (srcfile, ch) THEN eofFlag := TRUE; ch := 0X
+	ELSE INC (charNum)
+	END
+END Read_char;
 	
-PROCEDURE Mark* (str : ARRAY OF CHAR);
-	VAR
-		s : ARRAY 22 OF CHAR;
-	BEGIN
-	Sys.Int_to_string (char_num, s);
-	Sys.Console_WriteString (s);
-	Sys.Console_WriteString (': ');
-	Sys.Console_WriteString (str);
-	Sys.Console_WriteLn
-	END Mark;
+PROCEDURE Mark* (s : ARRAY OF CHAR);
+BEGIN
+	Sys.Console_WriteInt (charNum);
+	Sys.Console_WriteString (': '); Sys.Console_WriteString (s);
+	Sys.Console_WriteLn; haveError := TRUE
+END Mark;
 
 PROCEDURE Skip_blank_and_comment;
-	BEGIN
-	WHILE ~ eof & (ch <= ' ') DO
-		Read_char
-		END
-	END Skip_blank_and_comment;
+BEGIN
+	WHILE ~ eofFlag & (ch <= ' ') DO Read_char END
+END Skip_blank_and_comment;
 
 PROCEDURE Get_word (VAR sym : INTEGER);
-	VAR
-		i : INTEGER;
-		flag : BOOLEAN;
-	BEGIN
-	NEW (id);
-	i := 0;
-	flag := TRUE;
-	WHILE (ch = '_') OR (ch >= 'A') & (ch <= 'Z')
-	OR (ch >= 'a') & (ch <= 'z')
-	OR (ch >= '0') & (ch <= '9') DO
+	CONST err_toolong = 'Identifier length is too long (compiler limit)';
+	VAR i : INTEGER; flag : BOOLEAN;
+BEGIN
+	i := 0; flag := TRUE;
+	WHILE (ch = '_')
+		OR (ch >= 'A') & (ch <= 'Z')
+		OR (ch >= 'a') & (ch <= 'z')
+		OR (ch >= '0') & (ch <= '9')
+	DO
 		IF flag THEN
-			IF i < Base.max_str_len THEN
-				id.content [i] := ch;
-				INC (i);
-			ELSE
-				Mark ('Identifier length is too long (compiler limit)');
-				flag := FALSE
-				END;
+			IF i < Base.max_ident_len THEN id[i] := ch; INC (i)
+			ELSE Mark (err_toolong); flag := FALSE
 			END;
+		END;
 		Read_char
-		END;
-	id.len := i;
-	id.content [i] := 0X;
+	END;
+	id[i] := 0X;
 	
-	sym := Base.sym_ident;
-	CASE id.content [0] OF
-		'A':
-			IF (i = 5) & Base.Str_equal (id, 'ARRAY') THEN
-				sym := Base.sym_array;
-				END; |
+	sym := ident;
+	CASE id[0] OF
+		'A': IF (i = 5) & (id = 'ARRAY') THEN sym := array END |
 		'B':
-			IF (i = 2) & (id.content [1] = 'Y') THEN
-				sym := Base.sym_by
-			ELSIF (i = 5) & Base.Str_equal (id, 'BEGIN') THEN
-				sym := Base.sym_begin;
-				END; |
-		'C':
-			IF (i = 5) & Base.Str_equal (id, 'CONST') THEN
-				sym := Base.sym_const;
-				END; |
+		IF (i = 2) & (id[1] = 'Y') THEN sym := by
+		ELSIF (i = 5) & (id = 'BEGIN') THEN sym := begin
+		END |
+		
+		'C': IF (i = 5) & (id = 'CONST') THEN sym := const END |
 		'D':
-			IF (i = 2) & (id.content [1] = 'O') THEN
-				sym := Base.sym_do;
-			ELSIF (i = 3) & (id.content [1] = 'I') & (id.content [2] = 'V') THEN
-				sym := Base.sym_div;
-				END; |
+		IF (i = 2) & (id[1] = 'O') THEN sym := do
+		ELSIF (i = 3) & (id[1] = 'I') & (id[2] = 'V') THEN sym := div;
+		END |
+		
 		'E':
-			IF (i = 3) & (id.content [1] = 'N') & (id.content [2] = 'D') THEN
-				sym := Base.sym_end;
-			ELSIF (i = 4) & Base.Str_equal (id, 'ELSE') THEN
-				sym := Base.sym_else;
-			ELSIF (i = 5) & Base.Str_equal (id, 'ELSIF') THEN
-				sym := Base.sym_elsif;
-				END; |
-		'F':
-			IF (i = 5) & Base.Str_equal (id, 'FALSE') THEN
-				sym := Base.sym_false;
-				END; |
+		IF (i = 3) & (id[1] = 'N') & (id[2] = 'D') THEN sym := end
+		ELSIF (i = 4) & (id = 'ELSE') THEN sym := else
+		ELSIF (i = 5) & (id = 'ELSIF') THEN sym := elsif
+		END |
+		
+		'F': IF (i = 5) & (id = 'FALSE') THEN sym := false END |
 		'I':
-			IF i = 2 THEN
-				IF id.content [1] = 'F' THEN
-					sym := Base.sym_if;
-				ELSIF id.content [1] = 'N' THEN
-					sym := Base.sym_in;
-				ELSIF id.content [1] = 'S' THEN
-					sym := Base.sym_is;
-					END;
-				END; |
+		IF i = 2 THEN
+			IF id [1] = 'F' THEN sym := if
+			ELSIF id [1] = 'N' THEN sym := in
+			ELSIF id [1] = 'S' THEN sym := is
+			END
+		END |
+		
 		'M':
-			IF (i = 3) & (id.content [1] = 'O') & (id.content [2] = 'D') THEN
-				sym := Base.sym_mod;
-			ELSIF Base.Str_equal (id, 'MODULE') THEN
-				sym := Base.sym_module;
-				END; |
-		'N':
-			IF (i = 3) & (id.content [1] = 'I') & (id.content [2] = 'L') THEN
-				sym := Base.sym_mod;
-				END; |
+		IF (i = 3) & (id[1] = 'O') & (id[2] = 'D') THEN sym := mod
+		ELSIF (i = 6) & (id = 'MODULE') THEN sym := module
+		END |
+		
 		'O':
-			IF i = 2 THEN
-				IF id.content [1] = 'F' THEN
-					sym := Base.sym_of;
-				ELSIF id.content [1] = 'R' THEN
-					sym := Base.sym_or;
-					END;
-				END; |
+		IF i = 2 THEN
+			IF id[1] = 'F' THEN sym := of ELSIF id[1] = 'R' THEN sym := or
+			END
+		END |
+		
 		'P':
-			IF (i = 7) & Base.Str_equal (id, 'POINTER') THEN
-				sym := Base.sym_pointer;
-			ELSIF (i = 9) & Base.Str_equal (id, 'PROCEDURE') THEN
-				sym := Base.sym_procedure;
-				END; |
+		IF (i = 7) & (id = 'POINTER') THEN sym := pointer
+		ELSIF (i = 9) & (id = 'PROCEDURE') THEN sym := procedure
+		END |
+		
 		'R':
-			IF i = 6 THEN
-				IF Base.Str_equal (id, 'RECORD') THEN
-					sym := Base.sym_record;
-				ELSIF Base.Str_equal (id, 'REPEAT') THEN
-					sym := Base.sym_repeat;
-				ELSIF Base.Str_equal (id, 'RETURN') THEN
-					sym := Base.sym_return;
-					END;
-				END; |
+		IF i = 6 THEN
+			IF id = 'RECORD' THEN sym := record
+			ELSIF id = 'REPEAT' THEN sym := repeat
+			ELSIF id = 'RETURN' THEN sym := return
+			END
+		END |
+		
 		'T':
-			IF (i = 2) & (id.content [1] = 'O') THEN
-				sym := Base.sym_to;
-			ELSIF i = 4 THEN
-				IF Base.Str_equal (id, 'THEN') THEN
-					sym := Base.sym_then;
-				ELSIF Base.Str_equal (id, 'TRUE') THEN
-					sym := Base.sym_true
-				ELSIF Base.Str_equal (id, 'TYPE') THEN
-					sym := Base.sym_type
-					END
-				END; |
-		'U':
-			IF (i = 5) & Base.Str_equal (id, 'UNTIL') THEN
-				sym := Base.sym_until
-				END |
-		'V':
-			IF (i = 3) & (id.content [1] = 'A') & (id.content [2] = 'R') THEN
-				sym := Base.sym_var
-				END |
-		'W':
-			IF (i = 5) & Base.Str_equal (id, 'WHILE') THEN
-				sym := Base.sym_while
-				END
-		ELSE (* Do nothing *)
-		END;
-	END Get_word;
+		IF (i = 2) & (id[1] = 'O') THEN sym := to
+		ELSIF i = 4 THEN
+			IF id = 'THEN' THEN sym := then
+			ELSIF id = 'TRUE' THEN sym := true
+			ELSIF id = 'TYPE' THEN sym := type
+			END
+		END |
+		
+		'U': IF (i = 5) & (id = 'UNTIL') THEN sym := until END |
+		'V': IF (i = 3) & (id[1] = 'A') & (id[2] = 'R') THEN sym := var END |
+		'W': IF (i = 5) & (id = 'WHILE') THEN sym := while END
+	ELSE (* Do nothing *)
+	END;
+END Get_word;
 	
 PROCEDURE Get_hex_number (hex_int : LONGINT; hex_overflow : BOOLEAN);
-	VAR
-		x : INTEGER;
+	CONST err_no_suffix = 'Hexadecimal number without suffix';
+	VAR x : INTEGER;
 BEGIN
 	WHILE (ch >= 'A') & (ch <= 'F') OR (ch >= '0') & (ch <= '9') DO
 		IF ~ hex_overflow THEN
 			x := ORD (ch) - ORD ('0');
-			IF x > 9 THEN DEC (x, 7)
-			END;
+			IF x > 9 THEN DEC (x, 7) END;
 			IF hex_int <= MAX_INT DIV 16 THEN
 				hex_int := hex_int * 16;
 				IF hex_int <= MAX_INT - x THEN INC (hex_int, x)
@@ -224,23 +198,17 @@ BEGIN
 		END;
 		Read_char
 	END;
-	val := hex_int; 
-	IF ch = 'H' THEN Read_char
-	ELSE Mark ('Hexadecimal number without suffix')
-	END;
-	IF hex_overflow THEN Mark ('This number is too large (compiler limit)')
-	END;
-	type_of_val := Base.int_type
+	val := hex_int; IF ch = 'H' THEN Read_char ELSE Mark (err_no_suffix) END;
+	IF ~ hex_overflow THEN (* Ok *) ELSE Mark (errLargeNumber) END;
+	typeOfVal := Base.int_type
 END Get_hex_number;
 	
 PROCEDURE Finish_real_number
 (real : LONGINT; scale, exponent : INTEGER; real_overflow : BOOLEAN);
-	VAR
-		tail : LONGINT;
+	VAR tail : LONGINT;
 		
 	PROCEDURE Adjust_scale (real : LONGINT; scale : INTEGER);
-		VAR
-			t : INTEGER; single : SHORTREAL; double : REAL;
+		VAR t : INTEGER; single : SHORTREAL; double : REAL;
 	BEGIN
 		SYSTEM.GET (SYSTEM.ADR(real), double);
 		IF scale > 0 THEN
@@ -284,15 +252,13 @@ BEGIN
 		
 		Adjust_scale (real, scale)
 	END;
-	type_of_val := Base.real_type
+	typeOfVal := Base.real_type
 END Finish_real_number;
 	
 PROCEDURE Get_fraction
 (real : LONGINT; scale : INTEGER; real_overflow : BOOLEAN);
-	CONST
-		LIMIT = 1000000000000000000;
-	VAR
-		fraction, k : LONGINT;
+	CONST LIMIT = 1000000000000000000;
+	VAR fraction, k : LONGINT;
 		exponent : INTEGER;
 		real_underflow : BOOLEAN;
 BEGIN
@@ -334,16 +300,13 @@ BEGIN
 END Get_fraction;
 	
 PROCEDURE Get_number2*;
-	VAR
-		decimal_int, hex_int, real, limit : LONGINT;
+	VAR decimal_int, hex_int, real, limit, old_filepos : LONGINT;
 		x, scale : INTEGER;
-		decimal_overflow, hex_overflow, real_overflow : BOOLEAN;
+		is_decimal, decimal_overflow, hex_overflow, real_overflow : BOOLEAN;
 BEGIN
 	decimal_int := 0; hex_int := 0; real := 0; scale := 0;
 	decimal_overflow := FALSE; hex_overflow := FALSE; real_overflow := FALSE;
-	WHILE ch = '0' DO
-		Read_char
-	END;
+	WHILE ch = '0' DO Read_char END;
 	WHILE (ch >= '0') & (ch <= '9') DO
 		x := ORD (ch) - ORD ('0');
 		IF ~ decimal_overflow THEN
@@ -367,189 +330,119 @@ BEGIN
 		IF ~ real_overflow THEN
 			IF real > MAX_MANTISSA THEN
 				IF scale = 0 THEN
-					IF (x > 5) OR (x = 5) & ODD (real) THEN INC (real)
-					END
+					IF (x > 5) OR (x = 5) & ODD (real) THEN INC (real) END
 				END;
-				IF scale < MAX_SCALE THEN INC (scale) ELSE real_overflow := TRUE
+				IF scale < MAX_SCALE THEN INC (scale)
+				ELSE real_overflow := TRUE
 				END
 			ELSE real := real * 10 + x
 			END
 		END;
 		Read_char
 	END;
+	
+	is_decimal := FALSE;
 	IF ch = 'H' THEN
-		val := hex_int;
-		IF hex_overflow THEN
-			Mark ('This number is too large (compiler limit)')
-		END;
-		type_of_val := Base.int_type;
-		Read_char
-	ELSIF (ch >= 'A') & (ch <= 'F') THEN
-		Get_hex_number (hex_int, hex_overflow)
+		val := hex_int; typeOfVal := Base.int_type; Read_char;
+		IF ~ hex_overflow THEN (* Ok *) ELSE Mark (errLargeNumber) END		
+	ELSIF (ch >= 'A') & (ch <= 'F') THEN Get_hex_number (hex_int, hex_overflow)
 	ELSIF ch = '.' THEN
-		Read_char; Get_fraction (real, scale, real_overflow)
-	ELSE
-		val := decimal_int;
-		IF decimal_overflow THEN
-			Mark ('This number is too large (compiler limit)')
-		END;
-		type_of_val := Base.int_type;
+		old_filepos := Sys.FilePos (srcfile); Read_char;
+		IF ch # '.' THEN Get_fraction (real, scale, real_overflow)
+		ELSE Sys.Seek (srcfile, old_filepos); is_decimal := TRUE
+		END
+	ELSE is_decimal := TRUE	
+	END;
+	
+	IF is_decimal THEN
+		val := decimal_int; typeOfVal := Base.int_type;
+		IF ~ decimal_overflow THEN (* Ok *) ELSE Mark (errLargeNumber) END
 	END
 END Get_number2;
-
-PROCEDURE Get_number;
-	VAR
-		s : ARRAY 21 OF CHAR;
-		i, len : INTEGER;
-		flag : BOOLEAN;
-	BEGIN
-	i := 0; flag := TRUE;
-	WHILE (ch = '0') DO Read_char END;
-	WHILE (ch >= '0') & (ch <= '9') DO
-		IF flag THEN
-			IF i < LEN (s) THEN
-				s [i] := ch;
-				INC (i)
-			ELSE
-				Mark ('This number is too large to handle (compiler limit)');
-				flag := FALSE
-				END
-			END;
-		Read_char
-		END;
-	
-	val := 0;
-	IF flag THEN
-		len := i;
-		IF len = max_int_len THEN
-			i := 0;
-			WHILE (i < len) & (s [i] = max_int [i]) DO
-				INC (i)
-				END;
-			IF s [i] > max_int [i] THEN
-				Mark ('This number is too large to handle (compiler limit)');
-				flag := FALSE
-				END;
-			END;
-		IF flag THEN
-			i := 0;
-			WHILE i < len DO
-				val := val * 10 + (ORD (s [i]) - ORD ('0'));
-				INC (i)
-				END
-			END
-		END
-	END Get_number;
 	
 PROCEDURE Get_string;
-	VAR
-		i : INTEGER;
-		flag : BOOLEAN;
-	BEGIN
-	NEW (id);
-	i := 0;
-	flag := TRUE;
-	IF ch = "'" THEN
-		Read_char;
-		WHILE (ch # 0X) & (ch # "'") DO
-			IF flag THEN
-				IF i < Base.max_str_len THEN
-					id.content [i] := ch;
-					INC (i);
-				ELSE
-					Mark ('String length is too long (compiler limit)');
-					flag := FALSE
-					END;
-				END;
-			Read_char
-			END
-	ELSE
-		(* ch = '"' *)
-		Read_char;
-		WHILE (ch # 0X) & (ch # '"') DO
-			IF flag THEN
-				IF i < Base.max_str_len THEN
-					id.content [i] := ch;
-					INC (i);
-				ELSE
-					Mark ('String length is too long (compiler limit)');
-					flag := FALSE
-					END;
-				END;
-			Read_char
-			END
+	CONST err_toolong = 'String length is too long (compiler limit)';
+	VAR i : INTEGER; flag : BOOLEAN; end_quote_ch : CHAR;
+BEGIN
+	i := 0; flag := TRUE; end_quote_ch := ch; Read_char;
+	WHILE (ch # 0X) & (ch # end_quote_ch) DO
+		IF i < Base.max_str_len THEN str[i] := ch; INC (i)
+		ELSIF flag THEN Mark (err_toolong); flag := FALSE
 		END;
-	Read_char;
-	id.len := i;
-	id.content [i] := 0X
-	END Get_string;
+		Read_char
+	END;
+	str[i] := 0X; Read_char
+END Get_string;
 
 PROCEDURE Get* (VAR sym : INTEGER);
-	BEGIN
+BEGIN
 	Skip_blank_and_comment;
-	IF eof THEN
-		sym := Base.sym_eof;
-	ELSE
-		IF (ch = '_') OR (ch >= 'A') & (ch <= 'Z')
-		OR (ch >= 'a') & (ch <= 'z') THEN
-			Get_word (sym);
-		ELSIF (ch >= '0') & (ch <= '9') THEN
-			Get_number2;
-			sym := Base.sym_number;
-		ELSE
-			CASE ch OF
-				'_', 'A'..'Z', 'a'..'z':
-					Get_word (sym) |
-				'0'..'9':
-					sym := Base.sym_number;
-					Get_number |
-				"'", '"':
-					sym := Base.sym_string;
-					Get_string |
-				'*': sym := Base.sym_times; Read_char; |
-				'/': sym := Base.sym_slash; Read_char; |
-				'+': sym := Base.sym_plus; Read_char; |
-				'-': sym := Base.sym_minus; Read_char; |
-				'=': sym := Base.sym_equal; Read_char; |
-				'#': sym := Base.sym_not_equal; Read_char; |
-				'&': sym := Base.sym_and; Read_char; |
-				'~': sym := Base.sym_not; Read_char; |
-				'<':
-					Read_char;
-					IF ch = '=' THEN sym := Base.sym_less_equal; Read_char;
-					ELSE sym := Base.sym_less; END; |
-				'>':
-					Read_char;
-					IF ch = '=' THEN sym := Base.sym_greater_equal; Read_char;
-					ELSE sym := Base.sym_greater; END; |
-				'.':
-					Read_char;
-					IF ch = '.' THEN sym := Base.sym_upto; Read_char;
-					ELSE sym := Base.sym_period; END; |
-				'^': sym := Base.sym_arrow; Read_char; |
-				',': sym := Base.sym_comma; Read_char; |
-				':':
-					Read_char;
-					IF ch = '=' THEN sym := Base.sym_becomes; Read_char;
-					ELSE sym := Base.sym_colon; END; |
-				')': sym := Base.sym_rparen; Read_char; |
-				']': sym := Base.sym_rbrak; Read_char; |
-				'}': sym := Base.sym_rbrace; Read_char; |
-				'(': sym := Base.sym_lparen; Read_char; |
-				'[': sym := Base.sym_lbrak; Read_char; |
-				'{': sym := Base.sym_lbrace; Read_char; |
-				';': sym := Base.sym_semicolon; Read_char;
-				ELSE sym := Base.sym_null; Read_char;
-				END;
-			END;
-		END;
-	END Get;
-	
+	IF ~eofFlag THEN
+		CASE ch OF
+			'_', 'A'..'Z', 'a'..'z': Get_word (sym) |
+			'0'..'9': sym := number; Get_number2 |
+			"'", '"': sym := string; Get_string |
+			'*': sym := times; Read_char; |
+			'/': sym := slash; Read_char; |
+			'+': sym := plus; Read_char; |
+			'-': sym := minus; Read_char; |
+			'=': sym := equal; Read_char; |
+			'#': sym := not_equal; Read_char; |
+			'&': sym := and; Read_char; |
+			'~': sym := not; Read_char; |
+			
+			'<':
+			Read_char;
+			IF ch = '=' THEN sym := less_equal; Read_char
+			ELSE sym := less
+			END |
+				
+			'>':
+			Read_char;
+			IF ch = '=' THEN sym := greater_equal; Read_char
+			ELSE sym := greater
+			END |
+				
+			'.':
+			Read_char;
+			IF ch = '.' THEN sym := upto; Read_char
+			ELSE sym := period
+			END |
+			
+			'^': sym := arrow; Read_char |
+			',': sym := comma; Read_char |
+			
+			':':
+			Read_char;
+			IF ch = '=' THEN sym := becomes; Read_char
+			ELSE sym := colon
+			END |
+			
+			')': sym := rparen; Read_char |
+			']': sym := rbrak; Read_char |
+			'}': sym := rbrace; Read_char |
+			'(': sym := lparen; Read_char |
+			'[': sym := lbrak; Read_char |
+			'{': sym := lbrace; Read_char |
+			';': sym := semicolon; Read_char |
+			'|': sym := bar; Read_char
+		ELSE sym := null; Read_char
+		END
+	ELSE sym := eof
+	END
+END Get;
+
+PROCEDURE Init_module;
+	VAR i : INTEGER;
 BEGIN
 	Sys.Int_to_string (Base.MAX_INT, max_int);
 	max_int_len := Base.Str_len (max_int);
 	power_of_10[0] := 1.0;
-	FOR _i := 1 TO LEN(power_of_10) - 1 DO
-		power_of_10[_i] := power_of_10[_i - 1] * 10.0
+	FOR i := 1 TO LEN(power_of_10) - 1 DO
+		power_of_10[i] := power_of_10[i - 1] * 10.0
 	END
+END Init_module;
+	
+BEGIN
+	Init_module
 END Scanner.
