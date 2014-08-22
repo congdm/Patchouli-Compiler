@@ -11,7 +11,7 @@ Written in Component Pascal, compiled by Gardens Point Component Pascal, and req
 Binary is also supply with source.
 
 **(\*UPDATE\*)**
-I have changed the design again. The output this time will be native machine code. It isn't runable as the old version yet.
+I have changed the design again. The output this time will be native machine code. It doesn't have many features as the old version yet.
 
 ## Niklaus Wirth was right after all
 
