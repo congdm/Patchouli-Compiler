@@ -9,6 +9,8 @@ CONST
 	MAX_UINT32 = 4294967295;
 	MAX_INT32 = 2147483647;
 	MIN_INT32 = -2147483648;
+	MAX_INT64 = 9223372036854775807;
+	MIN_INT64 = (-MAX_INT64) - 1;
 	
 	integer_check = Base.integer_overflow_check;
 	array_check = Base.array_bound_check;
@@ -524,6 +526,22 @@ BEGIN
 	Next_inst
 END EmitSetccR;
 
+PROCEDURE EmitSetccM (cond : INTEGER; rm : UBYTE; disp : INTEGER);
+BEGIN
+	Emit.iflag := {}; Emit.i := 0;
+	Emit_REX_prefix (1, 0, rm, 0, 0);
+	code [pc, Emit.i] := 0FH; INC (Emit.i);
+	code [pc, Emit.i] := USHORT (90H + cond); INC (Emit.i);
+	
+	Emit_ModRM (0, rm, 0, disp);
+	IF rm IN {reg_R12, reg_SP} THEN
+		code [pc, Emit.i] := 24H; INC (Emit.i); (* SIB byte *)
+	END;
+	Emit_disp (disp);
+	
+	Next_inst
+END EmitSetccM;
+
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 (* Item constructor *)
@@ -708,6 +726,34 @@ END Free_item;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
+(* Trap *)
+
+(* Trap implementation.
+   Sacrifice register B and let it always hold zero value (like in some RISC).
+   Therefore, every access to [RBX] will cause an access violation.
+   The instruction sequence will be the following one:
+   
+        Jcc    trap
+        JMP    good
+ trap:  MOV    [RBX], reg      ; Trap number will decide which register
+ good:
+   
+   The above sequence only cost 6-7 bytes and because the trap branch
+   is forward one, the CPU static branch predictor will pretty much ignore it.
+   On modern CPU (>= Core microarchitecture), the cost will be acceptable.
+*)
+
+PROCEDURE Trap (cond : INTEGER; trapno : UBYTE);
+	VAR L : INTEGER;
+BEGIN
+	ASSERT (trapno < 16);
+	L := pc; CondBranchS (cond, 0); BranchS (0); Fix_link (L); L := pc - 1;
+	EmitRM (0, MOVr, trapno, 4, reg_B, 0);
+	Fix_link (L)
+END Trap;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
 (* Load/Store *)
 
 (* For consistency purpose, all value with size
@@ -790,9 +836,9 @@ BEGIN
 				ELSE ASSERT(FALSE)
 				END
 			ELSE
-				L := pc; CondBranch (negated(x.c), 0); Fix_link (x.b);
+				L := pc; CondBranchS (negated(x.c), 0); Fix_link (x.b);
 				MoveRI (x.r, 4, 1);
-				Branch (0); Fix_link (L); Fix_link (SHORT (x.a)); L := pc - 1;
+				BranchS (0); Fix_link (L); Fix_link (SHORT (x.a)); L := pc - 1;
 				EmitRR (XORr, x.r, 4, x.r); Fix_link (L)
 			END
 		END;
@@ -870,10 +916,6 @@ PROCEDURE Small_const (VAR x : Base.Item) : BOOLEAN;
 BEGIN
 	RETURN (x.mode = mode_imm) & (x.a >= MIN_INT32) & (x.a <= MAX_INT32)
 END Small_const;
-
-PROCEDURE Trap (cond, traptype : UBYTE);
-BEGIN
-END Trap;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -1435,7 +1477,7 @@ BEGIN
 	IF (x.mode = mode_imm) & (y.mode = mode_imm) THEN
 		IF shf = 0 THEN x.a := ASH (x.a, y.a)
 		ELSIF shf = 1 THEN x.a := ASH (x.a, -y.a)
-		ELSE x.a := 0 (* Implement later *)
+		ELSE x.a := ROT (x.a, -y.a)
 		END
 	ELSE
 		load (x);
@@ -1467,6 +1509,25 @@ BEGIN
 	load (y); EmitRR (BTr, y.r, 8, x.r); Free_reg; Free_reg;
 	Set_cond (x, ccB)
 END SFunc_BIT;
+
+PROCEDURE SFunc_ABS* (VAR x : Base.Item);
+	VAR r : UBYTE;
+		L : INTEGER;
+BEGIN
+	ASSERT (x.mode IN Base.classes_Value);
+	IF x.mode = mode_imm THEN
+		IF x.type.form = Base.type_integer THEN x.a := ABS (x.a)
+		ELSE ASSERT(FALSE)
+		END
+	ELSIF x.type.form = Base.type_integer THEN
+		load (x); r := Alloc_reg();
+		EmitRR (MOVr, r, 8, x.r); EmitRI8 (SHLi, r, 8, 1);
+		Trap (ccBE, integer_check); (* Check for Z and C flag *)
+		L := pc; CondBranchS (ccAE, 0);
+		EmitR (NEGr, x.r, 8); Fix_link (L); Free_reg
+	ELSE ASSERT(FALSE)
+	END
+END SFunc_ABS;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -1550,59 +1611,60 @@ BEGIN
 	END
 END Call;
 	
-PROCEDURE Normal_parameter* (VAR x : Base.Item; VAR pinfo : ProcInfo);
+PROCEDURE Value_param* (VAR x : Base.Item; VAR pinfo : ProcInfo);
 BEGIN
 	load (x);
 	IF pinfo.paradr >= 32 THEN EmitRM (0, MOVr, x.r, 8, reg_SP, pinfo.paradr)
 	END;
 	INC (pinfo.paradr, 8)
-END Normal_parameter;
+END Value_param;
 	
-PROCEDURE Reference_parameter* (VAR x : Base.Item; VAR pinfo : ProcInfo);
+PROCEDURE Ref_param* (VAR x : Base.Item; VAR pinfo : ProcInfo);
 BEGIN
 	Load_adr (x);
 	IF pinfo.paradr >= 32 THEN EmitRM (0, MOVr, x.r, 8, reg_SP, pinfo.paradr)
 	END;
 	INC (pinfo.paradr, 8)
-END Reference_parameter;
+END Ref_param;
 	
-PROCEDURE Record_var_parameter* (VAR x : Base.Item; VAR pinfo : ProcInfo);
+PROCEDURE Record_var_param* (VAR x : Base.Item; VAR pinfo : ProcInfo);
 	VAR tag : Base.Item;
 BEGIN
 	IF x.param & ~ x.readonly THEN
 		tag.mode := Base.class_ref; tag.lev := x.lev; tag.a := x.a + 8
-	ELSE
-		(* Make_type_desc_item (tag, x.type) *)
+	ELSIF ~ x.type.import THEN
+		tag.mode := Base.class_var; tag.lev := -1; tag.a := x.type.tdAdr
 	END;
-	Reference_parameter (x, pinfo);
-	Reference_parameter (tag, pinfo)
-END Record_var_parameter;
+	Ref_param (x, pinfo); Ref_param (tag, pinfo)
+END Record_var_param;
 	
-PROCEDURE Open_array_parameter*
+PROCEDURE Open_array_param*
 (VAR x : Base.Item; VAR pinfo : ProcInfo; ftype : Base.Type);
-	VAR
-		array, len : Base.Item;
+	VAR array, len : Base.Item;
 		tp : Base.Type;
 BEGIN
-	array := x; Reference_parameter (array, pinfo);
-	
+	array := x; Ref_param (array, pinfo);
 	tp := x.type;
-	
 	IF x.b = 0 THEN x.b := SHORT(x.a) + 8 END; (* For open array *)
 	
 	WHILE (ftype.form = Base.type_array) & (ftype.len < 0) DO
 		IF tp.len < 0 THEN
-			len.mode := Base.class_var;
-			len.lev := x.lev;
-			len.a := x.b;
+			len.mode := Base.class_var; len.lev := x.lev; len.a := x.b;
 			INC (x.b, 8)
 		ELSE Make_const (len, Base.int_type, tp.len)
 		END;
-		Normal_parameter (len, pinfo);		
+		Value_param (len, pinfo);		
 		ftype := ftype.base; tp := tp.base
 	END
-END Open_array_parameter;
+END Open_array_param;
 
+PROCEDURE String_param*
+(VAR x : Base.Item; VAR pinfo : ProcInfo; ftype : Base.Type);
+BEGIN
+	ASSERT ((x.mode = Base.class_var) & (x.type.form = Base.type_string));
+	Scanner.Mark ('Compiler limit: String parameter not supported yet')
+	(* Implement later *)
+END String_param;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)

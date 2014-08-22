@@ -42,19 +42,19 @@ CONST
 	(* Compiler flag *)
 	array_bound_check* = 0;
 	integer_overflow_check* = 1;
-	alignment_flag* = 2;
+	alignment_flag* = 17;
 
 TYPE
 	String* = ARRAY max_ident_len + 1 OF CHAR;
 	LongString* = ARRAY max_str_len + 1 OF CHAR;
 
 	Type* = POINTER TO RECORD
-		hasExtension*, predefined* : BOOLEAN;
+		hasExtension*, predefined*, import* : BOOLEAN;
 		form* : INTEGER;
 		fields*, obj* : Object;
 		base* : Type;
 		size*, len*, alignment* : INTEGER;
-		num_ptr*, ref* : INTEGER
+		num_ptr*, ref*, tdAdr* : INTEGER
 	END;
 
 	Object* = POINTER TO RECORD

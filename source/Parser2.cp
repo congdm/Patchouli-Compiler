@@ -740,22 +740,21 @@ PROCEDURE ActualParameters
 		expression (y);
 		IF param # Base.guard THEN
 			CASE Base.Check_parameter (param, y) OF
-				0:	IF y.type.form = Base.type_string THEN
-						Generator.Make_const (y, Base.char_type, y.b)
-					END;
-					Generator.Normal_parameter (y, procinfo)
+				0:	
+				IF y.type.form = Base.type_string THEN
+					Generator.Make_const (y, Base.char_type, y.b)
+				END;
+				Generator.Value_param (y, procinfo)
 				|
-				1: Generator.Open_array_parameter (y, procinfo, param.type) |
-				2: Generator.Reference_parameter (y, procinfo) |
-				3: Generator.Record_var_parameter (y, procinfo) |
-				(*
-				9: Generator.String_parameter (y, procinfo, param.type) |
-				*)
-				4: Scanner.Mark ('Formal parameter is variable but actual is read-only') |
-				5: Scanner.Mark ('Formal parameter is variable but actual is not') |
-				6: Scanner.Mark ('Formal type and actual type are incompatible') |
+				1: Generator.Open_array_param (y, procinfo, param.type) |
+				2: Generator.Ref_param (y, procinfo) |
+				3: Generator.Record_var_param (y, procinfo) |
+				9: Generator.String_param (y, procinfo, param.type) |
+				4: Scanner.Mark ('Formal is variable but actual is read-only') |
+				5: Scanner.Mark ('Formal is variable but actual is not') |
+				6: Scanner.Mark ('Formal and actual type are incompatible') |
 				7: Scanner.Mark ('Invalid parameter') |
-				8: Scanner.Mark ('Actual type is not an extension of formal type')
+				8: Scanner.Mark ('Actual is not an extension of formal')
 			END;
 			param := param.next
 		END
@@ -925,7 +924,7 @@ PROCEDURE StandProc (VAR x : Base.Item);
 		
 		IF no_error THEN
 			IF (y.mode IN classes_Value) & Base.Is_string (y.type) THEN
-				Generator.Reference_parameter (y, pinfo)
+				Generator.Ref_param (y, pinfo)
 			ELSE Scanner.Mark ('Expect a string or character array');
 			END;
 			Generator.Call (proc, pinfo); Generator.Store (x, proc)
@@ -961,7 +960,7 @@ PROCEDURE StandProc (VAR x : Base.Item);
 		Check (Scanner.comma, 'Not enough parameters');
 		expression (y); Check_int (y);
 		
-		IF no_error THEN Generator.Normal_parameter (y, pinfo)
+		IF no_error THEN Generator.Value_param (y, pinfo)
 		ELSE Generator.Free_item (y)
 		END;
 		
@@ -969,7 +968,7 @@ PROCEDURE StandProc (VAR x : Base.Item);
 		expression (z); Check_int (z);
 		
 		IF no_error THEN
-			Generator.Normal_parameter (z, pinfo);
+			Generator.Value_param (z, pinfo);
 			Generator.Call (proc, pinfo); Generator.Store (x, proc)
 		ELSE Generator.Free_item (y)
 		END
@@ -998,18 +997,16 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 	VAR funcno : INTEGER; rtype : Base.Type;
 		y : Base.Item;
 
-(*	PROCEDURE SFunc_ABS (VAR x : Base.Item);
+	PROCEDURE SFunc_ABS (VAR x : Base.Item);
 	BEGIN
 		expression (x);
-		IF ~ (x.mode IN Base.cls_HasValue)
-		OR ~ (x.type.form IN Base.types_Numberic) THEN
-			Scanner.Mark ('Expect a numberic value');
-			Generator.Free_item (x);
+		IF (x.mode IN classes_Value) & (x.type.form IN Base.types_Numberic) THEN
+			Generator.SFunc_ABS (x)
+		ELSE
+			Scanner.Mark ('Expect a numberic value'); Generator.Free_item (x);
 			Generator.Make_const (x, Base.int_type, 0)
-		END;
-		Generator.SFunc_ABS (x)
+		END
 	END SFunc_ABS;
-*)
 		
 	PROCEDURE SFunc_ODD (VAR x : Base.Item);
 	BEGIN
@@ -1022,7 +1019,7 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 		IF (x.mode IN classes_Variable) & (x.type.form = Base.type_array) THEN
 			Generator.SFunc_LEN (x)
 		ELSE
-			Scanner.Mark ('Expect an array');
+			Scanner.Mark ('Expect an array'); Generator.Free_item (x);
 			Generator.Make_const (x, Base.int_type, 0)
 		END
 	END SFunc_LEN;
@@ -1054,7 +1051,7 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 		END;
 		IF no_error THEN (* Do nothing *) ELSE
 			Scanner.Mark ('Expect a character, set or boolean value');
-			Generator.Make_const (x, Base.int_type, 0)
+			Generator.Free_item (x); Generator.Make_const (x, Base.int_type, 0)
 		END
 	END SFunc_ORD;
 		
@@ -1118,7 +1115,7 @@ BEGIN (* StandFunc *)
 	Check (Scanner.lparen, 'No parameter list or missing (');
 	funcno := SHORT (x.a); rtype := x.type;
 	CASE funcno OF
-	(*	200: SFunc_ABS (result) | *)
+		200: SFunc_ABS (x) |
 		201: SFunc_ODD (x) |
 		202: SFunc_LEN (x) |
 		203 .. 205: SFunc_SHIFT (funcno - 203, x) |
