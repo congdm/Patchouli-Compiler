@@ -7,13 +7,13 @@ CONST
 	success* = TRUE; failed* = FALSE;
 
 	Word_size* = 8;
+	Char_size* = 2;
 	MAX_INT* = 9223372036854775807;
 	MIN_INT* = -MAX_INT - 1;
-	MAX_CHAR* = 65535;
 	max_ident_len* = 63;
 	max_str_len* = 255;
-	type_extension_limit* = 7;
-	max_number_record_types* = 1024;
+	max_extension* = 8;
+	max_record_types* = 512;
 	set_size_limit* = 64;
 
 	(* Object class/Item mode *)
@@ -38,6 +38,7 @@ CONST
 	types_Scalar* = types_Simple + types_Address;
 	types_Numberic* = {type_integer, type_real};
 	types_Character* = {type_char, type_string};
+	types_HasExt* = {type_record, type_pointer};
 	
 	(* Compiler flag *)
 	array_bound_check* = 0;
@@ -89,7 +90,7 @@ VAR
 	int_type*, bool_type*, set_type*, char_type*, byte_type*, real_type* : Type;
 	longreal_type*, nilrecord_type*, nil_type* : Type;
 	
-	exportno : INTEGER;
+	refno : INTEGER;
 	symfile : Sys.FileHandle;
 	
 	compiler_flag* : SET;
@@ -367,6 +368,11 @@ BEGIN
 	IF bas.form = type_pointer THEN bas := bas.base END;
 	RETURN (ext = bas) OR (ext.base # NIL) & Is_extension_type (ext.base, bas)
 END Is_extension_type;
+
+PROCEDURE Is_extension* (ext, bas : Type) : BOOLEAN;
+BEGIN
+	RETURN (ext = bas) OR (ext.base # NIL) & Is_extension_type (ext.base, bas)
+END Is_extension;
 	
 PROCEDURE Compatible_open_array* (typ1, typ2 : Type) : BOOLEAN;
 BEGIN
@@ -503,19 +509,14 @@ BEGIN
 END Type_test_applied;
 
 PROCEDURE Comparable* (VAR x, y : Item) : BOOLEAN;
-	VAR
-		xform, yform : INTEGER;
+	VAR xform, yform : INTEGER;
 BEGIN
 	xform := x.type.form; yform := y.type.form;
-	RETURN
-		(xform = yform)
-	OR
-		(xform = type_char) & (yform = type_string) & (y.type.len = 2)
-	OR
-		(xform = type_string)
+	RETURN (xform = yform)
+	OR (xform = type_char) & (yform = type_string) & (y.type.len = 2)
+	OR (xform = type_string)
 		& ((yform = type_array) OR (yform = type_char) & (x.type.len = 2))
-	OR
-		(xform = type_array) & (yform = type_string)
+	OR (xform = type_array) & (yform = type_string)
 END Comparable;
 
 PROCEDURE Equalable* (VAR x, y : Item) : BOOLEAN;
@@ -626,97 +627,99 @@ BEGIN
 	RETURN result
 END Check_parameter;
 
-(*
-	
 PROCEDURE Detect_type (typ : Type);
-	BEGIN
+BEGIN
 	IF typ = NIL THEN Sys.Write_2bytes (symfile, 0)
-	ELSIF typ.exportno > 0 THEN Sys.Write_2bytes (symfile, typ.exportno)
-	ELSE _Export_type (typ) END
-	END Detect_type;
+	ELSIF typ.ref > 0 THEN Sys.Write_2bytes (symfile, typ.ref)
+	ELSE _Export_type (typ)
+	END
+END Detect_type;
 	
 PROCEDURE Export_type (typ : Type);
-	VAR
-		field : Object;
-	BEGIN
-	INC (exportno); typ.exportno := exportno;
+	VAR field : Object;
+BEGIN
+	INC (refno); typ.ref := refno;
 	Sys.Write_byte (symfile, typ.form);
 	
 	IF typ.form = type_record THEN
 		Detect_type (typ.base);
 		Sys.Write_byte (symfile, typ.len);
-		Sys.Write_8bytes (symfile, typ.size);
-		Sys.Write_8bytes (symfile, typ.num_ptr);
+		Sys.Write_4bytes (symfile, typ.size);
+		Sys.Write_4bytes (symfile, typ.num_ptr);
 		
 		field := typ.fields;
 		WHILE field # guard DO
-			IF (flag_export IN field.flag) OR (field.type.num_ptr > 0) THEN
+			IF field.export OR (field.type.num_ptr > 0) THEN
 				Sys.Write_byte (symfile, class_field);
-				IF ~(flag_export IN field.flag) THEN Sys.Write_string (symfile, '1')
-				ELSE Sys.Write_string (symfile, field.name.content) END;
-				Sys.Write_8bytes (symfile, field.val);
-				Detect_type (field.type)
+				IF ~ field.export THEN Sys.Write_string (symfile, '0')
+				ELSE Sys.Write_string (symfile, field.name)
 				END;
-			field := field.next
+				Sys.Write_4bytes (symfile, field.val);
+				Detect_type (field.type)
 			END;
+			field := field.next
+		END
 	ELSIF typ.form = type_array THEN
-		Sys.Write_8bytes (symfile, typ.len);
+		Sys.Write_4bytes (symfile, typ.len);
 		Detect_type (typ.base)
 	ELSIF typ.form = type_pointer THEN
 		Detect_type (typ.base)
-		END
-	END Export_type;
+	END
+END Export_type;
 	
 PROCEDURE Export_var (var : Object);
-	BEGIN
+BEGIN
 	Sys.Write_byte (symfile, var.class);
-	Sys.Write_string (symfile, var.name.content);
+	Sys.Write_string (symfile, var.name);
 	Detect_type (var.type)
-	END Export_var;
+END Export_var;
+
+PROCEDURE Export_string (str : Object);
+BEGIN
+	Sys.Write_byte (symfile, class_string);
+	Sys.Write_string (symfile, str.name);
+END Export_string;
 	
 PROCEDURE Export_proc (proc : Object);
-	VAR
-		par : Object;
-	BEGIN
+	VAR par : Object;
+BEGIN
 	Sys.Write_byte (symfile, class_proc);
-	Sys.Write_string (symfile, proc.name.content);
+	Sys.Write_string (symfile, proc.name);
 	Detect_type (proc.type);
-	Sys.Write_8bytes (symfile, proc.parblksize);
+	Sys.Write_4bytes (symfile, proc.parblksize);
 	par := proc.dsc;
-	WHILE flag_param IN par.flag DO Export_var (par); par := par.next END
-	END Export_proc;
+	WHILE par # guard DO Export_var (par); par := par.next END
+END Export_proc;
 	
 PROCEDURE Export_const (const : Object);
-	BEGIN
+BEGIN
 	Sys.Write_byte (symfile, class_const);
-	Sys.Write_string (symfile, const.name.content);
+	Sys.Write_string (symfile, const.name);
 	Sys.Write_8bytes (symfile, const.val);
 	Detect_type (const.type)
-	END Export_const;
+END Export_const;
 	
 PROCEDURE Write_symbols_file;
-	VAR
-		obj : Object;
-	BEGIN
+	VAR obj : Object;
+BEGIN
 	obj := universe.next;
 	WHILE obj # guard DO
-		IF flag_export IN obj.flag THEN
-			IF obj.class = class_proc THEN
-				Export_proc (obj)
+		IF obj.export THEN
+			IF obj.class = class_proc THEN Export_proc (obj)
 			ELSIF obj.class = class_type THEN
 				Sys.Write_byte (symfile, class_type);
 				Sys.Write_string (symfile, obj.name.content);
 				Detect_type (obj.type)
-			ELSIF obj.class = class_const THEN
-				Export_const (obj)
+			ELSIF obj.class = class_const THEN Export_const (obj)
 			ELSIF obj.class = class_var THEN
-				Export_var (obj)
+				IF obj.type.form # Base.type_string THEN Export_var (obj)
+				ELSE Export_string (obj)
 				END
-			END;
+			END
+		END;
 		obj := obj.next
-		END
-	END Write_symbols_file;
-*)
+	END
+END Write_symbols_file;
 	
 PROCEDURE Init* (modid : String);
 BEGIN
@@ -732,10 +735,11 @@ BEGIN
 	Enter (class_type, 0, 'SET', set_type);
 	Enter (class_type, 0, 'BYTE', byte_type);
 	Enter (class_type, 0, 'CHAR', char_type);
-	Enter (class_type, 0, 'REAL', real_type);
+(*	Enter (class_type, 0, 'REAL', real_type);
 	Enter (class_type, 0, 'LONGREAL', longreal_type);
+*)
 	
-	(*
+(*
 	Enter (class_sproc, 0, 'INC', NIL);
 	Enter (class_sproc, 1, 'DEC', NIL);
 	Enter (class_sproc, 2, 'INCL', NIL);
@@ -745,7 +749,7 @@ BEGIN
 	Enter (class_sproc, 6, 'PACK', NIL);
 	Enter (class_sproc, 7, 'UNPK', NIL);
 	Enter (class_sproc, 8, 'DISPOSE', NIL);
-	*)
+*)
 	
 	Enter (class_sproc, 100, 'GET', NIL);
 	Enter (class_sproc, 101, 'PUT', NIL);
@@ -784,8 +788,11 @@ BEGIN
 	New_predefined_typ (bool_type, type_boolean, 1);
 	New_predefined_typ (set_type, type_set, Word_size);
 	New_predefined_typ (byte_type, type_integer, 1);
-	New_predefined_typ (char_type, type_char, 2);
+	New_predefined_typ (char_type, type_char, Char_size);
 	New_predefined_typ (nil_type, type_pointer, Word_size);
 	New_predefined_typ (real_type, type_real, 4);
-	New_predefined_typ (longreal_type, type_real, 8)
+	New_predefined_typ (longreal_type, type_real, 8);
+	
+	New_predefined_typ (nilrecord_type, type_record, Word_size);
+	nilrecord_type.fields := guard
 END Base.

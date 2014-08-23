@@ -14,6 +14,7 @@ CONST
 	
 	integer_check = Base.integer_overflow_check;
 	array_check = Base.array_bound_check;
+	type_check = 2;
 	
 	mode_reg = Base.mode_reg; mode_imm = Base.class_const;
 	mode_regI = Base.mode_regI;
@@ -607,6 +608,57 @@ BEGIN
 	ELSE Scanner.Mark ('Fault: Unsupported char size')
 	END
 END Make_string;
+
+PROCEDURE Fill_pointer_offset (
+	VAR i : INTEGER; offset : INTEGER; type : Base.Type
+);
+	VAR field : Base.Object;
+		n, k, ptrcnt : INTEGER;
+BEGIN
+	ptrcnt := type.num_ptr;
+	IF type.form = Base.type_record THEN
+		field := type.fields;
+		REPEAT
+			k := field.type.num_ptr;
+			IF k > 0 THEN
+				ptrcnt := ptrcnt - k; n := offset + SHORT(field.val);
+				IF field.type.form = Base.type_pointer THEN
+					SYSTEM.PUT (SYSTEM.ADR (staticdata[i]), n); i := i + 4
+				ELSE Fill_pointer_offset (i, n, field.type)
+				END
+			END;
+			field := field.next
+		UNTIL ptrcnt <= 0; ASSERT (ptrcnt = 0)
+	ELSIF type.form = Base.type_array THEN
+		k := type.base.num_ptr; type := type.base;
+		IF type.form = Base.type_pointer THEN
+			REPEAT
+				SYSTEM.PUT (SYSTEM.ADR (staticdata[i]), offset);
+				i := i + 4; DEC (ptrcnt); offset := offset + 8
+			UNTIL ptrcnt <= 0; ASSERT (ptrcnt = 0)
+		ELSE
+			REPEAT
+				Fill_pointer_offset (i, offset, type);
+				ptrcnt := ptrcnt - k; offset := offset + type.size
+			UNTIL ptrcnt <= 0; ASSERT (ptrcnt = 0)
+		END
+	ELSE ASSERT(FALSE)
+	END
+END Fill_pointer_offset;
+
+PROCEDURE Alloc_typedesc* (type : Base.Type);
+	VAR tdsize, i, n : INTEGER;
+BEGIN
+	tdsize := 8 + 8 * (Base.max_extension - 1) + 4 * (type.num_ptr + 1);
+	staticsize := staticsize + tdsize;
+	staticsize := (8 - staticsize) MOD 8 + staticsize;
+	
+	type.tdAdr := -staticsize; i := LEN(staticdata) - staticsize;
+	SYSTEM.PUT (SYSTEM.ADR (staticdata[i]), type.size);
+	i := i + 8 * Base.max_extension;
+	IF type.num_ptr > 0 THEN Fill_pointer_offset (i, 0, type) END;
+	n := -1; SYSTEM.PUT (SYSTEM.ADR (staticdata[i]), n)
+END Alloc_typedesc;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -1855,36 +1907,34 @@ BEGIN
 	x.type := Base.bool_type
 END Inclusion;
 
-(*
-PROCEDURE Type_test* (VAR x : Base.Item; typ : Base.Type);
-	VAR
-		td : Base.Item;
+PROCEDURE Type_test* (VAR x : Base.Item; typ : Base.Type; guard : BOOLEAN);
+	VAR r, r2 : UBYTE;
 BEGIN
+	ASSERT ((typ.form = Base.type_record) & (x.mode IN Base.classes_Value));
 	IF x.type # typ THEN
 		IF x.type.form = Base.type_pointer THEN
-			load (x);
-			x.mode := Base.mode_regI;
-			x.a := -8;
-			load (x);
-			x.mode := Base.mode_regI;
-			x.a := 8 + typ.base.len * 8;
-			Make_type_desc_item (td, typ.base)
-		ELSE
-			(* x is record variable parameter *)
-			INC (x.a, 8);
-			Ref_to_regI (x);
-			x.type := Base.nil_type;
-			x.a := 8 + typ.len * 8;
-			Make_type_desc_item (td, typ)
+			load (x); IF guard THEN r := Alloc_reg() ELSE r := x.r END;
+			EmitRM (1, MOVr, r, 8, x.r, -8) 
+		ELSIF (x.mode = Base.class_ref) & x.param & ~ x.readonly
+		& (x.type.form = Base.type_record) THEN
+			r := Alloc_reg(); EmitRM (0, LEAr, r, 8, reg_BP, SHORT(x.a + 8))
+		ELSE ASSERT(FALSE); r := 0
 		END;
-		Emit_op_reg_mem (op_LEA, reg_RAX, td);
-		Emit_op_reg_mem (op_CMP, reg_RAX, x);
-		Free_reg; Set_cond (x, op_JE); x.type := Base.bool_type
-	ELSE
-		Make_const (x, Base.bool_type, 1)
+
+		r2 := Alloc_reg();
+		IF ~ typ.import THEN EmitRSv (0, LEAr, r2, 8, typ.tdAdr)
+		ELSE ASSERT(FALSE)
+		END;
+		
+		EmitRM (1, CMPr, r2, 8, r, typ.len * 8);
+		IF guard THEN Trap (ccNZ, type_check)
+		ELSE Set_cond (x, ccZ); x.type := Base.bool_type
+		END;
+		Free_reg; Free_reg
+	ELSIF ~ guard THEN
+		Free_item (x); Make_const (x, Base.bool_type, 1)
 	END
 END Type_test;
-*)
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -2005,11 +2055,13 @@ BEGIN
 	EmitCallSv (-56);
 END Module_exit;
 
-PROCEDURE Set_varsize* (n : INTEGER);
+PROCEDURE Check_varsize* (n : LONGINT; g : BOOLEAN);
 BEGIN
-	varsize := n;
-	staticbase := -varsize
-END Set_varsize;
+	IF n > MAX_INT32 THEN
+		Scanner.Mark ('Type or variables area size > 2 GB Limit!'); n := 0
+	END;
+	IF g THEN varsize := SHORT (n); staticbase := -varsize END
+END Check_varsize;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -2215,12 +2267,17 @@ BEGIN
 
 	Sys.Close (out);
 	
-	Sys.Console_WriteString ('Code size: ');
-	Sys.Console_WriteInt (code_size); Sys.Console_WriteLn;
-	Sys.Console_WriteString ('Global variables size: ');
-	Sys.Console_WriteInt (varsize); Sys.Console_WriteLn;
-	Sys.Console_WriteString ('Static data size: ');
-	Sys.Console_WriteInt (staticsize); Sys.Console_WriteLn
+	IF ~ Scanner.haveError THEN
+		Sys.Console_WriteString ('No errors found.'); Sys.Console_WriteLn;
+		Sys.Console_WriteString ('Code size: ');
+		Sys.Console_WriteInt (code_size); Sys.Console_WriteLn;
+		Sys.Console_WriteString ('Global variables size: ');
+		Sys.Console_WriteInt (varsize); Sys.Console_WriteLn;
+		Sys.Console_WriteString ('Static data size: ');
+		Sys.Console_WriteInt (staticsize); Sys.Console_WriteLn
+	ELSE
+		Sys.Console_WriteLn; Sys.Console_WriteString ('No output generated.')
+	END
 END Finish;
 
 BEGIN

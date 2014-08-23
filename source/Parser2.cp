@@ -6,6 +6,10 @@ IMPORT
 CONST
 	classes_Variable = Base.classes_Variable;
 	classes_Value = Base.classes_Value;
+	
+	(* Error message *)
+	errTooMuchParam = 'Superflous , or too much actual parameters';
+	errTooLittleParam = 'Missing , or not enough actual parameters';
 
 VAR
 	sym : INTEGER;
@@ -15,8 +19,7 @@ VAR
 (* -------------------------------------------------------------------------- *)
 
 PROCEDURE Assignable (VAR dst, src : Base.Item) : BOOLEAN;
-	VAR
-		result : BOOLEAN;
+	VAR result : BOOLEAN;
 BEGIN
 	result := FALSE;
 	IF ~ (dst.mode IN classes_Variable) THEN
@@ -96,8 +99,7 @@ END Check_bool;
 PROCEDURE Check_set (VAR x : Base.Item);
 BEGIN
 	IF ~ (x.mode IN Base.cls_HasValue) OR (x.type # Base.set_type) THEN
-		Scanner.Mark ('Expect a SET expression');
-		Generator.Free_item (x);
+		Scanner.Mark ('Expect a SET expression'); Generator.Free_item (x);
 		Generator.Make_const (x, Base.set_type, 0)
 	END
 END Check_set;
@@ -136,7 +138,7 @@ BEGIN
 		END
 	ELSIF rel = Scanner.is THEN
 		IF ~ Base.Type_test_applied (x) THEN
-			Scanner.Mark ('Expected a pointer or record var-param in type test');
+			Scanner.Mark ('Expected a pointer or record varparam in type test');
 			Generator.Free_item (x);
 			Generator.Make_const (x, Base.nil_type, 0)
 		END
@@ -160,22 +162,18 @@ BEGIN
 	IF fail THEN
 		Generator.Free_item (x); Generator.Free_item (y);
 		Generator.Make_const (x, Base.nil_type, 0);
-		y.mode := Base.class_type; y.type := Base.nil_type
+		y.mode := Base.class_type; y.type := Base.nilrecord_type
 	END
 END Check_type_test;
 
 PROCEDURE Check_equal_comparison (VAR x, y : Base.Item);
-	VAR
-		fail : BOOLEAN;
+	VAR fail : BOOLEAN;
 BEGIN
 	IF ~ Base.Equality_applied (y) THEN
-		Scanner.Mark ('Invalid operand');
-		fail := TRUE
+		Scanner.Mark ('Invalid operand'); fail := TRUE
 	ELSIF ~ Base.Equalable (x, y) THEN
-		Scanner.Mark ('Invalid comparison');
-		fail := TRUE
-	ELSE
-		fail := FALSE
+		Scanner.Mark ('Invalid comparison'); fail := TRUE
+	ELSE fail := FALSE
 	END;
 	IF fail THEN
 		Generator.Free_item (x); Generator.Free_item (y);
@@ -185,21 +183,16 @@ BEGIN
 END Check_equal_comparison;
 
 PROCEDURE Check_order_comparison (VAR x, y : Base.Item);
-	VAR
-		fail : BOOLEAN;
+	VAR fail : BOOLEAN;
 BEGIN
 	IF ~ Base.Comparison_applied (y) THEN
-		Scanner.Mark ('Invalid operand');
-		fail := TRUE
+		Scanner.Mark ('Invalid operand'); fail := TRUE
 	ELSIF ~ Base.Comparable (x, y) THEN
-		Scanner.Mark ('Invalid comparison');
-		fail := TRUE
-	ELSE
-		fail := FALSE
+		Scanner.Mark ('Invalid comparison'); fail := TRUE
+	ELSE fail := FALSE
 	END;
 	IF fail THEN
-		Generator.Free_item (x);
-		Generator.Free_item (y);
+		Generator.Free_item (x); Generator.Free_item (y);
 		Generator.Make_const (x, Base.int_type, 0);
 		Generator.Make_const (y, Base.int_type, 0)
 	END
@@ -227,7 +220,7 @@ BEGIN
 END qualident;
 
 PROCEDURE ident (VAR obj : Base.Object; class : INTEGER);
-	BEGIN
+BEGIN
 	IF sym = Scanner.ident THEN
 		Base.New_obj (obj, Scanner.id, class);
 		IF obj = Base.guard THEN Scanner.Mark ('Duplicate identifer definition')
@@ -265,15 +258,12 @@ BEGIN
 		Base.New_typ (typ, Base.type_array);
 		typ.len := -1;
 		
-		Scanner.Get (sym);
-		Check (Scanner.of, 'No OF after ARRAY');
+		Scanner.Get (sym); Check (Scanner.of, 'No OF after ARRAY');
 		FormalType (typ.base);
 		
-		IF (typ.base.form = Base.type_array) & (typ.base.len = -1) THEN
-			typ.size := typ.base.size + Base.Word_size;
-			typ.base.size := -1
-		ELSE
-			typ.size := Base.Word_size * 2
+		IF (typ.base.form = Base.type_array) & (typ.base.len < 0) THEN
+			typ.size := typ.base.size + Base.Word_size; typ.base.size := -1
+		ELSE typ.size := Base.Word_size * 2
 		END
 	ELSE
 		qualident (obj);
@@ -353,7 +343,7 @@ BEGIN (* FormalParameters *)
 		& (obj.type.form IN Base.types_Scalar) THEN
 			rtype := obj.type
 		ELSE
-			Scanner.Mark ('Function result type must be scalar type');
+			Scanner.Mark ('Type not found or invalid result type');
 			rtype := Base.int_type
 		END
 	END
@@ -362,16 +352,16 @@ END FormalParameters;
 PROCEDURE ArrayType (VAR typ : Base.Type);
 
 	PROCEDURE length (typ : Base.Type);
+		CONST err1 = 'Non-positive array length is not allowed';
+			err2 = 'Array length must be const';
 		VAR len : Base.Item;
 	BEGIN
 		expression (len);
 		IF len.mode = Base.class_const THEN
 			IF len.a > 0 THEN typ.len := SHORT (len.a)
-			ELSE
-				Scanner.Mark ('Non-positive array length is not allowed');
-				typ.len := 1
+			ELSE Scanner.Mark (err1); typ.len := 1
 			END
-		ELSE Scanner.Mark ('Array length must be const'); typ.len := 1
+		ELSE Scanner.Mark (err2); typ.len := 1
 		END
 	END length;
 		
@@ -385,7 +375,8 @@ BEGIN (* ArrayType *)
 	
 	typ.size := typ.len * typ.base.size;
 	typ.num_ptr := typ.len * typ.base.num_ptr;
-	typ.alignment := typ.base.alignment
+	typ.alignment := typ.base.alignment;
+	Generator.Check_varsize (typ.size, FALSE)
 END ArrayType;
 
 PROCEDURE RecordType (VAR typ : Base.Type);
@@ -394,8 +385,7 @@ PROCEDURE RecordType (VAR typ : Base.Type);
 	PROCEDURE FieldListSequence (typ : Base.Type);
 
 		PROCEDURE FieldList (typ : Base.Type);
-			VAR
-				first : Base.Object; tp : Base.Type;
+			VAR first : Base.Object; tp : Base.Type;
 				offset : INTEGER;
 		BEGIN
 			IdentList (first, Base.class_field);
@@ -438,25 +428,20 @@ PROCEDURE RecordType (VAR typ : Base.Type);
 		IF (obj # Base.guard) & (obj.class = Base.class_type) THEN
 			IF obj = defobj THEN Scanner.Mark ('Circular definition')
 			ELSIF obj.type.form = Base.type_record THEN tp := obj.type
-			ELSIF obj.type.form = Base.type_pointer THEN
-				IF obj.type.base # Base.int_type THEN tp := obj.type.base
-				ELSE Scanner.Mark ('Can not extend a undef pointer type')
-				END
 			ELSE Scanner.Mark ('Invalid record base type')
 			END
 		ELSE Scanner.Mark ('Not a type')
 		END;
 		
 		IF tp # NIL THEN
-			IF tp.len < Base.type_extension_limit THEN
+			IF tp.len < Base.max_extension - 1 THEN
 				typ.hasExtension := TRUE;
 				typ.base := tp;
 				typ.size := tp.size;
 				typ.num_ptr := tp.num_ptr;
 				typ.len := tp.len + 1;
 				typ.alignment := tp.alignment
-			ELSE
-				Scanner.Mark ('Type extension level too deep (compiler limit)')
+			ELSE Scanner.Mark ('Extension level too deep (compiler limit)')
 			END
 		END
 	END BaseType;
@@ -478,7 +463,9 @@ BEGIN (* RecordType *)
 	END;
 	Check (Scanner.end, 'No END for record definition');
 	typ.fields := Base.top_scope.next;
-	Base.Close_scope
+	Base.Close_scope;
+	
+	Generator.Alloc_typedesc (typ); Generator.Check_varsize (typ.size, FALSE)
 END RecordType;
 
 PROCEDURE PointerType (VAR typ : Base.Type);
@@ -494,12 +481,12 @@ BEGIN
 	ELSE
 		qualident (obj);
 		IF obj = Base.guard THEN
-			Base.Register_undefined_pointer_type (typ, Base.guard.name)
+			Base.Register_undefined_pointer_type (typ, obj.name)
 		ELSIF (obj.class = Base.class_type)
 		& (obj.type.form = Base.type_record) THEN
 			typ.base := obj.type
-		ELSE
-			Scanner.Mark ('Record type expected'); typ.base := Base.int_type
+		ELSE Scanner.Mark ('Record type expected');
+			typ.base := Base.nilrecord_type
 		END
 	END
 END PointerType;
@@ -527,19 +514,17 @@ BEGIN
 END StrucType;
 	
 PROCEDURE type (VAR typ : Base.Type);
+	CONST err2 = 'This identifier is not a type';
 	VAR obj : Base.Object;
 BEGIN
 	typ := Base.int_type;
 	IF sym = Scanner.ident THEN
 		qualident (obj);
-		IF obj = Base.guard THEN
-			Scanner.Mark ('Undefined type')
-		ELSIF obj.class # Base.class_type THEN
-			Scanner.Mark ('This identifier is not a type')
-		ELSIF (obj = defobj) & (obj.type.form # Base.type_pointer) THEN
-			Scanner.Mark ('Circular definition')
-		ELSE
+		IF obj = Base.guard THEN Scanner.Mark ('Undefined type')
+		ELSIF obj.class # Base.class_type THEN Scanner.Mark (err2)
+		ELSIF (obj # defobj) OR (obj.type.form # Base.type_pointer) THEN
 			typ := obj.type
+		ELSE Scanner.Mark ('Circular definition')
 		END
 	ELSIF (sym = Scanner.array) OR (sym = Scanner.record)
 	OR (sym = Scanner.pointer) OR (sym = Scanner.procedure) THEN
@@ -581,26 +566,12 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 	BEGIN
 		identdef (obj, Base.class_type);
 		Check (Scanner.equal, 'No = in type declaration');
-		defobj := obj;
-		StrucType (obj.type);
-		(* obj.type.obj := obj; *)
+		defobj := obj; StrucType (obj.type);
 		
 		IF obj.type.form = Base.type_record THEN
-			(* Generator.Alloc_type_desc (obj.type); *)
 			IF Base.undef_ptr_list # NIL THEN
 				Base.Check_undefined_pointer_list (obj)
 			END
-		ELSIF obj.type.form = Base.type_pointer THEN
-			(*
-			IF obj.type.base.form = Base.type_record THEN
-				IF obj.type.base.obj = NIL THEN
-					obj.type.base.obj := obj;
-					Generator.Alloc_type_desc (obj.type.base)
-				ELSE
-					obj.val := obj.type.base.obj.val
-				END
-			END
-			*)
 		END
 	END TypeDeclaration;
 	
@@ -721,63 +692,67 @@ BEGIN (* DeclarationSequence *)
 			VariableDeclaration (varsize);
 			Check (Scanner.semicolon, 'No ; after variable declaration')
 		END;
-		IF Base.cur_lev = 0 THEN Generator.Set_varsize (varsize) END
+		Generator.Check_varsize (varsize, Base.cur_lev = 0)
 	END;
 	WHILE sym = Scanner.procedure DO
 		ProcedureDeclaration;
 		Check (Scanner.semicolon, 'No ; after procedure declaration')
 	END
 END DeclarationSequence;
+
+PROCEDURE Str_to_const (VAR x : Base.Item);
+BEGIN
+	IF (x.mode = Base.class_var) & (x.type.form = Base.type_string) THEN
+		Generator.Make_const (x, Base.char_type, x.b)
+	END
+END Str_to_const;
+
+PROCEDURE Parameter (VAR pinfo : Generator.ProcInfo; VAR par : Base.Object);
+	VAR y : Base.Item;
+BEGIN
+	expression (y);
+	IF par # Base.guard THEN
+		CASE Base.Check_parameter (par, y) OF
+			0: Str_to_const (y); Generator.Value_param (y, pinfo) |
+			1: Generator.Open_array_param (y, pinfo, par.type) |
+			2: Generator.Ref_param (y, pinfo) |
+			3: Generator.Record_var_param (y, pinfo) |
+			9: Generator.String_param (y, pinfo, par.type) |
+			4: Scanner.Mark ('Formal is variable but actual is read-only') |
+			5: Scanner.Mark ('Formal is variable but actual is not') |
+			6: Scanner.Mark ('Formal and actual type are incompatible') |
+			7: Scanner.Mark ('Invalid parameter') |
+			8: Scanner.Mark ('Actual is not an extension of formal')
+		END;
+		par := par.next
+	END
+END Parameter;
+
+PROCEDURE Skip_params;
+	VAR x : Base.Item;
+BEGIN
+	REPEAT
+		Scanner.Get (sym); expression (x); Generator.Free_item (x)
+	UNTIL sym # Scanner.comma
+END Skip_params;
 	
-PROCEDURE ActualParameters
-(VAR x : Base.Item; VAR procinfo : Generator.ProcInfo);
-	VAR param : Base.Object;
-		
-	PROCEDURE Parameter
-	(VAR procinfo : Generator.ProcInfo; VAR param : Base.Object);
-		VAR y : Base.Item;
-	BEGIN
-		expression (y);
-		IF param # Base.guard THEN
-			CASE Base.Check_parameter (param, y) OF
-				0:	
-				IF y.type.form = Base.type_string THEN
-					Generator.Make_const (y, Base.char_type, y.b)
-				END;
-				Generator.Value_param (y, procinfo)
-				|
-				1: Generator.Open_array_param (y, procinfo, param.type) |
-				2: Generator.Ref_param (y, procinfo) |
-				3: Generator.Record_var_param (y, procinfo) |
-				9: Generator.String_param (y, procinfo, param.type) |
-				4: Scanner.Mark ('Formal is variable but actual is read-only') |
-				5: Scanner.Mark ('Formal is variable but actual is not') |
-				6: Scanner.Mark ('Formal and actual type are incompatible') |
-				7: Scanner.Mark ('Invalid parameter') |
-				8: Scanner.Mark ('Actual is not an extension of formal')
-			END;
-			param := param.next
-		END
-	END Parameter;
-		
-BEGIN (* ActualParameters *)
-	IF x.mode = Base.class_proc THEN param := x.obj.dsc
-	ELSE param := x.type.fields
+PROCEDURE ActualParameters (VAR x : Base.Item; VAR pinfo : Generator.ProcInfo);
+	VAR par : Base.Object;	
+BEGIN
+	IF x.mode = Base.class_proc THEN par := x.obj.dsc
+	ELSE par := x.type.fields
 	END;
-	
 	Scanner.Get (sym);
 	IF sym # Scanner.rparen THEN
-		Parameter (procinfo, param);
-		WHILE (sym = Scanner.comma) & (param # Base.guard) DO
-			Scanner.Get (sym); Parameter (procinfo, param) 
+		Parameter (pinfo, par);
+		WHILE (sym = Scanner.comma) & (par # Base.guard) DO
+			Scanner.Get (sym); Parameter (pinfo, par) 
 		END;
 		IF sym = Scanner.comma THEN
-			Scanner.Mark ('Superflous , or too much actual parameters')
+			Scanner.Mark (errTooMuchParam); Skip_params
 		END
 	END;
-	IF param # Base.guard THEN Scanner.Mark ('Not enough actual parameters')
-	END;
-	
+	IF par # Base.guard THEN Scanner.Mark (errTooLittleParam) END;
 	Check (Scanner.rparen, 'No closing )')
 END ActualParameters;
 
@@ -791,11 +766,8 @@ PROCEDURE ProcedureCall (VAR x : Base.Item; proper : BOOLEAN);
 		rtype : Base.Type;
 BEGIN
 	IF x.mode = Base.class_proc THEN
-		pinfo.parblksize := x.obj.parblksize;
-		rtype := x.type
-	ELSE
-		pinfo.parblksize := x.type.len;
-		rtype := x.type.base
+		pinfo.parblksize := x.obj.parblksize; rtype := x.type
+	ELSE pinfo.parblksize := x.type.len; rtype := x.type.base
 	END;
 	pinfo.rtype := rtype;
 	
@@ -832,11 +804,9 @@ PROCEDURE StandProc (VAR x : Base.Item);
 		& (x.type.form = Base.type_pointer) THEN
 			IF Base.flag_readOnly IN x.flag THEN
 				Scanner.Mark ('Not able to NEW read-only variable')
-			ELSE
-				Generator.SProc_NEW (x)
+			ELSE Generator.SProc_NEW (x)
 			END
-		ELSE
-			Scanner.Mark ('Expect a pointer variable')
+		ELSE Scanner.Mark ('Expect a pointer variable')
 		END
 	END SProc_NEW;
 	
@@ -846,10 +816,8 @@ PROCEDURE StandProc (VAR x : Base.Item);
 	BEGIN
 		expression (x);
 		IF (x.mode IN Base.cls_HasValue)
-		& (x.type.form = Base.type_pointer) THEN
-			Generator.SProc_DISPOSE (x)
-		ELSE
-			Scanner.Mark ('Expect a pointer')
+		& (x.type.form = Base.type_pointer) THEN Generator.SProc_DISPOSE (x)
+		ELSE Scanner.Mark ('Expect a pointer')
 		END
 	END SProc_DISPOSE;
 	*)
@@ -858,7 +826,7 @@ PROCEDURE StandProc (VAR x : Base.Item);
 		VAR x, y : Base.Item;
 	BEGIN
 		expression (x); Check_int (x);
-		Check (Scanner.comma, 'Not enough parameters');
+		Check (Scanner.comma, errTooLittleParam);
 		expression (y);
 		
 		IF (y.mode IN classes_Variable)
@@ -874,7 +842,7 @@ PROCEDURE StandProc (VAR x : Base.Item);
 		VAR x, y : Base.Item;
 	BEGIN
 		expression (x); Check_int (x);
-		Check (Scanner.comma, 'Not enough parameters');
+		Check (Scanner.comma, errTooLittleParam);
 		expression (y);
 		
 		IF (y.mode IN classes_Value) & (y.type.form IN Base.types_Scalar) THEN
@@ -887,9 +855,9 @@ PROCEDURE StandProc (VAR x : Base.Item);
 		VAR x, y, z : Base.Item;
 	BEGIN
 		expression (x); Check_int (x);
-		Check (Scanner.comma, 'Not enough parameters');
+		Check (Scanner.comma, errTooLittleParam);
 		expression (y); Check_int (y);
-		Check (Scanner.comma, 'Not enough parameters');
+		Check (Scanner.comma, errTooLittleParam);
 		expression (z); Check_int (z);
 		
 		Generator.SProc_COPY (x, y, z)
@@ -919,7 +887,7 @@ PROCEDURE StandProc (VAR x : Base.Item);
 			Generator.Prepare_to_call (proc, pinfo);
 		END;
 		
-		Check (Scanner.comma, 'Not enough parameters');
+		Check (Scanner.comma, errTooLittleParam);
 		expression (y);
 		
 		IF no_error THEN
@@ -957,14 +925,14 @@ PROCEDURE StandProc (VAR x : Base.Item);
 			Generator.Prepare_to_call (proc, pinfo);
 		END;
 		
-		Check (Scanner.comma, 'Not enough parameters');
+		Check (Scanner.comma, errTooLittleParam);
 		expression (y); Check_int (y);
 		
 		IF no_error THEN Generator.Value_param (y, pinfo)
 		ELSE Generator.Free_item (y)
 		END;
 		
-		Check (Scanner.comma, 'Not enough parameters');
+		Check (Scanner.comma, errTooLittleParam);
 		expression (z); Check_int (z);
 		
 		IF no_error THEN
@@ -975,23 +943,24 @@ PROCEDURE StandProc (VAR x : Base.Item);
 	END SProc_GetProcAddress;
 
 BEGIN (* StandProc *)
-	Check (Scanner.lparen, 'No parameter list or missing (');
-	CASE SHORT (x.a) OF
-		(* 4: SProc_NEW |
-		8: SProc_DISPOSE | *)
-		100: SProc_GET |
-		101: SProc_PUT |
-		102: SProc_COPY |
-		103: SProc_LoadLibrary (x.b) |
-		104: SProc_GetProcAddress (x.b)
-	END;
-	WHILE sym = Scanner.comma DO
-		Scanner.Mark ('Too much parameters');
-		expression (y); Generator.Free_item (y)
-	END;
-	Check (Scanner.rparen, 'No closing )')
+	Check (Scanner.lparen, 'Not enough parameter or missing (');
+	IF x.type = NIL THEN
+		CASE SHORT (x.a) OF
+			(* 4: SProc_NEW |
+			8: SProc_DISPOSE | *)
+			100: SProc_GET |
+			101: SProc_PUT |
+			102: SProc_COPY |
+			103: SProc_LoadLibrary (x.b) |
+			104: SProc_GetProcAddress (x.b)
+		END;
+		IF sym = Scanner.comma THEN
+			Scanner.Mark (errTooMuchParam); Skip_params
+		END;
+		Check (Scanner.rparen, 'No closing )')
+	ELSE Scanner.Mark ('Function procedure must be called in expression')
+	END
 END StandProc;
-
 
 PROCEDURE StandFunc (VAR x : Base.Item);
 	VAR funcno : INTEGER; rtype : Base.Type;
@@ -1029,7 +998,7 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 	BEGIN
 		expression (x); Check_int (x);
 		IF x.mode IN classes_Variable THEN Generator.load (x) END;
-		Check (Scanner.comma, 'Not enough parameters');
+		Check (Scanner.comma, errTooLittleParam);
 		expression (y); Check_int (y);
 		Generator.SFunc_SHIFT (shf, x, y)
 	END SFunc_SHIFT;
@@ -1086,7 +1055,7 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 	BEGIN
 		expression (x); Check_int (x);
 		IF x.mode IN classes_Variable THEN Generator.load (x) END;
-		Check (Scanner.comma, 'Not enough parameters');
+		Check (Scanner.comma, errTooLittleParam);
 		expression (y); Check_int (y);
 		Generator.SFunc_BIT (x, y)
 	END SFunc_BIT;
@@ -1103,7 +1072,7 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 			cast_type := Base.int_type; Generator.Free_item (x)
 		END;
 		
-		Check (Scanner.comma, 'Not enough parameters');
+		Check (Scanner.comma, errTooLittleParam);
 		expression (y);
 		IF y.mode IN classes_Value THEN x := y; x.type := cast_type
 		ELSE Scanner.Mark ('Expect a value'); Generator.Free_item (y);
@@ -1112,28 +1081,32 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 	END SFunc_VAL;
 		
 BEGIN (* StandFunc *)
-	Check (Scanner.lparen, 'No parameter list or missing (');
-	funcno := SHORT (x.a); rtype := x.type;
-	CASE funcno OF
-		200: SFunc_ABS (x) |
-		201: SFunc_ODD (x) |
-		202: SFunc_LEN (x) |
-		203 .. 205: SFunc_SHIFT (funcno - 203, x) |
-	(*	206: SFunc_FLOOR (x) |
-		207: SFunc_FLT (x) | *)
-		208: SFunc_ORD (x) |
-		209: SFunc_CHR (x) |
-		300: SFunc_ADR (x) |
-		301: SFunc_SIZE (x) |
-		302: SFunc_BIT (x) |
-		303: SFunc_VAL (x)
-	END;
-	IF (funcno # 303) & (funcno # 200) THEN x.type := rtype END;
-	WHILE sym = Scanner.comma DO
-		Scanner.Mark ('Too much parameters');
-		expression (y); Generator.Free_item (y)
-	END;
-	Check (Scanner.rparen, 'No closing )')
+	Scanner.Get (sym);
+	IF x.type # NIL THEN
+		funcno := SHORT (x.a); rtype := x.type;
+		CASE funcno OF
+			200: SFunc_ABS (x) |
+			201: SFunc_ODD (x) |
+			202: SFunc_LEN (x) |
+			203 .. 205: SFunc_SHIFT (funcno - 203, x) |
+		(*	206: SFunc_FLOOR (x) |
+			207: SFunc_FLT (x) | *)
+			208: SFunc_ORD (x) |
+			209: SFunc_CHR (x) |
+			300: SFunc_ADR (x) |
+			301: SFunc_SIZE (x) |
+			302: SFunc_BIT (x) |
+			303: SFunc_VAL (x)
+		END;
+		IF (funcno # 303) & (funcno # 200) THEN x.type := rtype END;
+		IF sym = Scanner.comma THEN
+			Scanner.Mark (errTooMuchParam); Skip_params
+		END;
+		Check (Scanner.rparen, 'No closing )')
+	ELSE
+		Scanner.Mark ('Proper procedure cannot be called in expression');
+		Generator.Make_const (x, Base.int_type, 0)
+	END
 END StandFunc;
 	
 PROCEDURE selector (VAR x : Base.Item);
@@ -1142,7 +1115,6 @@ PROCEDURE selector (VAR x : Base.Item);
 		VAR obj : Base.Object;
 	BEGIN
 		IF x.type.form = Base.type_pointer THEN Generator.Deref (x) END;
-		
 		Scanner.Get (sym);
 		IF x.type.form = Base.type_record THEN
 			IF sym = Scanner.ident THEN
@@ -1188,35 +1160,33 @@ PROCEDURE selector (VAR x : Base.Item);
 		END
 	END Deref_selector;
 	
-	(*
 	PROCEDURE Type_guard_selector (VAR x : Base.Item);
-		VAR
-			obj : Base.Object;
-			is_pointer : BOOLEAN;
+		VAR obj : Base.Object; valid : BOOLEAN; xform : INTEGER;
+			xtype, ytype : Base.Type;
 	BEGIN
-		Scanner.Get (sym);
-		qualident (obj);
-		
-		is_pointer := (x.type.form = Base.type_pointer)
-			OR (x.type.form = Base.type_record)
-				& (Base.flag_varParam IN x.flag);
-		
-		IF is_pointer THEN	
-			IF (obj.class = Base.class_type)
-				& (obj.type.form = x.type.form)
-				& Base.Is_extension_type (obj.type, x.type)
-			THEN
-				Generator.Type_guard (x, obj.type)
-			ELSE
-				Scanner.Mark ('Invalid or incompatible type in type guard')
-			END	
-		ELSE
-			Scanner.Mark ('Type guard is not applicable')
+		valid := (x.type.form = Base.type_pointer)
+			OR (x.type.form = Base.type_record) & x.param & ~ x.readonly;
+		IF valid THEN (* Ok *)
+		ELSE Scanner.Mark ('Type guard is not applicable')
 		END;
 		
+		Scanner.Get (sym); qualident (obj);
+		IF valid THEN xform := x.type.form;
+			IF (obj.class = Base.class_type) & (obj.type.form = xform) THEN
+				xtype := x.type; ytype := obj.type;
+				IF xform = Base.type_pointer THEN
+					xtype := xtype.base; ytype := ytype.base
+				END;
+				IF Base.Is_extension (ytype, xtype) THEN
+					Generator.Type_test (x, ytype, TRUE)
+				ELSE Scanner.Mark ('Not an extension')
+				END
+			ELSE Scanner.Mark ('Invalid type in type guard')
+			END	
+		ELSE Scanner.Mark ('Type guard is not applicable')
+		END;
 		Check (Scanner.rparen, 'No closing )')
 	END Type_guard_selector;
-	*)
 		
 BEGIN
 	IF ~ (x.mode IN Base.cls_HasValue) THEN
@@ -1228,7 +1198,7 @@ BEGIN
 	ELSIF sym = Scanner.arrow THEN
 		Deref_selector (x)
 	ELSIF sym = Scanner.lparen THEN
-		(* Type_guard_selector (x) *)
+		Type_guard_selector (x)
 	END
 END selector;
 	
@@ -1291,13 +1261,8 @@ BEGIN
 	ELSIF sym = Scanner.ident THEN
 		designator (x);
 		IF sym = Scanner.lparen THEN
-			IF x.mode = Base.class_sproc THEN
-				IF x.type # NIL THEN StandFunc (x)
-				ELSE
-					Scanner.Mark ('Found proper procedure in expression');
-					Generator.Make_const (x, Base.int_type, 0)
-				END
-			ELSIF (x.mode = Base.class_proc) OR (x.mode IN Base.cls_HasValue)
+			IF x.mode = Base.class_sproc THEN StandFunc (x)
+			ELSIF (x.mode = Base.class_proc) OR (x.mode IN classes_Value)
 			& (x.type.form = Base.type_procedure) THEN
 				ProcedureCall (x, FALSE)
 			ELSE Scanner.Mark ('Found ( but designator is not a procedure')
@@ -1327,6 +1292,7 @@ BEGIN
 END factor;
 	
 PROCEDURE term (VAR x : Base.Item);
+	CONST err1 = 'Incompatible types';
 	VAR op : INTEGER; y : Base.Item;
 BEGIN
 	factor (x);
@@ -1339,12 +1305,13 @@ BEGIN
 		Scanner.Get (sym); factor (y); Check_operator (op, y);
 		
 		IF x.type.form = y.type.form THEN Generator.Op2 (op, x, y)
-		ELSE Scanner.Mark ('Incompatible types')
+		ELSE Scanner.Mark (err1); Generator.Free_item (y)
 		END
 	END
 END term;
 	
 PROCEDURE SimpleExpression (VAR x : Base.Item);
+	CONST err1 = 'Incompatible types';
 	VAR op : INTEGER; y : Base.Item;
 BEGIN
 	IF sym = Scanner.plus THEN
@@ -1364,7 +1331,7 @@ BEGIN
 		Scanner.Get (sym); term (y); Check_operator (op, y);
 		
 		IF x.type.form = y.type.form THEN Generator.Op2 (op, x, y)
-		ELSE Scanner.Mark ('Incompatible types')
+		ELSE Scanner.Mark (err1); Generator.Free_item (y)
 		END
 	END
 END SimpleExpression;
@@ -1401,7 +1368,7 @@ BEGIN (* expression *)
 		IF op = Scanner.in THEN
 			Check_set (y); Generator.Membership (x, y)
 		ELSIF op = Scanner.is THEN
-			Check_type_test (x, y); (* Generator.Type_test (x, y.type) *)
+			Check_type_test (x, y); Generator.Type_test (x, y.type, FALSE)
 		ELSIF (op = Scanner.equal) OR (op = Scanner.not_equal) THEN
 			Check_equal_comparison (x, y); Check_for_string_const (x, y);
 			Generator.Comparison (op, x, y)
@@ -1462,7 +1429,6 @@ END ForStatement;
 	
 PROCEDURE StatementSequence;
 	CONST err1 = 'Invalid statement';
-		err2 = 'Function procedure must be called in expression';
 		err3 = 'Missing semicolon?';
 		err4 = 'No THEN after IF condition';
 		err5 = 'No THEN after ELSIF condition';
@@ -1487,17 +1453,12 @@ BEGIN
 			IF sym = Scanner.becomes THEN
 				Scanner.Get (sym); expression (y);
 				IF Assignable (x, y) THEN
-					IF (x.type = Base.char_type)
-					& (y.type # Base.char_type) THEN
-						Generator.Make_const (y, Base.char_type, y.b)
-					END;
+					IF x.type = Base.char_type THEN Str_to_const (y) END;
 					Generator.Store (x, y)
 				END
-			ELSIF x.mode = Base.class_proc THEN
-				ProcedureCall (x, TRUE)
-			ELSIF x.mode = Base.class_sproc THEN
-				IF x.type = NIL THEN StandProc (x) ELSE Scanner.Mark (err2) END
-			ELSIF (sym = Scanner.lparen) & (x.mode IN Base.cls_HasValue)
+			ELSIF x.mode = Base.class_proc THEN ProcedureCall (x, TRUE)
+			ELSIF x.mode = Base.class_sproc THEN StandProc (x)
+			ELSIF (sym = Scanner.lparen) & (x.mode IN classes_Value)
 			& (x.type.form = Base.type_procedure) THEN
 				ProcedureCall (x, TRUE)
 			ELSE Scanner.Mark (err1)
@@ -1536,8 +1497,10 @@ BEGIN
 			Check (Scanner.until, err9);
 			expression (x); Check_bool (x); Generator.CBJump (x, L)
 		ELSIF sym = Scanner.for THEN
+			Scanner.Mark ('FOR statement not supported yet!')
 			(* Implement later *)
 		ELSIF sym = Scanner.case THEN
+			Scanner.Mark ('CASE statement not supported yet!')
 			(* Implement later *)
 		END;
 		
@@ -1554,35 +1517,35 @@ BEGIN
 	Scanner.Get (sym); Check (Scanner.module, 'No MODULE keyword');
 	
 	IF sym = Scanner.ident THEN modid := Scanner.id; Scanner.Get (sym)
-	ELSE
-		modid := 'ERROR_MODULE_NAME';
-		Scanner.Mark ('No module name')
+	ELSE modid := '@'; Scanner.Mark ('No module name')
 	END;
 	Check (Scanner.semicolon, 'No ; after module name');
 	
-	Base.Init (modid);
-	Generator.Init (modid);
+	IF modid # '@' THEN
+		Base.Init (modid);
+		Generator.Init (modid);
 
-	varsize := 0;
-	DeclarationSequence (varsize);
+		varsize := 0;
+		DeclarationSequence (varsize);
 
-	Generator.Enter (NIL, 0);
-	IF sym = Scanner.begin THEN
-		Scanner.Get (sym);
-		StatementSequence
-	END;
-	Generator.Module_exit;
-	Generator.Return;
+		Generator.Enter (NIL, 0);
+		IF sym = Scanner.begin THEN
+			Scanner.Get (sym);
+			StatementSequence
+		END;
+		Generator.Module_exit;
+		Generator.Return;
 
-	Check (Scanner.end, 'No END for module');
-	IF sym = Scanner.ident THEN
-		IF modid # Scanner.id THEN Scanner.Mark ('Wrong module name') END;
-		Scanner.Get (sym)
-	ELSE Scanner.Mark ('No module identifier after END')
-	END;
-	Check (Scanner.period, 'No ending .');
-	
-	Generator.Finish;
+		Check (Scanner.end, 'No END for module');
+		IF sym = Scanner.ident THEN
+			IF modid # Scanner.id THEN Scanner.Mark ('Wrong module name') END;
+			Scanner.Get (sym)
+		ELSE Scanner.Mark ('No module identifier after END')
+		END;
+		Check (Scanner.period, 'No ending .');
+		
+		Generator.Finish
+	END
 END Module;
 
 END Parser2.
