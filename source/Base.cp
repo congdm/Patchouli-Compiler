@@ -21,6 +21,7 @@ CONST
 	class_const* = 4; class_field* = 5; class_type* = 6; class_proc* = 7;
 	class_sproc* = 8; mode_reg* = 9; mode_regI* = 10; mode_cond* = 11;
 	mode_xreg* = 12;
+	class_string = 255;
 	
 	classes_Variable* = {class_var, class_ref, mode_regI};
 	classes_Value* = classes_Variable + {class_const, mode_reg, mode_cond};
@@ -50,10 +51,10 @@ TYPE
 	LongString* = ARRAY max_str_len + 1 OF CHAR;
 
 	Type* = POINTER TO RECORD
-		hasExtension*, predefined*, import* : BOOLEAN;
+		predefined*, import*, named* : BOOLEAN;
 		form* : INTEGER;
 		fields*, obj* : Object;
-		base* : Type;
+		base*, next* : Type;
 		size*, len*, alignment* : INTEGER;
 		num_ptr*, ref*, tdAdr* : INTEGER
 	END;
@@ -90,13 +91,20 @@ VAR
 	int_type*, bool_type*, set_type*, char_type*, byte_type*, real_type* : Type;
 	longreal_type*, nilrecord_type*, nil_type* : Type;
 	
-	refno : INTEGER;
+	refno, expno* : INTEGER;
 	symfile : Sys.FileHandle;
 	
 	compiler_flag* : SET;
+	CompilerFlag* : RECORD
+		overflow_check*, array_check* : BOOLEAN
+	END;
+	
+	stringdata : ARRAY 65536 OF CHAR;
+	strpos : INTEGER;
 	
 	(* Forward decl procedure *)
 	_Export_type : PROCEDURE (typ : Type);
+	
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -254,6 +262,7 @@ BEGIN
 		WHILE obj.next # guard DO obj := obj.next END;
 		NEW (obj.next); obj := obj.next;
 		
+		obj.export := FALSE;
 		obj.readonly := FALSE;
 		obj.param := FALSE;
 		obj.name := name;
@@ -269,18 +278,20 @@ END New_obj;
 PROCEDURE New_typ* (VAR typ : Type; form : INTEGER);
 BEGIN
 	NEW (typ);
-	typ.hasExtension := FALSE;
 	typ.predefined := FALSE;
+	typ.import := FALSE;
 	typ.form := form;
-	typ.num_ptr := 0
+	typ.num_ptr := 0;
+	typ.ref := 0;
 END New_typ;
 
-PROCEDURE New_predefined_typ (VAR typ : Type; form, size : INTEGER);
+PROCEDURE New_predefined_typ (VAR typ : Type; form, size, ref : INTEGER);
 BEGIN
 	New_typ (typ, form);
 	typ.predefined := TRUE;
 	typ.size := size;
-	typ.alignment := size
+	typ.alignment := size;
+	typ.ref := ref
 END New_predefined_typ;
 	
 PROCEDURE Enter (cl, n : INTEGER; name : String; typ : Type);
@@ -627,11 +638,39 @@ BEGIN
 	RETURN result
 END Check_parameter;
 
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+
+PROCEDURE Alloc_string* (s : LongString; len : INTEGER) : INTEGER;
+	VAR i, res : INTEGER;
+BEGIN
+	IF strpos + len <= LEN (stringdata) THEN
+		res := strpos; strpos := strpos + len; i := 0;
+		WHILE i < len DO
+			stringdata [res + i] := s[i];
+			i := i + 1
+		END
+	ELSE res := -1
+	END;
+	RETURN res
+END Alloc_string;
+
+PROCEDURE Get_string* (VAR s : LongString; ref : INTEGER);
+	VAR i : INTEGER;
+BEGIN
+	i := -1;
+	REPEAT i := i + 1; s[i] := stringdata[ref + i] UNTIL s[i] = 0X
+END Get_string;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+
 PROCEDURE Detect_type (typ : Type);
 BEGIN
 	IF typ = NIL THEN Sys.Write_2bytes (symfile, 0)
-	ELSIF typ.ref > 0 THEN Sys.Write_2bytes (symfile, typ.ref)
-	ELSE _Export_type (typ)
+	ELSIF (typ.ref > 0) OR (typ.ref < 0) THEN
+		Sys.Write_2bytes (symfile, typ.ref)
+	ELSE Sys.Write_2bytes (symfile, -1); _Export_type (typ)
 	END
 END Detect_type;
 	
@@ -642,33 +681,45 @@ BEGIN
 	Sys.Write_byte (symfile, typ.form);
 	
 	IF typ.form = type_record THEN
+		expno := expno + 1;
 		Detect_type (typ.base);
 		Sys.Write_byte (symfile, typ.len);
 		Sys.Write_4bytes (symfile, typ.size);
 		Sys.Write_4bytes (symfile, typ.num_ptr);
-		
 		field := typ.fields;
 		WHILE field # guard DO
 			IF field.export OR (field.type.num_ptr > 0) THEN
 				Sys.Write_byte (symfile, class_field);
-				IF ~ field.export THEN Sys.Write_string (symfile, '0')
+				IF ~ field.export THEN Sys.Write_string (symfile, '')
 				ELSE Sys.Write_string (symfile, field.name)
 				END;
-				Sys.Write_4bytes (symfile, field.val);
+				Sys.Write_4bytes (symfile, SHORT(field.val));
 				Detect_type (field.type)
 			END;
 			field := field.next
-		END
+		END;
+		Sys.Write_byte (symfile, class_type)
 	ELSIF typ.form = type_array THEN
 		Sys.Write_4bytes (symfile, typ.len);
 		Detect_type (typ.base)
 	ELSIF typ.form = type_pointer THEN
 		Detect_type (typ.base)
+	ELSIF typ.form = type_procedure THEN
+		Sys.Write_4bytes (symfile, typ.len);
+		Detect_type (typ.base); field := typ.fields;
+		WHILE field # guard DO
+			Sys.Write_byte (symfile, class_field);
+			Sys.Write_string (symfile, field.name);
+			Detect_type (field.type);
+			field := field.next
+		END;
+		Sys.Write_byte (symfile, class_type)
 	END
 END Export_type;
 	
 PROCEDURE Export_var (var : Object);
 BEGIN
+	expno := expno + 1;
 	Sys.Write_byte (symfile, var.class);
 	Sys.Write_string (symfile, var.name);
 	Detect_type (var.type)
@@ -683,6 +734,7 @@ END Export_string;
 PROCEDURE Export_proc (proc : Object);
 	VAR par : Object;
 BEGIN
+	expno := expno + 1;
 	Sys.Write_byte (symfile, class_proc);
 	Sys.Write_string (symfile, proc.name);
 	Detect_type (proc.type);
@@ -699,26 +751,28 @@ BEGIN
 	Detect_type (const.type)
 END Export_const;
 	
-PROCEDURE Write_symbols_file;
+PROCEDURE Write_symbols_file*;
 	VAR obj : Object;
 BEGIN
+	Sys.Rewrite (symfile, 'output.sym');
 	obj := universe.next;
 	WHILE obj # guard DO
 		IF obj.export THEN
 			IF obj.class = class_proc THEN Export_proc (obj)
 			ELSIF obj.class = class_type THEN
 				Sys.Write_byte (symfile, class_type);
-				Sys.Write_string (symfile, obj.name.content);
+				Sys.Write_string (symfile, obj.name);
 				Detect_type (obj.type)
 			ELSIF obj.class = class_const THEN Export_const (obj)
 			ELSIF obj.class = class_var THEN
-				IF obj.type.form # Base.type_string THEN Export_var (obj)
+				IF obj.type.form # type_string THEN Export_var (obj)
 				ELSE Export_string (obj)
 				END
 			END
 		END;
 		obj := obj.next
-	END
+	END;
+	Sys.Close (symfile);
 END Write_symbols_file;
 	
 PROCEDURE Init* (modid : String);
@@ -775,24 +829,23 @@ BEGIN
 	Enter (class_sproc, 302, 'BIT', bool_type);
 	Enter (class_sproc, 303, 'VAL', int_type);
 	
-	exportno := 0;	
+	refno := 0;	strpos := 0; expno := 0;
 	compiler_flag := {integer_overflow_check, array_bound_check, alignment_flag}
 END Init;
 	
 BEGIN
-	(* _Export_type := Export_type; *)
-
+	_Export_type := Export_type;
 	NEW (guard); guard.class := class_head;
 
-	New_predefined_typ (int_type, type_integer, Word_size);
-	New_predefined_typ (bool_type, type_boolean, 1);
-	New_predefined_typ (set_type, type_set, Word_size);
-	New_predefined_typ (byte_type, type_integer, 1);
-	New_predefined_typ (char_type, type_char, Char_size);
-	New_predefined_typ (nil_type, type_pointer, Word_size);
-	New_predefined_typ (real_type, type_real, 4);
-	New_predefined_typ (longreal_type, type_real, 8);
+	New_predefined_typ (int_type, type_integer, Word_size, -2);
+	New_predefined_typ (bool_type, type_boolean, 1, -3);
+	New_predefined_typ (set_type, type_set, Word_size, -4);
+	New_predefined_typ (byte_type, type_integer, 1, -5);
+	New_predefined_typ (char_type, type_char, Char_size, -6);
+	New_predefined_typ (nil_type, type_pointer, Word_size, -7);
+	New_predefined_typ (real_type, type_real, 4, -8);
+	New_predefined_typ (longreal_type, type_real, 8, -9);
 	
-	New_predefined_typ (nilrecord_type, type_record, Word_size);
+	New_predefined_typ (nilrecord_type, type_record, Word_size, -10);
 	nilrecord_type.fields := guard
 END Base.

@@ -12,6 +12,8 @@ CONST
 	MAX_INT64 = 9223372036854775807;
 	MIN_INT64 = (-MAX_INT64) - 1;
 	
+	max_staticsize = 512 * 1024;
+	
 	integer_check = Base.integer_overflow_check;
 	array_check = Base.array_bound_check;
 	type_check = 2;
@@ -74,6 +76,7 @@ TYPE
 	END;
 	
 VAR
+	modid : Base.String;
 	out : Sys.FileHandle;
 
 	code : ARRAY 65536 OF Instruction;
@@ -81,7 +84,7 @@ VAR
 	pc*, ip, entry : INTEGER;
 	_16bit_allowed : BOOLEAN;
 	
-	staticdata : ARRAY 100000H OF UBYTE;
+	staticlist : Base.Type;
 	varbase, staticbase, varsize, staticsize : INTEGER;
 	
 	(* Reg stack *)
@@ -100,6 +103,16 @@ VAR
 		parlist : Base.Object;
 		usedRegs : SET
 	END;
+	
+	(* Global state for linker *)
+	Linker : RECORD
+		imagebase : LONGINT;
+		code_rawsize, data_rawsize, idata_rawsize, edata_rawsize : INTEGER;
+		code_size, data_size, idata_size, edata_size : INTEGER;
+		code_rva, data_rva, idata_rva, edata_rva : INTEGER;
+		code_fadr, data_fadr, idata_fadr, reloc_fadr, edata_fadr : INTEGER
+	END;
+	Kernel32Table : ARRAY 7 OF LONGINT;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -571,44 +584,44 @@ BEGIN
 	x.b := obj.val2;
 	x.c := 0
 END Make_item;
+
+PROCEDURE Alloc_static_data (size, alignment : INTEGER);
+BEGIN
+	IF staticsize + size <= max_staticsize THEN
+		staticsize := staticsize + size;
+		Base.Adjust_alignment (staticsize, alignment)
+	ELSE Scanner.Mark ('The limit for static data is reached.')
+	END
+END Alloc_static_data;
 	
 PROCEDURE Make_string* (VAR x : Base.Item);
 	VAR
-		bufoffset, strlen, i, charsize : INTEGER; b : UBYTE;
+		bufoffset, strlen, i : INTEGER; b : UBYTE;
 BEGIN
 	x.readonly := TRUE; x.param := FALSE;
 	x.mode := Base.class_var; x.lev := -1;
+	x.b := ORD (Scanner.str[0]);
 	
-	charsize := Base.char_type.size;
 	strlen := Base.Str_len (Scanner.str) + 1;
-	
 	Base.New_typ (x.type, Base.type_string);
 	x.type.len := strlen;
-	x.type.size := strlen * charsize;
+	x.type.size := strlen * Base.Char_size;
 	x.type.base := Base.char_type;
 	
-	INC (staticsize, strlen * charsize);
-	i := -staticsize; x.a := i;
+	Alloc_static_data (strlen * Base.Char_size, Base.Char_size);
+	x.type.tdAdr := -staticsize; x.a := -staticsize;
 	
-	bufoffset := i + LEN(staticdata); i := 0;
-	IF charsize = 1 THEN
-		WHILE i < strlen DO
-			b := USHORT (ORD (Scanner.str[i]) MOD 256);
-			staticdata [bufoffset] := b;
-			INC (i); INC (bufoffset)
-		END;
-	ELSIF charsize = 2 THEN
-		WHILE i < strlen DO
-			b := USHORT (ORD (Scanner.str[i]) MOD 256);
-			staticdata [bufoffset] := b;
-			b := USHORT (ORD (Scanner.str[i]) DIV 256 MOD 256);
-			staticdata [bufoffset + 1] := b;
-			INC (i); INC (bufoffset, 2)
-		END;
-	ELSE Scanner.Mark ('Fault: Unsupported char size')
-	END
+	i := Base.Alloc_string (Scanner.str, strlen);
+	IF i >= 0 THEN x.type.ref := i;
+	ELSE Scanner.Mark ('Compiler buffer for string is overflowed!');
+		x.type.ref := 0
+	END;
+	
+	IF staticlist # NIL THEN x.type.next := staticlist END;
+	staticlist := x.type
 END Make_string;
 
+(*
 PROCEDURE Fill_pointer_offset (
 	VAR i : INTEGER; offset : INTEGER; type : Base.Type
 );
@@ -645,19 +658,15 @@ BEGIN
 	ELSE ASSERT(FALSE)
 	END
 END Fill_pointer_offset;
+*)
 
 PROCEDURE Alloc_typedesc* (type : Base.Type);
 	VAR tdsize, i, n : INTEGER;
 BEGIN
 	tdsize := 8 + 8 * (Base.max_extension - 1) + 4 * (type.num_ptr + 1);
-	staticsize := staticsize + tdsize;
-	staticsize := (8 - staticsize) MOD 8 + staticsize;
-	
-	type.tdAdr := -staticsize; i := LEN(staticdata) - staticsize;
-	SYSTEM.PUT (SYSTEM.ADR (staticdata[i]), type.size);
-	i := i + 8 * Base.max_extension;
-	IF type.num_ptr > 0 THEN Fill_pointer_offset (i, 0, type) END;
-	n := -1; SYSTEM.PUT (SYSTEM.ADR (staticdata[i]), n)
+	Base.Adjust_alignment (tdsize);
+	Alloc_static_data (staticsize, tdsize);
+	type.tdAdr := -staticsize
 END Alloc_typedesc;
 
 (* -------------------------------------------------------------------------- *)
@@ -1799,8 +1808,9 @@ BEGIN
 END Scalar_comparison;
 	
 PROCEDURE String_comparison (op : INTEGER; VAR x, y : Base.Item);
-	VAR xform, yform, xsize, ysize, i, xstr, ystr : INTEGER;
+	VAR xform, yform, xsize, ysize, i : INTEGER;
 		charsize, L : INTEGER; r, rc : UBYTE;
+		xstr, ystr : Base.LongString;
 BEGIN
 	xform := x.type.form; yform := y.type.form;
 	xsize := x.type.size; ysize := y.type.size;
@@ -1809,14 +1819,9 @@ BEGIN
 	IF {xform, yform} = {Base.type_string} THEN
 		IF xsize # ysize THEN x.a := 0
 		ELSE
-			i := 0; xstr := SHORT(x.a) + LEN(staticdata);
-			ystr := SHORT(y.a) + LEN(staticdata);
-			WHILE (i < xsize) & (staticdata[xstr + i] = staticdata[ystr + i]) DO
-				INC (i)
-			END;
-			IF staticdata[xstr + i] = staticdata[ystr + i] THEN x.a := 1
-			ELSE x.a := 0
-			END
+			Base.Get_string (xstr, x.type.ref);
+			Base.Get_string (ystr, y.type.ref);
+			IF xstr = ystr THEN x.a := 1 ELSE x.a := 0 END
 		END;
 		x.mode := mode_imm;
 	ELSIF (xform = Base.type_string) & (xsize - charsize > ysize)
@@ -2069,77 +2074,127 @@ END Check_varsize;
 
 PROCEDURE Init* (modname : Base.String);
 BEGIN
-	ip := 0; varbase := 0; staticsize := 56;
+	ip := 0; varbase := 0; staticsize := 56; modid := modname;
 	Sys.Rewrite (out, 'output.exe');
 	Sys.Seek (out, 400H)
 END Init;
 
-PROCEDURE Write_idata_section (
-	idata_fadr, idata_rva, data_rva, data_size : INTEGER
-);
+PROCEDURE Write_idata_section;
 	CONST
-		table_len = 7;
+		table_len = LEN(Kernel32Table);
 		table_size = table_len * 8;
 		table_rva = 40;
 		name_rva = table_rva + table_size;
 		hint_rva = name_rva + 16;
-		
-	VAR i, j : INTEGER; b : UBYTE;
-		kernel32table : ARRAY table_len OF LONGINT;
+	VAR i : INTEGER;
 BEGIN
-	Sys.Seek (out, idata_fadr);
+	Sys.Seek (out, Linker.idata_fadr);
 	
 	(* Import Directory Entry - Kernel32.dll *)
-	Sys.Write_4bytes (out, idata_rva + table_rva);
+	Sys.Write_4bytes (out, Linker.idata_rva + table_rva);
 	Sys.Write_4bytes (out, 0);
 	Sys.Write_4bytes (out, 0);
-	Sys.Write_4bytes (out, idata_rva + name_rva);
-	Sys.Write_4bytes (out, data_rva + data_size + staticbase - table_size);
+	Sys.Write_4bytes (out, Linker.idata_rva + name_rva);
+	i := Linker.data_rva + Linker.data_size + staticbase - table_size;
+	Sys.Write_4bytes (out, i);
 
-	Sys.Seek (out, idata_fadr + table_rva);
-	FOR i := 0 TO 5 DO
-		kernel32table [i] := idata_rva + hint_rva + 32 * i
+	Sys.Seek (out, Linker.idata_fadr + table_rva);
+	FOR i := 0 TO table_len - 2 DO
+		Kernel32Table [i] := Linker.idata_rva + hint_rva + 32 * i;
+		Sys.Write_8bytes (out, Kernel32Table [i]);
 	END;
-	kernel32table [6] := 0;
-	i := 0; j := LEN(staticdata) - table_size;
-	WHILE i < table_size DO
-		SYSTEM.GET (SYSTEM.ADR(kernel32table[0]) + i, b);
-		staticdata [j] := b; Sys.Write_byte (out, b); INC (i); INC (j)
-	END;
+	Kernel32Table [table_len - 1] := 0;
 	
-	Sys.Seek (out, idata_fadr + name_rva);
+	Sys.Seek (out, Linker.idata_fadr + name_rva);
 	Sys.Write_ansi_str (out, 'KERNEL32.DLL');
 	
-	Sys.Seek (out, idata_fadr + hint_rva + 2);
+	Sys.Seek (out, Linker.idata_fadr + hint_rva + 2);
 	Sys.Write_ansi_str (out, 'ExitProcess');
-	Sys.Seek (out, idata_fadr + hint_rva + (32 + 2));
+	Sys.Seek (out, Linker.idata_fadr + hint_rva + (32 + 2));
 	Sys.Write_ansi_str (out, 'LoadLibraryW');
-	Sys.Seek (out, idata_fadr + hint_rva + (64 + 2));
+	Sys.Seek (out, Linker.idata_fadr + hint_rva + (64 + 2));
 	Sys.Write_ansi_str (out, 'GetProcAddress');
-	Sys.Seek (out, idata_fadr + hint_rva + (96 + 2));
+	Sys.Seek (out, Linker.idata_fadr + hint_rva + (96 + 2));
 	Sys.Write_ansi_str (out, 'GetProcessHeap');
-	Sys.Seek (out, idata_fadr + hint_rva + (128 + 2));
+	Sys.Seek (out, Linker.idata_fadr + hint_rva + (128 + 2));
 	Sys.Write_ansi_str (out, 'HeapAlloc');
-	Sys.Seek (out, idata_fadr + hint_rva + (160 + 2));
+	Sys.Seek (out, Linker.idata_fadr + hint_rva + (160 + 2));
 	Sys.Write_ansi_str (out, 'HeapFree')
 END Write_idata_section;
 
 
-PROCEDURE Write_reloc_section (data_rva : INTEGER);
+PROCEDURE Write_data_section;
+	VAR elm : Base.Type; basefadr, i, n : INTEGER;
+		str : Base.LongString;
 BEGIN
+	ASSERT (Base.Char_size = 2);
+	basefadr := Linker.data_fadr + Linker.data_size - varsize;
+	elm := staticlist;
+	WHILE elm # NIL DO
+		IF elm.form = Base.type_string THEN
+			Sys.Seek (out, basefadr + elm.tdAdr);
+			Base.Get_string (str, elm.ref); i := 0;
+			WHILE i < elm.len DO
+				n := ORD (str[i]); Sys.Write_2bytes (out, n); i := i + 1
+			END
+		ELSIF elm.form = Base.type_record THEN
+			(* Implement later *)
+		END;
+		elm := elm.next
+	END;
+	
+	Sys.Seek (out, basefadr - LEN (Kernel32Table) * 8); i := 0;
+	WHILE i < LEN (Kernel32Table) DO
+		Sys.Write_8bytes (out, Kernel32Table[i]); i := i + 1
+	END
+END Write_data_section;
+
+
+PROCEDURE Write_edata_section;
+	CONST dirsize = 40;
+	VAR obj : Base.Object;
+		tablesize, namesize, expno : INTEGER;
+BEGIN
+	tablesize := Base.expno * 4;
+	namesize := Base.Str_len (modid) + 1;
+	expno := 1;
+
+	(* Export directory *)
+	Sys.Seek (out, Linker.edata_fadr + 12);
+	Sys.Write_4bytes (out, Linker.edata_rva + dirsize);
+	Sys.Write_4bytes (out, expno);
+	Sys.Write_4bytes (out, Base.expno);
+	
+	(* Name string *)
+	Sys.Seek (out, Linker.edata_fadr + dirsize);
+	Sys.Write_ansi_string (out, modid);
+	
+	(* Export address table *)
+	obj := Base.universe.next;
+	WHILE obj # Base.guard DO
+		IF obj.export THEN
+			
+		END;
+		obj := obj.next
+	END
+END Write_edata_section;
+
+
+PROCEDURE Write_reloc_section;
+BEGIN
+	Sys.Seek (out, Linker.reloc_fadr);
 	Sys.Write_4bytes (out, 4);
 	Sys.Write_4bytes (out, 12);
 	Sys.Write_2bytes (out, 0);
-	Sys.Write_2bytes (out, 0)
+	Sys.Write_2bytes (out, 0);
+	Sys.Seek (out, Linker.reloc_fadr + 200H)
 END Write_reloc_section;
 
 
 PROCEDURE Write_SectionHeader (
-	name : ARRAY OF CHAR;
-	chr, rva, rawsize, size, fileadr : INTEGER
+	name : ARRAY OF CHAR; chr, rva, rawsize, size, fileadr : INTEGER
 );	
-	VAR
-		b : UBYTE; i : INTEGER;	
+	VAR b : UBYTE; i : INTEGER;	
 BEGIN
 	FOR i := 0 TO 7 DO
 		b := 0; IF i < LEN(name) THEN b := USHORT (ORD (name[i])) END;
@@ -2155,12 +2210,7 @@ BEGIN
 	Sys.Write_4bytes (out, chr)
 END Write_SectionHeader;
 
-PROCEDURE Write_PEHeader (
-	imagebase : LONGINT;
-	code_rva, code_size, code_rawsize, code_fadr,
-	data_rva, data_size, data_rawsize, data_fadr,
-	idata_rva, idata_fadr : INTEGER
-);
+PROCEDURE Write_PEHeader;
 	VAR k : INTEGER;
 BEGIN
 	Sys.Seek (out, 0);
@@ -2178,20 +2228,21 @@ BEGIN
 	
 	Sys.Write_2bytes (out, 20BH);
 	Sys.SeekRel (out, 2);
-	Sys.Write_4bytes (out, code_rawsize);
-	Sys.Write_4bytes (out, data_rawsize + 200H);
+	Sys.Write_4bytes (out, Linker.code_rawsize);
+	Sys.Write_4bytes (out, Linker.data_rawsize + 200H);
 	Sys.SeekRel (out, 4);
-	Sys.Write_4bytes (out, code_rva + entry);
-	Sys.Write_4bytes (out, code_rva);
+	Sys.Write_4bytes (out, Linker.code_rva + entry);
+	Sys.Write_4bytes (out, Linker.code_rva);
 	
-	Sys.Write_8bytes (out, imagebase);
+	Sys.Write_8bytes (out, Linker.imagebase);
 	Sys.Write_4bytes (out, 4096);
 	Sys.Write_4bytes (out, 512);
 	Sys.Write_2bytes (out, 1); (* MajorOSVer *)
 	Sys.SeekRel (out, 2 * 3);
 	Sys.Write_2bytes (out, 5);
 	Sys.SeekRel (out, 2 + 4);
-	k := (4096 - code_size) MOD 4096 + code_size + data_size + 4096 * 2;
+	k := (4096 - Linker.code_size) MOD 4096 + Linker.code_size;
+	k := k + Linker.data_size + 4096 * 2;
 	Sys.Write_4bytes (out, k);
 	Sys.Write_4bytes (out, 400H);
 	Sys.SeekRel (out, 4);
@@ -2204,73 +2255,73 @@ BEGIN
 	Sys.Write_4bytes (out, 16);
 	
 	Sys.SeekRel (out, 8);
-	Sys.Write_4bytes (out, idata_rva);
+	Sys.Write_4bytes (out, Linker.idata_rva);
 	Sys.Write_4bytes (out, 130H);
 	Sys.SeekRel (out, 8 * 14);
 	
-	Write_SectionHeader
-		('.data', -1073741760, data_rva, data_rawsize, data_size, data_fadr);
-	Write_SectionHeader
-		('.text', 60000020H, code_rva, code_rawsize, code_size, code_fadr);
-	Write_SectionHeader
-		('.idata', -1073741760, idata_rva, 200H, 130H, idata_fadr);
-	(*
-	Write_SectionHeader
-		('.reloc', 42000040H, idata_rva + 4096, 200H, 4096, idata_fadr + 200H)
-	*)
+	Write_SectionHeader (
+		'.data', -1073741760, Linker.data_rva, Linker.data_rawsize,
+		Linker.data_size, Linker.data_fadr
+	);
+	Write_SectionHeader (
+		'.text', 60000020H, Linker.code_rva, Linker.code_rawsize,
+		Linker.code_size, Linker.code_fadr
+	);
+	Write_SectionHeader (
+		'.idata', -1073741760, Linker.idata_rva, 200H,
+		130H, Linker.idata_fadr
+	);
+
+(*	Write_SectionHeader
+		('.reloc', 42000040H, Linker.idata_rva + 4096, 200H, 4096, Linker.idata_fadr + 200H)
+*)
 END Write_PEHeader;
 
-PROCEDURE Finish*;
-	VAR code_rawsize, data_rawsize, idata_rawsize : INTEGER;
-		code_size, data_size, idata_size : INTEGER;
-		code_rva, data_rva, idata_rva : INTEGER;
-		code_fadr, data_fadr, idata_fadr, reloc_fadr : INTEGER;
-		i, padding : INTEGER; k, imagebase : LONGINT;
+PROCEDURE Align (VAR off : INTEGER; alignment : INTEGER);
 BEGIN
-	imagebase := 400000H;
+	ASSERT (off >= 0);
+	off := (alignment - off) MOD alignment + off
+END Align;
 
-	code_rawsize := (512 - ip) MOD 512 + ip;
-	code_size := ip;
+PROCEDURE Finish*;
+	VAR i, n, padding : INTEGER; k : LONGINT;
+BEGIN
+	Base.Write_symbols_file;
+
+	Linker.imagebase := 400000H;
+
+	Linker.code_rawsize := (512 - ip) MOD 512 + ip;
+	Linker.code_size := ip;
 	
-	data_size := staticsize + varsize;
-	data_size := (4096 - data_size) MOD 4096 + data_size;
-	padding := data_size - staticsize - varsize;
-	data_rawsize := padding + staticsize;
-	data_rawsize := (512 - data_rawsize) MOD 512 + data_rawsize;
+	Linker.data_size := staticsize + varsize;
+	Align (Linker.data_size, 4096);
+	padding := Linker.data_size - staticsize - varsize;
+	Linker.data_rawsize := padding + staticsize;
+	Align (Linker.data_rawsize, 512);
 	
-	data_rva := 1000H;
-	code_rva := data_rva + (4096 - data_size) MOD 4096 + data_size;
-	idata_rva := code_rva + (4096 - code_size) MOD 4096 + code_size;
+	Linker.data_rva := 1000H;
+	Linker.code_rva := Linker.data_rva + Linker.data_size;
+	n := (4096 - Linker.code_size) MOD 4096 + Linker.code_size;
+	Linker.idata_rva := Linker.code_rva + n;
+	Linker.edata_rva := Linker.idata_rva + 4096 * 2;
 	
-	code_fadr := 400H;
-	data_fadr := code_fadr + code_rawsize;
-	idata_fadr := data_fadr + data_rawsize;
-	reloc_fadr := idata_fadr + 200H;
+	Linker.code_fadr := 400H;
+	Linker.idata_fadr := Linker.code_fadr + Linker.code_rawsize;
+	Linker.data_fadr := Linker.idata_fadr + 200H;
+	Linker.reloc_fadr := Linker.data_fadr + Linker.data_rawsize;
+	Linker.edata_fadr := Linker.reloc_fadr + 200H;
 	
-	Write_idata_section (idata_fadr, idata_rva, data_rva, data_size);
-	
-	Sys.Seek (out, data_fadr + padding);
-	i := LEN(staticdata) - staticsize;
-	WHILE i < LEN(staticdata) DO
-		Sys.Write_byte (out, staticdata [i]); INC (i)
-	END;
-	
-	Sys.Seek (out, reloc_fadr);
-	Write_reloc_section (data_rva);
-	Sys.Seek (out, reloc_fadr + 200H);
-	
-	Write_PEHeader (imagebase,
-		code_rva, code_size, code_rawsize, code_fadr,
-		data_rva, data_size, data_rawsize, data_fadr,
-		idata_rva, idata_fadr
-	);
+	Write_idata_section;
+	Write_data_section;
+	Write_reloc_section;
+	Write_PEHeader;
 
 	Sys.Close (out);
 	
 	IF ~ Scanner.haveError THEN
 		Sys.Console_WriteString ('No errors found.'); Sys.Console_WriteLn;
 		Sys.Console_WriteString ('Code size: ');
-		Sys.Console_WriteInt (code_size); Sys.Console_WriteLn;
+		Sys.Console_WriteInt (Linker.code_size); Sys.Console_WriteLn;
 		Sys.Console_WriteString ('Global variables size: ');
 		Sys.Console_WriteInt (varsize); Sys.Console_WriteLn;
 		Sys.Console_WriteString ('Static data size: ');

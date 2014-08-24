@@ -2,8 +2,8 @@ MODULE Test;
 	TYPE
 		AsciiStr = ARRAY 64 OF BYTE;
 	VAR
-		AllocConsole : PROCEDURE () : INTEGER;
-		MessageBoxW : PROCEDURE (hwnd, lpText, lpCaption, uType : INTEGER);
+		AllocConsole* : PROCEDURE () : INTEGER;
+		MessageBoxW* : PROCEDURE (hwnd, lpText, lpCaption, uType : INTEGER);
 		
 	PROCEDURE Make_AsciiStr (VAR out : ARRAY OF BYTE; in : ARRAY OF CHAR);
 		VAR n, i : INTEGER;

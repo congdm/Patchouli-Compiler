@@ -75,7 +75,7 @@ END Init;
 
 PROCEDURE Read_char;
 BEGIN
-	IF ~ Sys.Read_char (srcfile, ch) THEN eofFlag := TRUE; ch := 0X
+	IF ~ Sys.Read_ansi_char (srcfile, ch) THEN eofFlag := TRUE; ch := 0X
 	ELSE INC (charNum)
 	END
 END Read_char;

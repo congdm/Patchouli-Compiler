@@ -58,7 +58,7 @@ BEGIN
 	END
 END Close;
 
-PROCEDURE Read_char* (VAR file : FileHandle; VAR c : CHAR) : BOOLEAN;
+PROCEDURE Read_ansi_char* (VAR file : FileHandle; VAR c : CHAR) : BOOLEAN;
 	VAR
 		i : INTEGER;
 		result : BOOLEAN;
@@ -67,7 +67,7 @@ BEGIN
 	IF i = -1 THEN result := failed
 	ELSE c := System.Convert.ToChar(i); result := success END;
 	RETURN result
-END Read_char;
+END Read_ansi_char;
 	
 PROCEDURE Write_byte* (VAR file : FileHandle; n : INTEGER);
 	VAR b : UBYTE;
@@ -91,6 +91,14 @@ BEGIN
 	b := USHORT(n MOD 256); file.f.WriteByte (b);
 	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b)
 END Write_2bytes;
+
+PROCEDURE Write_string* (VAR file : FileHandle; str : ARRAY OF CHAR);
+	VAR i : INTEGER;
+BEGIN
+	i := 0;
+	WHILE str[i] # 0X DO Write_2bytes (file, ORD (str[i])); i := i + 1 END;
+	Write_2bytes (file, 0)
+END Write_string;
 	
 PROCEDURE Write_4bytes* (VAR file : FileHandle; n : INTEGER);
 	VAR b : UBYTE;

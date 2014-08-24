@@ -14,6 +14,7 @@ CONST
 VAR
 	sym : INTEGER;
 	defobj : Base.Object;
+	hasExport : BOOLEAN;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -214,8 +215,7 @@ PROCEDURE qualident (VAR obj : Base.Object);
 BEGIN
 	IF sym = Scanner.ident THEN
 		Base.Find_obj (obj, Scanner.id); Scanner.Get (sym)
-	ELSE
-		Scanner.Mark ('Identifier expected'); obj := Base.guard
+	ELSE Scanner.Mark ('Identifier expected'); obj := Base.guard
 	END
 END qualident;
 
@@ -223,7 +223,8 @@ PROCEDURE ident (VAR obj : Base.Object; class : INTEGER);
 BEGIN
 	IF sym = Scanner.ident THEN
 		Base.New_obj (obj, Scanner.id, class);
-		IF obj = Base.guard THEN Scanner.Mark ('Duplicate identifer definition')
+		IF obj = Base.guard THEN
+			Scanner.Mark ('Duplicate identifer definition')
 		END;
 		Scanner.Get (sym)
 	ELSE Scanner.Mark ('Identifier expected'); obj := Base.guard
@@ -234,8 +235,8 @@ PROCEDURE identdef (VAR obj : Base.Object; class : INTEGER);
 BEGIN
 	ident (obj, class);
 	IF sym = Scanner.times THEN
-		IF obj.lev = 0 THEN obj.export := TRUE
-		ELSE Scanner.Mark ('Can not export non-global identifiers')
+		IF obj.lev = 0 THEN obj.export := TRUE; hasExport := TRUE
+		ELSE Scanner.Mark ('Cannot export non-global identifiers')
 		END;
 		Scanner.Get (sym)
 	END
@@ -269,6 +270,10 @@ BEGIN
 		qualident (obj);
 		IF (obj # Base.guard) & (obj.class = Base.class_type) THEN
 			typ := obj.type
+			IF ~ hasExport THEN (* Ok *)
+			ELSIF ~ typ.predefined & ~ obj.export THEN
+				Scanner.Mark ('This type is not exported')
+			END
 		ELSE Scanner.Mark ('Type not found')
 		END
 	END
@@ -341,7 +346,11 @@ BEGIN (* FormalParameters *)
 		Scanner.Get (sym); qualident (obj);
 		IF (obj # Base.guard) & (obj.class = Base.class_type)
 		& (obj.type.form IN Base.types_Scalar) THEN
-			rtype := obj.type
+			rtype := obj.type;
+			IF ~ hasExport THEN (* Ok *)
+			ELSIF ~ typ.predefined & ~ obj.export THEN
+				Scanner.Mark ('This type is not exported')
+			END
 		ELSE
 			Scanner.Mark ('Type not found or invalid result type');
 			rtype := Base.int_type
@@ -435,7 +444,6 @@ PROCEDURE RecordType (VAR typ : Base.Type);
 		
 		IF tp # NIL THEN
 			IF tp.len < Base.max_extension - 1 THEN
-				typ.hasExtension := TRUE;
 				typ.base := tp;
 				typ.size := tp.size;
 				typ.num_ptr := tp.num_ptr;
@@ -463,9 +471,7 @@ BEGIN (* RecordType *)
 	END;
 	Check (Scanner.end, 'No END for record definition');
 	typ.fields := Base.top_scope.next;
-	Base.Close_scope;
-	
-	Generator.Alloc_typedesc (typ); Generator.Check_varsize (typ.size, FALSE)
+	Base.Close_scope
 END RecordType;
 
 PROCEDURE PointerType (VAR typ : Base.Type);
@@ -535,7 +541,7 @@ END type;
 
 PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 
-	PROCEDURE ConstDeclaration;
+	PROCEDURE ConstanstDeclaration;
 		VAR obj : Base.Object; x : Base.Item;
 	BEGIN
 		identdef (obj, Base.class_head); (* Defense again circular definition *)
@@ -559,7 +565,7 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 			obj.type := Base.int_type;
 			obj.val := 0
 		END
-	END ConstDeclaration;
+	END ConstanstDeclaration;
 		
 	PROCEDURE TypeDeclaration;
 		VAR obj : Base.Object;
@@ -567,8 +573,11 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 		identdef (obj, Base.class_type);
 		Check (Scanner.equal, 'No = in type declaration');
 		defobj := obj; StrucType (obj.type);
+		obj.type.named := TRUE;
 		
 		IF obj.type.form = Base.type_record THEN
+			Generator.Alloc_typedesc (typ);
+			Generator.Check_varsize (typ.size, FALSE);
 			IF Base.undef_ptr_list # NIL THEN
 				Base.Check_undefined_pointer_list (obj)
 			END
@@ -671,7 +680,7 @@ BEGIN (* DeclarationSequence *)
 	IF sym = Scanner.const THEN
 		Scanner.Get (sym);
 		WHILE sym = Scanner.ident DO
-			ConstDeclaration;
+			ConstanstDeclaration;
 			Check (Scanner.semicolon, 'No ; after const declaration')
 		END
 	END;
