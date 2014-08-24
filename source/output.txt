@@ -1,154 +1,116 @@
 
 output.exe:     file format pei-x86-64
+output.exe
+architecture: i386:x86-64, flags 0x0000012e:
+EXEC_P, HAS_LINENO, HAS_DEBUG, HAS_LOCALS, D_PAGED
+start address 0x00000000004021d0
+
+Characteristics 0x23
+	relocations stripped
+	executable
+	large address aware
+
+Time/Date		Thu Jan  1 07:00:00 1970
+Magic			020b	(PE32+)
+MajorLinkerVersion	0
+MinorLinkerVersion	0
+SizeOfCode		00000200
+SizeOfInitializedData	00001400
+SizeOfUninitializedData	00000000
+AddressOfEntryPoint	00000000000021d0
+BaseOfCode		0000000000002000
+ImageBase		0000000000400000
+SectionAlignment	0000000000001000
+FileAlignment		0000000000000200
+MajorOSystemVersion	5
+MinorOSystemVersion	0
+MajorImageVersion	0
+MinorImageVersion	0
+MajorSubsystemVersion	5
+MinorSubsystemVersion	0
+Win32Version		00000000
+SizeOfImage		00005000
+SizeOfHeaders		00000400
+CheckSum		00000000
+Subsystem		00000002	(Windows GUI)
+DllCharacteristics	00000000
+SizeOfStackReserve	0000000000001000
+SizeOfStackCommit	0000000000001000
+SizeOfHeapReserve	0000000000010000
+SizeOfHeapCommit	0000000000000000
+LoaderFlags		00000000
+NumberOfRvaAndSizes	00000010
+
+The Data Directory
+Entry 0 0000000000000000 00000000 Export Directory [.edata (or where ever we found it)]
+Entry 1 0000000000003000 00000130 Import Directory [parts of .idata]
+Entry 2 0000000000000000 00000000 Resource Directory [.rsrc]
+Entry 3 0000000000000000 00000000 Exception Directory [.pdata]
+Entry 4 0000000000000000 00000000 Security Directory
+Entry 5 0000000000000000 00000000 Base Relocation Directory [.reloc]
+Entry 6 0000000000000000 00000000 Debug Directory
+Entry 7 0000000000000000 00000000 Description Directory
+Entry 8 0000000000000000 00000000 Special Directory
+Entry 9 0000000000000000 00000000 Thread Storage Directory [.tls]
+Entry a 0000000000000000 00000000 Load Configuration Directory
+Entry b 0000000000000000 00000000 Bound Import Directory
+Entry c 0000000000000000 00000000 Import Address Table Directory
+Entry d 0000000000000000 00000000 Delay Import Directory
+Entry e 0000000000000000 00000000 CLR Runtime Header
+Entry f 0000000000000000 00000000 Reserved
+
+There is an import table in .idata at 0x403000
+
+The Import Tables (interpreted .idata section contents)
+ vma:            Hint    Time      Forward  DLL       First
+                 Table   Stamp     Chain    Name      Thunk
+ 00003000	00003028 00000000 00000000 00003060 00001fb8
+
+	DLL Name: KERNEL32.DLL
+	vma:  Hint/Ord Member-Name Bound-To
+	3070	    0  ExitProcess
+	3090	    0  LoadLibraryW
+	30b0	    0  GetProcAddress
+	30d0	    0  GetProcessHeap
+	30f0	    0  HeapAlloc
+	3110	    0  HeapFree
+
+ 00003014	00000000 00000000 00000000 00000000 00000000	
+
+There is an export table in .edata at 0x404000
+
+The Export Tables (interpreted .edata section contents)
+
+Export Flags 			0
+Time/Date stamp 		0
+Major/Minor 			0/0
+Name 				0000000000004028 Test.exeø
+Ordinal Base 			1
+Number in:
+	Export Address Table 		00000002
+	[Name Pointer/Ordinal] Table	00000000
+Table Addresses
+	Export Address Table 		0000000000004030
+	Name Pointer Table 		0000000000000000
+	Ordinal Table 			0000000000000000
+
+Export Address Table -- Ordinal Base 1
+	[   0] +base[   1] 1ff8 Export RVA
+	[   1] +base[   2] 1ff0 Export RVA
+
+[Ordinal/Name Pointer] Table
+
+Sections:
+Idx Name          Size      VMA               LMA               File off  Algn
+  0 .data         00001000  0000000000401000  0000000000401000  00000800  2**4
+                  CONTENTS, ALLOC, LOAD, DATA
+  1 .text         000001fd  0000000000402000  0000000000402000  00000400  2**4
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+  2 .idata        00000130  0000000000403000  0000000000403000  00000600  2**2
+                  CONTENTS, ALLOC, LOAD, DATA
+  3 .edata        00000038  0000000000404000  0000000000404000  00001a00  2**2
+                  CONTENTS, ALLOC, LOAD, READONLY, DATA
+SYMBOL TABLE:
+no symbols
 
 
-Disassembly of section .text:
-
-0000000000402000 <.text>:
-  402000:	48 55                	rex.W push %rbp
-  402002:	48 8b ec             	mov    %rsp,%rbp
-  402005:	48 83 ec 10          	sub    $0x10,%rsp
-  402009:	48 89 4d 10          	mov    %rcx,0x10(%rbp)
-  40200d:	48 89 55 18          	mov    %rdx,0x18(%rbp)
-  402011:	4c 89 45 20          	mov    %r8,0x20(%rbp)
-  402015:	4c 89 4d 28          	mov    %r9,0x28(%rbp)
-  402019:	48 8b 45 18          	mov    0x18(%rbp),%rax
-  40201d:	48 89 45 f8          	mov    %rax,-0x8(%rbp)
-  402021:	48 8b 45 f8          	mov    -0x8(%rbp),%rax
-  402025:	48 8b 4d 28          	mov    0x28(%rbp),%rcx
-  402029:	48 3b c1             	cmp    %rcx,%rax
-  40202c:	0f 8e 08 00 00 00    	jle    0x40203a
-  402032:	48 8b 45 28          	mov    0x28(%rbp),%rax
-  402036:	48 89 45 f8          	mov    %rax,-0x8(%rbp)
-  40203a:	33 c0                	xor    %eax,%eax
-  40203c:	48 89 45 f0          	mov    %rax,-0x10(%rbp)
-  402040:	48 8b 45 f0          	mov    -0x10(%rbp),%rax
-  402044:	48 8b 4d f8          	mov    -0x8(%rbp),%rcx
-  402048:	48 3b c1             	cmp    %rcx,%rax
-  40204b:	0f 8d 4a 00 00 00    	jge    0x40209b
-  402051:	48 8b 45 f0          	mov    -0x10(%rbp),%rax
-  402055:	48 8b 4d 18          	mov    0x18(%rbp),%rcx
-  402059:	48 3b c8             	cmp    %rax,%rcx
-  40205c:	76 02                	jbe    0x402060
-  40205e:	eb 02                	jmp    0x402062
-  402060:	89 0b                	mov    %ecx,(%rbx)
-  402062:	48 8b 4d 10          	mov    0x10(%rbp),%rcx
-  402066:	48 03 c1             	add    %rcx,%rax
-  402069:	48 8b 4d f0          	mov    -0x10(%rbp),%rcx
-  40206d:	48 8b 55 28          	mov    0x28(%rbp),%rdx
-  402071:	48 3b d1             	cmp    %rcx,%rdx
-  402074:	76 02                	jbe    0x402078
-  402076:	eb 02                	jmp    0x40207a
-  402078:	89 0b                	mov    %ecx,(%rbx)
-  40207a:	48 c1 e1 01          	shl    $0x1,%rcx
-  40207e:	48 8b 55 20          	mov    0x20(%rbp),%rdx
-  402082:	48 03 ca             	add    %rdx,%rcx
-  402085:	0f b7 09             	movzwl (%rcx),%ecx
-  402088:	88 08                	mov    %cl,(%rax)
-  40208a:	48 8b 45 f0          	mov    -0x10(%rbp),%rax
-  40208e:	48 83 c0 01          	add    $0x1,%rax
-  402092:	48 89 45 f0          	mov    %rax,-0x10(%rbp)
-  402096:	e9 a5 ff ff ff       	jmpq   0x402040
-  40209b:	c9                   	leaveq 
-  40209c:	c3                   	retq   
-  40209d:	90                   	nop
-  40209e:	90                   	nop
-  40209f:	90                   	nop
-  4020a0:	48 55                	rex.W push %rbp
-  4020a2:	48 8b ec             	mov    %rsp,%rbp
-  4020a5:	48 83 ec 50          	sub    $0x50,%rsp
-  4020a9:	48 83 ec 20          	sub    $0x20,%rsp
-  4020ad:	48 8d 0d ee fe ff ff 	lea    -0x112(%rip),%rcx        # 0x401fa2
-  4020b4:	ff 15 06 ff ff ff    	callq  *-0xfa(%rip)        # 0x401fc0
-  4020ba:	48 83 c4 20          	add    $0x20,%rsp
-  4020be:	48 89 45 f8          	mov    %rax,-0x8(%rbp)
-  4020c2:	48 83 ec 20          	sub    $0x20,%rsp
-  4020c6:	48 8d 4d b8          	lea    -0x48(%rbp),%rcx
-  4020ca:	ba 40 00 00 00       	mov    $0x40,%edx
-  4020cf:	4c 8d 05 b4 fe ff ff 	lea    -0x14c(%rip),%r8        # 0x401f8a
-  4020d6:	41 b9 0c 00 00 00    	mov    $0xc,%r9d
-  4020dc:	e8 1f ff ff ff       	callq  0x402000
-  4020e1:	48 83 c4 20          	add    $0x20,%rsp
-  4020e5:	48 83 ec 20          	sub    $0x20,%rsp
-  4020e9:	48 8b 4d f8          	mov    -0x8(%rbp),%rcx
-  4020ed:	48 8d 55 b8          	lea    -0x48(%rbp),%rdx
-  4020f1:	ff 15 d1 fe ff ff    	callq  *-0x12f(%rip)        # 0x401fc8
-  4020f7:	48 83 c4 20          	add    $0x20,%rsp
-  4020fb:	48 89 05 ee fe ff ff 	mov    %rax,-0x112(%rip)        # 0x401ff0
-  402102:	c9                   	leaveq 
-  402103:	c3                   	retq   
-  402104:	90                   	nop
-  402105:	90                   	nop
-  402106:	90                   	nop
-  402107:	90                   	nop
-  402108:	90                   	nop
-  402109:	90                   	nop
-  40210a:	90                   	nop
-  40210b:	90                   	nop
-  40210c:	90                   	nop
-  40210d:	90                   	nop
-  40210e:	90                   	nop
-  40210f:	90                   	nop
-  402110:	48 55                	rex.W push %rbp
-  402112:	48 8b ec             	mov    %rsp,%rbp
-  402115:	48 81 ec 90 00 00 00 	sub    $0x90,%rsp
-  40211c:	48 57                	rex.W push %rdi
-  40211e:	48 56                	rex.W push %rsi
-  402120:	b8 02 00 00 00       	mov    $0x2,%eax
-  402125:	48 89 45 f8          	mov    %rax,-0x8(%rbp)
-  402129:	48 8d 85 78 ff ff ff 	lea    -0x88(%rbp),%rax
-  402130:	48 8d 0d 31 fe ff ff 	lea    -0x1cf(%rip),%rcx        # 0x401f68
-  402137:	48 8b f8             	mov    %rax,%rdi
-  40213a:	48 8b f1             	mov    %rcx,%rsi
-  40213d:	b9 22 00 00 00       	mov    $0x22,%ecx
-  402142:	f3 a4                	rep movsb %ds:(%rsi),%es:(%rdi)
-  402144:	48 8d 85 78 ff ff ff 	lea    -0x88(%rbp),%rax
-  40214b:	48 8d 0d 16 fe ff ff 	lea    -0x1ea(%rip),%rcx        # 0x401f68
-  402152:	48 8b f8             	mov    %rax,%rdi
-  402155:	48 8b f1             	mov    %rcx,%rsi
-  402158:	b9 22 00 00 00       	mov    $0x22,%ecx
-  40215d:	66 8b 07             	mov    (%rdi),%ax
-  402160:	66 3b 06             	cmp    (%rsi),%ax
-  402163:	0f 85 00 00 00 00    	jne    0x402169
-  402169:	85 c0                	test   %eax,%eax
-  40216b:	0f 84 00 00 00 00    	je     0x402171
-  402171:	83 e9 02             	sub    $0x2,%ecx
-  402174:	0f 84 0d 00 00 00    	je     0x402187
-  40217a:	48 83 c7 02          	add    $0x2,%rdi
-  40217e:	48 83 c6 02          	add    $0x2,%rsi
-  402182:	e9 d6 ff ff ff       	jmpq   0x40215d
-  402187:	66 3b 06             	cmp    (%rsi),%ax
-  40218a:	0f 94 c0             	sete   %al
-  40218d:	0f b6 c0             	movzbl %al,%eax
-  402190:	88 85 77 ff ff ff    	mov    %al,-0x89(%rbp)
-  402196:	0f b6 85 77 ff ff ff 	movzbl -0x89(%rbp),%eax
-  40219d:	85 c0                	test   %eax,%eax
-  40219f:	0f 84 21 00 00 00    	je     0x4021c6
-  4021a5:	48 83 ec 20          	sub    $0x20,%rsp
-  4021a9:	33 c9                	xor    %ecx,%ecx
-  4021ab:	48 8d 95 78 ff ff ff 	lea    -0x88(%rbp),%rdx
-  4021b2:	4c 8d 05 93 fd ff ff 	lea    -0x26d(%rip),%r8        # 0x401f4c
-  4021b9:	45 33 c9             	xor    %r9d,%r9d
-  4021bc:	ff 15 2e fe ff ff    	callq  *-0x1d2(%rip)        # 0x401ff0
-  4021c2:	48 83 c4 20          	add    $0x20,%rsp
-  4021c6:	48 5e                	rex.W pop %rsi
-  4021c8:	48 5f                	rex.W pop %rdi
-  4021ca:	c9                   	leaveq 
-  4021cb:	c3                   	retq   
-  4021cc:	90                   	nop
-  4021cd:	90                   	nop
-  4021ce:	90                   	nop
-  4021cf:	90                   	nop
-  4021d0:	48 55                	rex.W push %rbp
-  4021d2:	48 8b ec             	mov    %rsp,%rbp
-  4021d5:	48 83 ec 20          	sub    $0x20,%rsp
-  4021d9:	e8 c2 fe ff ff       	callq  0x4020a0
-  4021de:	48 83 c4 20          	add    $0x20,%rsp
-  4021e2:	48 83 ec 20          	sub    $0x20,%rsp
-  4021e6:	e8 25 ff ff ff       	callq  0x402110
-  4021eb:	48 83 c4 20          	add    $0x20,%rsp
-  4021ef:	48 83 ec 20          	sub    $0x20,%rsp
-  4021f3:	33 c9                	xor    %ecx,%ecx
-  4021f5:	ff 15 bd fd ff ff    	callq  *-0x243(%rip)        # 0x401fb8
-  4021fb:	c9                   	leaveq 
-  4021fc:	c3                   	retq   

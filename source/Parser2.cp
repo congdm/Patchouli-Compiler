@@ -251,6 +251,14 @@ BEGIN
 		IF first = Base.guard THEN first := obj END
 	END
 END IdentList;
+
+PROCEDURE Check_export (obj : Base.Object);
+BEGIN
+	IF ~ hasExport OR obj.export OR obj.type.predefined THEN (* Ok *)
+	ELSIF obj.type.form IN Base.types_HasExt THEN
+		Scanner.Mark ('This type is not exported')
+	END
+END Check_export;
 	
 PROCEDURE FormalType (VAR typ : Base.Type);
 	VAR obj : Base.Object;
@@ -269,11 +277,7 @@ BEGIN
 	ELSE
 		qualident (obj);
 		IF (obj # Base.guard) & (obj.class = Base.class_type) THEN
-			typ := obj.type
-			IF ~ hasExport THEN (* Ok *)
-			ELSIF ~ typ.predefined & ~ obj.export THEN
-				Scanner.Mark ('This type is not exported')
-			END
+			typ := obj.type; Check_export (obj)
 		ELSE Scanner.Mark ('Type not found')
 		END
 	END
@@ -346,11 +350,7 @@ BEGIN (* FormalParameters *)
 		Scanner.Get (sym); qualident (obj);
 		IF (obj # Base.guard) & (obj.class = Base.class_type)
 		& (obj.type.form IN Base.types_Scalar) THEN
-			rtype := obj.type;
-			IF ~ hasExport THEN (* Ok *)
-			ELSIF ~ typ.predefined & ~ obj.export THEN
-				Scanner.Mark ('This type is not exported')
-			END
+			rtype := obj.type; Check_export (obj)
 		ELSE
 			Scanner.Mark ('Type not found or invalid result type');
 			rtype := Base.int_type
@@ -397,6 +397,7 @@ PROCEDURE RecordType (VAR typ : Base.Type);
 			VAR first : Base.Object; tp : Base.Type;
 				offset : INTEGER;
 		BEGIN
+			hasExport := FALSE;
 			IdentList (first, Base.class_field);
 			Check (Scanner.colon, 'No colon after identifier list');
 			type (tp);
@@ -469,6 +470,8 @@ BEGIN (* RecordType *)
 		FieldListSequence (typ);
 		Base.Adjust_alignment (typ.size, typ.alignment)
 	END;
+	Generator.Check_varsize (typ.size, FALSE);
+	
 	Check (Scanner.end, 'No END for record definition');
 	typ.fields := Base.top_scope.next;
 	Base.Close_scope
@@ -490,7 +493,7 @@ BEGIN
 			Base.Register_undefined_pointer_type (typ, obj.name)
 		ELSIF (obj.class = Base.class_type)
 		& (obj.type.form = Base.type_record) THEN
-			typ.base := obj.type
+			typ.base := obj.type; Check_export (obj)
 		ELSE Scanner.Mark ('Record type expected');
 			typ.base := Base.nilrecord_type
 		END
@@ -529,7 +532,7 @@ BEGIN
 		IF obj = Base.guard THEN Scanner.Mark ('Undefined type')
 		ELSIF obj.class # Base.class_type THEN Scanner.Mark (err2)
 		ELSIF (obj # defobj) OR (obj.type.form # Base.type_pointer) THEN
-			typ := obj.type
+			typ := obj.type; Check_export (obj)
 		ELSE Scanner.Mark ('Circular definition')
 		END
 	ELSIF (sym = Scanner.array) OR (sym = Scanner.record)
@@ -570,14 +573,13 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 	PROCEDURE TypeDeclaration;
 		VAR obj : Base.Object;
 	BEGIN
+		hasExport := FALSE;
 		identdef (obj, Base.class_type);
 		Check (Scanner.equal, 'No = in type declaration');
 		defobj := obj; StrucType (obj.type);
-		obj.type.named := TRUE;
 		
 		IF obj.type.form = Base.type_record THEN
-			Generator.Alloc_typedesc (typ);
-			Generator.Check_varsize (typ.size, FALSE);
+			Generator.Alloc_typedesc (obj.type);
 			IF Base.undef_ptr_list # NIL THEN
 				Base.Check_undefined_pointer_list (obj)
 			END
@@ -587,10 +589,10 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 	PROCEDURE VariableDeclaration (VAR varsize : INTEGER);
 		VAR first : Base.Object; tp : Base.Type;
 	BEGIN
+		hasExport := FALSE;
 		IdentList (first, Base.class_var);
 		Check (Scanner.colon, 'No colon after identifier list');
-		defobj := NIL;
-		type (tp);
+		defobj := NIL; type (tp);
 				
 		Base.Adjust_alignment (varsize, tp.alignment);
 		WHILE first # Base.guard DO
@@ -664,6 +666,7 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 		END ProcedureBody;
 			
 	BEGIN (* ProcedureDeclaration *)
+		hasExport := FALSE;
 		ProcedureHeading (proc);
 		Check (Scanner.semicolon, 'No ; after procedure heading');
 		ProcedureBody (proc);

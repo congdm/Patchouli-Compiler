@@ -116,6 +116,17 @@ BEGIN
 	RETURN i
 END Str_len;
 
+PROCEDURE Append_str* (VAR dst : ARRAY OF CHAR; src : ARRAY OF CHAR);
+	VAR i, k : INTEGER;
+BEGIN
+	k := Str_len (dst); i := 0;
+	WHILE (k + i < LEN(dst)) & (i < LEN(src)) & (src[i] # 0X) DO
+		dst[k + i] := src[i];
+		i := i + 1
+	END;
+	IF k + i < LEN(dst) THEN dst[k + i] := 0X END
+END Append_str;
+
 PROCEDURE log2* (a : LONGINT) : INTEGER;
 	VAR e : INTEGER;
 BEGIN
