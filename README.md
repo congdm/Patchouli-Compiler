@@ -10,6 +10,10 @@ Written in Component Pascal, compiled by Gardens Point Component Pascal, and req
 
 Binary is also supply with source.
 
+## Why Niklaus Wirth was right after all
+
+https://github.com/congdm/AyaCompiler/wiki/Niklaus-Wirth-was-right-after-all
+
 ## Minimal Hello World program on Windows (no runtime)
 
 ```oberon
