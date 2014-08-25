@@ -10,7 +10,7 @@ Written in Component Pascal, compiled by Gardens Point Component Pascal, and req
 
 Binary is also supply with source.
 
-## Sample Hello World program for Windows
+## Windows Hello World program without runtime
 
 ```oberon
 MODULE Test;
