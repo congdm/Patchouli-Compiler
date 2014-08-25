@@ -13,6 +13,8 @@ CONST
 	MIN_INT64 = (-MAX_INT64) - 1;
 	
 	max_staticsize = 512 * 1024;
+	tempfilename = 'output.temp_';
+	tempsymfilename = 'sym.temp_';
 	
 	integer_check = Base.integer_overflow_check;
 	array_check = Base.array_bound_check;
@@ -571,6 +573,15 @@ BEGIN
 	x.b := 0;
 	x.c := 0
 END Make_const;
+
+PROCEDURE Alloc_static_data (size, alignment : INTEGER);
+BEGIN
+	IF staticsize + size <= max_staticsize THEN
+		staticsize := staticsize + size;
+		Base.Adjust_alignment (staticsize, alignment)
+	ELSE Scanner.Mark ('The limit for static data is reached.')
+	END
+END Alloc_static_data;
 	
 PROCEDURE Make_item* (VAR x : Base.Item; obj : Base.Object);
 BEGIN
@@ -582,17 +593,23 @@ BEGIN
 	x.obj := obj;
 	x.a := obj.val;
 	x.b := obj.val2;
-	x.c := 0
-END Make_item;
-
-PROCEDURE Alloc_static_data (size, alignment : INTEGER);
-BEGIN
-	IF staticsize + size <= max_staticsize THEN
-		staticsize := staticsize + size;
-		Base.Adjust_alignment (staticsize, alignment)
-	ELSE Scanner.Mark ('The limit for static data is reached.')
+	x.c := 0;
+	
+	IF x.lev # -2 THEN (* Not imported object *)
+	ELSE
+		IF x.mode = Base.class_var THEN x.mode := Base.class_ref END;
+		IF x.a # 0 THEN (* Already inited *)
+		ELSE
+			Alloc_static_data (8, 8);
+			x.a := -staticsize; obj.val := x.a;
+			IF (x.mode = Base.class_type)
+			& (x.type.form = Base.type_record) THEN
+				x.type.tdAdr := SHORT (x.a);
+				x.type.import := TRUE
+			END
+		END
 	END
-END Alloc_static_data;
+END Make_item;
 	
 PROCEDURE Make_string* (VAR x : Base.Item);
 	VAR
@@ -668,6 +685,19 @@ BEGIN
 	Alloc_static_data (staticsize, tdsize);
 	type.tdAdr := -staticsize
 END Alloc_typedesc;
+
+PROCEDURE Get_typedesc (VAR x : Base.Item; type : Base.Type);
+BEGIN
+	ASSERT (type.tdAdr # 0);
+	IF ~ type.import THEN
+		x.mode := Base.class_var;
+		x.lev := -1; x.type := NIL
+	ELSE
+		x.mode := Base.class_ref;
+		x.lev := -2; x.type := NIL; x.c := 0
+	END;
+	x.a := type.tdAdr
+END Get_typedesc;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -1646,11 +1676,14 @@ END Prepare_to_call;
 PROCEDURE Call* (VAR x : Base.Item; VAR pinfo : ProcInfo);
 	VAR n : INTEGER;
 BEGIN
-	IF x.mode = Base.class_proc THEN EmitCall (SHORT(x.a)); n := 0
+	IF x.mode = Base.class_proc THEN n := 0;
+		IF x.lev >= 0 THEN EmitCall (SHORT(x.a));
+		ELSE EmitCallSv (SHORT (x.a))
+		END
 	ELSIF x.mode = Base.class_var THEN n := 0;
-		IF x.lev < 0 THEN EmitCallSv (SHORT (x.a))
-		ELSIF x.lev = 0 THEN EmitCallGv (SHORT (x.a))
-		ELSE EmitCallM (reg_BP, SHORT (x.a))
+		IF x.lev = 0 THEN EmitCallGv (SHORT (x.a))
+		ELSIF x.lev > 0 THEN EmitCallM (reg_BP, SHORT (x.a))
+		ELSE EmitCallSv (SHORT (x.a))
 		END
 	ELSE EmitCallM (reg_SP, pinfo.parblksize); n := 8
 	END;
@@ -1693,8 +1726,7 @@ PROCEDURE Record_var_param* (VAR x : Base.Item; VAR pinfo : ProcInfo);
 BEGIN
 	IF x.param & ~ x.readonly THEN
 		tag.mode := Base.class_ref; tag.lev := x.lev; tag.a := x.a + 8
-	ELSIF ~ x.type.import THEN
-		tag.mode := Base.class_var; tag.lev := -1; tag.a := x.type.tdAdr
+	ELSE Get_typedesc (tag, x.type)
 	END;
 	Ref_param (x, pinfo); Ref_param (tag, pinfo)
 END Record_var_param;
@@ -1723,7 +1755,8 @@ PROCEDURE String_param*
 (VAR x : Base.Item; VAR pinfo : ProcInfo; ftype : Base.Type);
 BEGIN
 	ASSERT ((x.mode = Base.class_var) & (x.type.form = Base.type_string));
-	Scanner.Mark ('Compiler limit: String parameter not supported yet')
+	Scanner.Mark ('Compiler limit: String parameter not supported yet');
+	ASSERT(FALSE)
 	(* Implement later *)
 END String_param;
 
@@ -1913,7 +1946,8 @@ BEGIN
 END Inclusion;
 
 PROCEDURE Type_test* (VAR x : Base.Item; typ : Base.Type; guard : BOOLEAN);
-	VAR r, r2 : UBYTE;
+	VAR r : UBYTE;
+		td : Base.Item;
 BEGIN
 	ASSERT ((typ.form = Base.type_record) & (x.mode IN Base.classes_Value));
 	IF x.type # typ THEN
@@ -1926,12 +1960,9 @@ BEGIN
 		ELSE ASSERT(FALSE); r := 0
 		END;
 
-		r2 := Alloc_reg();
-		IF ~ typ.import THEN EmitRSv (0, LEAr, r2, 8, typ.tdAdr)
-		ELSE ASSERT(FALSE)
-		END;
+		Get_typedesc (td, typ); Load_adr (td);
 		
-		EmitRM (1, CMPr, r2, 8, r, typ.len * 8);
+		EmitRM (1, CMPr, td.r, 8, r, typ.len * 8);
 		IF guard THEN Trap (ccNZ, type_check)
 		ELSE Set_cond (x, ccZ); x.type := Base.bool_type
 		END;
@@ -2075,7 +2106,7 @@ END Check_varsize;
 PROCEDURE Init* (modname : Base.String);
 BEGIN
 	ip := 0; varbase := 0; staticsize := 56; modid := modname;
-	Sys.Rewrite (out, 'output.exe');
+	Sys.Rewrite (out, tempfilename);
 	Sys.Seek (out, 400H)
 END Init;
 
@@ -2316,6 +2347,7 @@ END Write_PEHeader;
 
 PROCEDURE Finish*;
 	VAR i, n, padding, filesize : INTEGER; k : LONGINT;
+		str : Base.LongString;
 BEGIN
 	Base.Write_symbols_file;
 
@@ -2359,9 +2391,15 @@ BEGIN
 		Sys.Console_WriteString ('Global variables size: ');
 		Sys.Console_WriteInt (varsize); Sys.Console_WriteLn;
 		Sys.Console_WriteString ('Static data size: ');
-		Sys.Console_WriteInt (staticsize); Sys.Console_WriteLn
+		Sys.Console_WriteInt (staticsize); Sys.Console_WriteLn;
+		
+		str := ''; Base.Append_str (str, modid); Base.Append_str (str, '.exe');
+		Sys.Delete_file (str); Sys.Rename_file (tempfilename, str);
+		str := ''; Base.Append_str (str, modid); Base.Append_str (str, '.sym');
+		Sys.Delete_file (str); Sys.Rename_file (tempsymfilename, str)
 	ELSE
-		Sys.Console_WriteLn; Sys.Console_WriteString ('No output generated.')
+		Sys.Console_WriteLn; Sys.Console_WriteString ('No output generated.');
+		Sys.Delete_file (tempfilename); Sys.Delete_file (tempsymfilename)
 	END
 END Finish;
 

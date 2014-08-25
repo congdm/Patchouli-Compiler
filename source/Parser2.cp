@@ -212,10 +212,20 @@ PROCEDURE ^ type (VAR typ : Base.Type);
 PROCEDURE ^ StatementSequence;
 
 PROCEDURE qualident (VAR obj : Base.Object);
+	CONST err1 = 'Identifier expected';
+	VAR modul : Base.Object;
 BEGIN
 	IF sym = Scanner.ident THEN
-		Base.Find_obj (obj, Scanner.id); Scanner.Get (sym)
-	ELSE Scanner.Mark ('Identifier expected'); obj := Base.guard
+		Base.Find_obj (obj, Scanner.id); Scanner.Get (sym);
+		IF obj.class = Base.class_module THEN
+			Check (Scanner.period, 'Expect . after module identifiers');
+			IF sym = Scanner.ident THEN
+				modul := obj; Base.Find_in_module (obj, Scanner.id, modul);
+				Scanner.Get (sym)
+			ELSE Scanner.Mark (err1); obj := Base.guard
+			END
+		END
+	ELSE Scanner.Mark (err1); obj := Base.guard
 	END
 END qualident;
 
@@ -577,6 +587,7 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 		identdef (obj, Base.class_type);
 		Check (Scanner.equal, 'No = in type declaration');
 		defobj := obj; StrucType (obj.type);
+		obj.type.named := TRUE;
 		
 		IF obj.type.form = Base.type_record THEN
 			Generator.Alloc_typedesc (obj.type);
@@ -737,6 +748,7 @@ BEGIN
 			8: Scanner.Mark ('Actual is not an extension of formal')
 		END;
 		par := par.next
+	ELSE Scanner.Mark ('This procedure do not need parameters')
 	END
 END Parameter;
 
@@ -1522,6 +1534,30 @@ BEGIN
 	UNTIL sym > Scanner.semicolon
 END StatementSequence;
 
+PROCEDURE ImportList;
+
+	PROCEDURE import;
+		VAR modul : Base.Object;
+	BEGIN
+		ident (modul, Base.class_module);
+		IF sym = Scanner.becomes THEN
+			Scanner.Get (sym);
+			IF sym = Scanner.ident THEN modul.realname := Scanner.id
+			ELSE Scanner.Mark ('Expect an identifier');
+				modul.realname := modul.name
+			END
+		ELSE modul.realname := modul.name
+		END;
+		Base.Import_module (modul)
+	END import;
+
+BEGIN (* ImportList *)
+	Scanner.Get (sym);
+	import;
+	WHILE sym = Scanner.comma DO Scanner.Get (sym); import END;
+	Check (Scanner.semicolon, 'No ending semicolon')
+END ImportList;
+
 PROCEDURE Module*;
 	VAR modid : Base.String;
 		varsize : INTEGER;
@@ -1536,6 +1572,10 @@ BEGIN
 	IF modid # '@' THEN
 		Base.Init (modid);
 		Generator.Init (modid);
+		
+		IF sym = Scanner.import THEN
+			ImportList
+		END;
 
 		varsize := 0;
 		DeclarationSequence (varsize);

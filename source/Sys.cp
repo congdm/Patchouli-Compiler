@@ -58,6 +58,18 @@ BEGIN
 	END
 END Close;
 
+PROCEDURE Rename_file* (oldname, newname : ARRAY OF CHAR);
+BEGIN
+	IO.File.Move (MKSTR (oldname), MKSTR (newname))
+END Rename_file;
+
+PROCEDURE Delete_file* (filename : ARRAY OF CHAR);
+BEGIN
+	IO.File.Delete (MKSTR (filename))
+END Delete_file;
+
+(* -------------------------------------------------------------------------- *)
+
 PROCEDURE Read_ansi_char* (VAR file : FileHandle; VAR c : CHAR) : BOOLEAN;
 	VAR
 		i : INTEGER;
@@ -68,6 +80,49 @@ BEGIN
 	ELSE c := System.Convert.ToChar(i); result := success END;
 	RETURN result
 END Read_ansi_char;
+
+PROCEDURE Read_byte* (VAR file : FileHandle; VAR n : INTEGER);
+	VAR b : UBYTE;
+BEGIN
+	n := file.f.ReadByte()
+END Read_byte;
+	
+PROCEDURE Read_2bytes* (VAR file : FileHandle; VAR n : INTEGER);
+BEGIN
+	n := file.f.ReadByte();
+	n := n * 256 + file.f.ReadByte()
+END Read_2bytes;
+
+PROCEDURE Read_string* (VAR file : FileHandle; VAR str : ARRAY OF CHAR);
+	VAR i, n : INTEGER;
+BEGIN
+	i := -1; n := 0;
+	REPEAT
+		i := i + 1; Read_2bytes (file, n); str[i] := CHR(n)
+	UNTIL str[i] = 0X
+END Read_string;
+	
+PROCEDURE Read_4bytes* (VAR file : FileHandle; VAR n : INTEGER);
+BEGIN
+	n := file.f.ReadByte();
+	n := n * 256 + file.f.ReadByte();
+	n := n * 256 + file.f.ReadByte();
+	n := ASH(n, 8) + file.f.ReadByte()
+END Read_4bytes;
+	
+PROCEDURE Read_8bytes* (VAR file : FileHandle; VAR n : LONGINT);
+BEGIN
+	n := file.f.ReadByte();
+	n := n * 256 + file.f.ReadByte();
+	n := n * 256 + file.f.ReadByte();
+	n := n * 256 + file.f.ReadByte();
+	n := n * 256 + file.f.ReadByte();
+	n := n * 256 + file.f.ReadByte();
+	n := n * 256 + file.f.ReadByte();
+	n := ASH(n, 8) + file.f.ReadByte()
+END Read_8bytes;
+
+(* -------------------------------------------------------------------------- *)
 	
 PROCEDURE Write_byte* (VAR file : FileHandle; n : INTEGER);
 	VAR b : UBYTE;

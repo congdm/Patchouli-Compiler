@@ -46,7 +46,7 @@ CONST
 	
 	array* = 79; record* = 80; pointer* = 81;
 	const* = 82; type* = 83; var* = 84; procedure* = 85;
-	begin* = 86; module* = 88;
+	begin* = 86; import* = 87; module* = 88;
 	eof* = 89;
 	
 	errLargeNumber = 'This number is too large to handle (compiler limit)';
@@ -138,6 +138,7 @@ BEGIN
 			ELSIF id [1] = 'N' THEN sym := in
 			ELSIF id [1] = 'S' THEN sym := is
 			END
+		ELSIF (i = 6) & (id = 'IMPORT') THEN sym := import
 		END |
 		
 		'M':
