@@ -66,11 +66,17 @@ VAR
 	ch : CHAR;
 	charNum, prevCharNum : INTEGER;
 	eofFlag : BOOLEAN;
+	
+	Pragma* : RECORD
+		exe* : BOOLEAN
+	END;
 
 PROCEDURE Init* (VAR file : Sys.FileHandle);
 BEGIN
 	srcfile := file; ch := 0X; charNum := 0; prevCharNum := 0;
-	haveError := FALSE; eofFlag := FALSE
+	haveError := FALSE; eofFlag := FALSE;
+	
+	Pragma.exe := FALSE
 END Init;
 
 PROCEDURE Read_char;
@@ -86,11 +92,6 @@ BEGIN
 	Sys.Console_WriteString (': '); Sys.Console_WriteString (s);
 	Sys.Console_WriteLn; haveError := TRUE
 END Mark;
-
-PROCEDURE Skip_blank_and_comment;
-BEGIN
-	WHILE ~ eofFlag & (ch <= ' ') DO Read_char END
-END Skip_blank_and_comment;
 
 PROCEDURE Get_word (VAR sym : INTEGER);
 	CONST err_toolong = 'Identifier length is too long (compiler limit)';
@@ -375,9 +376,41 @@ BEGIN
 	str[i] := 0X; Read_char
 END Get_string;
 
+PROCEDURE Skip_comment (lev : INTEGER);
+	VAR exit : BOOLEAN;
+
+	PROCEDURE Set_pragma;
+		VAR pragma : ARRAY 4 OF CHAR;
+			i : INTEGER;
+	BEGIN
+		Read_char; i := 0;
+		WHILE (i < 3) & (ch # '*') & ~ eofFlag DO
+			pragma[i] := ch; Read_char; i := i + 1
+		END;
+		pragma[i] := 0X;
+		
+		IF pragma = 'EXE' THEN Pragma.exe := TRUE
+		ELSIF pragma = 'DLL' THEN Pragma.exe := FALSE
+		END
+	END Set_pragma;
+
+BEGIN
+	ASSERT (lev >= 0);
+	IF (ch = '$') & (lev = 0) THEN Set_pragma END;
+	exit := FALSE;
+	WHILE ~ eofFlag & ~ exit DO
+		IF ch = '(' THEN Read_char;
+			IF ch = '*' THEN Read_char; Skip_comment (lev + 1) END
+		ELSIF ch = '*' THEN Read_char;
+			IF ch = ')' THEN Read_char; exit := TRUE END
+		ELSE Read_char
+		END
+	END
+END Skip_comment;
+
 PROCEDURE Get* (VAR sym : INTEGER);
 BEGIN
-	Skip_blank_and_comment;
+	WHILE ~ eofFlag & (ch <= ' ') DO Read_char END;
 	IF ~eofFlag THEN
 		CASE ch OF
 			'_', 'A'..'Z', 'a'..'z': Get_word (sym) |
@@ -422,7 +455,13 @@ BEGIN
 			')': sym := rparen; Read_char |
 			']': sym := rbrak; Read_char |
 			'}': sym := rbrace; Read_char |
-			'(': sym := lparen; Read_char |
+			
+			'(':
+			Read_char;
+			IF ch = '*' THEN Read_char; Skip_comment (0); Get (sym)
+			ELSE sym := lparen
+			END |
+			
 			'[': sym := lbrak; Read_char |
 			'{': sym := lbrace; Read_char |
 			';': sym := semicolon; Read_char |

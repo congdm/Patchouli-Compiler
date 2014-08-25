@@ -190,7 +190,7 @@ END Next_inst;
 
 (* This is a stupid hack for MOVZX with word operand, it is one of the
    instructions which have different operands size for source and destination,
-   when I expected that source and destination always have same size.
+   when I expected that source and destination always have the same size.
    A proper solution is need for this problem.
 *)
 PROCEDURE Inhibit_16bit_prefix;
@@ -2193,8 +2193,12 @@ PROCEDURE Write_edata_section;
 		name : Base.LongString;
 		namesize, tablesize, expno, rva : INTEGER;
 BEGIN
-	name := ''; Base.Append_str (name, modid); Base.Append_str (name, '.exe');
+	name := ''; Base.Append_str (name, modid);
+	IF Scanner.Pragma.exe THEN Base.Append_str (name, '.exe')
+	ELSE Base.Append_str (name, '.dll')
+	END;
 	namesize := Base.Str_len (name) + 1;
+	
 	tablesize := Base.expno * 4; expno := 0;
 
 	(* Export directory *)
@@ -2282,7 +2286,11 @@ BEGIN
 	Sys.Write_2bytes (out, 5); (* NumberOfSections *)
 	Sys.SeekRel (out, 4 * 3);
 	Sys.Write_2bytes (out, 240);
-	Sys.Write_2bytes (out, 20H + 2 + 1);
+	
+	(* Characteristics *)
+	IF Scanner.Pragma.exe THEN Sys.Write_2bytes (out, 20H + 2 + 1)
+	ELSE Sys.Write_2bytes (out, 2000H + 20H + 2)
+	END;
 	
 	Sys.Write_2bytes (out, 20BH);
 	Sys.SeekRel (out, 2);
@@ -2307,7 +2315,12 @@ BEGIN
 	Sys.Write_4bytes (out, 400H);
 	Sys.SeekRel (out, 4);
 	Sys.Write_2bytes (out, 2); (* Subsys = GUI *)
-	Sys.SeekRel (out, 2);
+	
+	(* DLL Characteristics *)
+	IF Scanner.Pragma.exe THEN Sys.Write_2bytes (out, 0)
+	ELSE Sys.Write_2bytes (out, 100H + 40H)
+	END;
+	
 	Sys.Write_8bytes (out, 1000H);
 	Sys.Write_8bytes (out, 1000H);
 	Sys.Write_8bytes (out, 10000H);
@@ -2351,7 +2364,9 @@ PROCEDURE Finish*;
 BEGIN
 	Base.Write_symbols_file;
 
-	Linker.imagebase := 500000H;
+	IF Scanner.Pragma.exe THEN Linker.imagebase := 400000H
+	ELSE Linker.imagebase := 10000000H
+	END;
 
 	Linker.code_rawsize := (512 - ip) MOD 512 + ip;
 	Linker.code_size := ip;
@@ -2393,7 +2408,10 @@ BEGIN
 		Sys.Console_WriteString ('Static data size: ');
 		Sys.Console_WriteInt (staticsize); Sys.Console_WriteLn;
 		
-		str := ''; Base.Append_str (str, modid); Base.Append_str (str, '.exe');
+		str := ''; Base.Append_str (str, modid);
+		IF Scanner.Pragma.exe THEN Base.Append_str (str, '.exe')
+		ELSE Base.Append_str (str, '.dll')
+		END;
 		Sys.Delete_file (str); Sys.Rename_file (tempfilename, str);
 		str := ''; Base.Append_str (str, modid); Base.Append_str (str, '.sym');
 		Sys.Delete_file (str); Sys.Rename_file (tempsymfilename, str)

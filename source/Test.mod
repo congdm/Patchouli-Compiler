@@ -1,4 +1,5 @@
 MODULE Test;
+(*$EXE*)
 
 IMPORT
 	SYSTEM;
