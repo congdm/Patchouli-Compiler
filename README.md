@@ -10,28 +10,44 @@ Written in Component Pascal, compiled by Gardens Point Component Pascal, and req
 
 Binary is also supply with source.
 
-**(\*UPDATE\*)**
-I have changed the design again. The output this time will be native machine code. It doesn't have many features as the old version yet.
+## Sample Hello World program for Windows
 
-## Niklaus Wirth was right after all
+```oberon
+MODULE Test;
 
-After 1 year of "hacking" on this compiler, I feel a need to share my experience.
+IMPORT
+	SYSTEM;
+TYPE
+	AsciiStr = ARRAY 64 OF BYTE;
+VAR
+	MessageBoxW* : PROCEDURE (hwnd, lpText, lpCaption, uType : INTEGER);
+	
+PROCEDURE Make_AsciiStr (VAR out : ARRAY OF BYTE; in : ARRAY OF CHAR);
+	VAR n, i : INTEGER;
+BEGIN
+	n := LEN(out); IF n > LEN(in) THEN n := LEN(in) END;
+	i := 0; WHILE i < n DO out[i] := ORD(in[i]); i := i + 1 END
+END Make_AsciiStr;
 
-The task of writing compiler is really fighting with a dragon. Now I understand why they call the famous book about compiler construction as "Dragon Book".
+PROCEDURE Init;
+	VAR user32 : INTEGER;
+		str : AsciiStr; 
+BEGIN
+	SYSTEM.LoadLibrary (user32, 'USER32.DLL');
+	Make_AsciiStr (str, 'MessageBoxW');
+	SYSTEM.GetProcAddress (MessageBoxW, user32, SYSTEM.ADR(str))
+END Init;
 
-When writing a compiler, one could be tempt with the idea of a "All Powerful Super Optimizing Compiler" (just like the Philosopher's Stone in Alchemy), but if you are a solo programmer and aren't a superman, then forget about it. What Niklaus Wirth have done was exactly like that, don't care about reaching the seeming-optimal point, just focus on the essentials and calculate the tradeoff carefully. Of course the final product would be not-so-optimized, but it is working nonetheless.
+PROCEDURE Main;
+	CONST mess = 'Oberon for Win64'; title = 'Hello, World!';
+BEGIN
+	MessageBoxW (0, SYSTEM.ADR(mess), SYSTEM.ADR(title), 0)
+END Main;
+	
+BEGIN
+	Init;
+	Main
+END Test.
+```
 
-Most people feel the method of Niklaus Wirth is too extreme. I had the same thought too, but that was one year ago. Now, it is different. The more time I spent on writing this compiler, the more I appreciated his method. And every time I went against his principles, I created a mess and spend a lot time cleaning it up.
 
-### Here are some of my mistakes:
-
-+ **Using Pascal instead of Oberon/Component Pascal:** WHO WANT TO USE THE LANGUAGE THAT IS FULL OF ALLCAPS!!!??? It is not like that I am using Cee language or Cee-Plus-Plus anyway. Pascal is an awesome language! Long live Pascal lanaguage!
-**The result:** A total mess of pointer faults. Cannot track the origin module of variables and procedures => Rewriting all the compiler in Compenent Pascal.
-
-+ **Trying my best to generate x86 CISC code:** Optimize, optimize, MOARR OPTIMIZEEE!!
-**The result:** Confusing logic, wrong code generation, insanity ensure => Treat the x86 ISA as RISC one, forget about its CISC instructions.
-
-+ **Output to assembly code instead of native machine code:** I don't want to deal with the mess of x86 machine code, so it is best to use someone's assembler.
-**The result:** Bloat the generator with string processing code. Almost turning the compiler into a word processor => Rewriting again.
-
-So, Niklaus Wirth was right after all...
