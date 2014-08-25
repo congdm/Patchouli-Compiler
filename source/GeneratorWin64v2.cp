@@ -107,9 +107,9 @@ VAR
 	(* Global state for linker *)
 	Linker : RECORD
 		imagebase : LONGINT;
-		code_rawsize, data_rawsize, idata_rawsize, edata_rawsize : INTEGER;
-		code_size, data_size, idata_size, edata_size : INTEGER;
-		code_rva, data_rva, idata_rva, edata_rva : INTEGER;
+		code_rawsize, data_rawsize, edata_rawsize : INTEGER;
+		code_size, data_size, edata_size : INTEGER;
+		code_rva, data_rva, idata_rva, reloc_rva, edata_rva : INTEGER;
 		code_fadr, data_fadr, idata_fadr, reloc_fadr, edata_fadr : INTEGER
 	END;
 	Kernel32Table : ARRAY 7 OF LONGINT;
@@ -2160,27 +2160,22 @@ PROCEDURE Write_edata_section;
 	CONST dirsize = 40;
 	VAR obj : Base.Object;
 		name : Base.LongString;
-		tablesize, namesize, expno, rva : INTEGER;
+		namesize, tablesize, expno, rva : INTEGER;
 BEGIN
 	name := ''; Base.Append_str (name, modid); Base.Append_str (name, '.exe');
-	name := 'output.exe';
-	namesize := Base.Str_len (name); Align (namesize, 4);
+	namesize := Base.Str_len (name) + 1;
 	tablesize := Base.expno * 4; expno := 0;
 
 	(* Export directory *)
 	Sys.Seek (out, Linker.edata_fadr + 12);
-	Sys.Write_4bytes (out, Linker.edata_rva + dirsize);
+	Sys.Write_4bytes (out, Linker.edata_rva + dirsize + tablesize);
 	Sys.Write_4bytes (out, 1);
 	Sys.Write_4bytes (out, Base.expno);
 	Sys.Write_4bytes (out, 0);
-	Sys.Write_4bytes (out, Linker.edata_rva + dirsize + namesize);
-	
-	(* Name string *)
-	Sys.Seek (out, Linker.edata_fadr + dirsize);
-	Sys.Write_ansi_str (out, name);
+	Sys.Write_4bytes (out, Linker.edata_rva + dirsize);
 	
 	(* Export address table *)
-	Sys.Seek (out, Linker.edata_fadr + dirsize + namesize);
+	Sys.Seek (out, Linker.edata_fadr + dirsize);
 	obj := Base.universe.next;
 	WHILE obj # Base.guard DO
 		IF obj.export THEN
@@ -2200,14 +2195,19 @@ BEGIN
 		END;
 		obj := obj.next
 	END;
-	
 	ASSERT (expno = Base.expno);
-	Linker.edata_size := dirsize + namesize + tablesize;
+	
+	(* Name string *)
+	Sys.Write_ansi_str (out, name);
+	
+	Linker.edata_size := dirsize + tablesize + namesize;
 	Linker.edata_rawsize := Linker.edata_size;
-	Align (Linker.edata_rawsize, 512);
-	Sys.Seek (out, Linker.edata_fadr + Linker.edata_rawsize)
+	IF Linker.edata_rawsize MOD 512 # 0 THEN
+		Align (Linker.edata_rawsize, 512);
+		Sys.Seek (out, Linker.edata_fadr + Linker.edata_rawsize - 1);
+		Sys.Write_byte (out, 1)
+	END
 END Write_edata_section;
-
 
 PROCEDURE Write_reloc_section;
 BEGIN
@@ -2217,7 +2217,6 @@ BEGIN
 	Sys.Write_2bytes (out, 0);
 	Sys.Write_2bytes (out, 0)
 END Write_reloc_section;
-
 
 PROCEDURE Write_SectionHeader (
 	name : ARRAY OF CHAR; chr, rva, rawsize, size, fileadr : INTEGER
@@ -2249,7 +2248,7 @@ BEGIN
 	Sys.Write_4bytes (out, 4550H);
 	
 	Sys.Write_2bytes (out, 8664H); (* Machine = AMD64/Intel 64 *)
-	Sys.Write_2bytes (out, 3); (* NumberOfSections *)
+	Sys.Write_2bytes (out, 5); (* NumberOfSections *)
 	Sys.SeekRel (out, 4 * 3);
 	Sys.Write_2bytes (out, 240);
 	Sys.Write_2bytes (out, 20H + 2 + 1);
@@ -2257,7 +2256,7 @@ BEGIN
 	Sys.Write_2bytes (out, 20BH);
 	Sys.SeekRel (out, 2);
 	Sys.Write_4bytes (out, Linker.code_rawsize);
-	k := Linker.data_rawsize + 200H + Linker.edata_rawsize;
+	k := Linker.data_rawsize + 200H * 2 + Linker.edata_rawsize;
 	Sys.Write_4bytes (out, k);
 	Sys.SeekRel (out, 4);
 	Sys.Write_4bytes (out, Linker.code_rva + entry);
@@ -2271,8 +2270,8 @@ BEGIN
 	Sys.Write_2bytes (out, 5);
 	Sys.SeekRel (out, 2 + 4);
 	k := 4096 + (4096 - Linker.code_size) MOD 4096 + Linker.code_size;
-	k := k + Linker.data_size + 4096;
-	(* k := k + (4096 - Linker.edata_size) MOD 4096 + Linker.edata_size; *)
+	k := k + Linker.data_size + 4096 + 4096;
+	k := k + (4096 - Linker.edata_size) MOD 4096 + Linker.edata_size;
 	Sys.Write_4bytes (out, k);
 	Sys.Write_4bytes (out, 400H);
 	Sys.SeekRel (out, 4);
@@ -2284,13 +2283,13 @@ BEGIN
 	Sys.SeekRel (out, 8 + 4);
 	Sys.Write_4bytes (out, 16);
 	
-	Sys.Write_4bytes (out, 0);
-	Sys.Write_4bytes (out, 0);
+	Sys.Write_4bytes (out, Linker.edata_rva);
+	Sys.Write_4bytes (out, Linker.edata_size);
 	Sys.Write_4bytes (out, Linker.idata_rva);
 	Sys.Write_4bytes (out, 130H);
 	Sys.SeekRel (out, 8 * 3);
-	Sys.Write_4bytes (out, 0);
-	Sys.Write_4bytes (out, 0);
+	Sys.Write_4bytes (out, Linker.reloc_rva);
+	Sys.Write_4bytes (out, 12);
 	Sys.SeekRel (out, 8 * 10);
 	
 	Write_SectionHeader (
@@ -2306,21 +2305,21 @@ BEGIN
 		130H, Linker.idata_fadr
 	);
 	Write_SectionHeader (
+		'.reloc', 42000040H, Linker.reloc_rva, 200H,
+		12, Linker.reloc_fadr
+	);
+	Write_SectionHeader (
 		'.edata', 40000040H, Linker.edata_rva, Linker.edata_rawsize,
 		Linker.edata_size, Linker.edata_fadr
 	);
-(*	Write_SectionHeader (
-		'.reloc', 42000040H, Linker.idata_rva + 4096, 200H,
-		12, Linker.reloc_fadr
-	); *)
 END Write_PEHeader;
 
 PROCEDURE Finish*;
-	VAR i, n, padding : INTEGER; k : LONGINT;
+	VAR i, n, padding, filesize : INTEGER; k : LONGINT;
 BEGIN
 	Base.Write_symbols_file;
 
-	Linker.imagebase := 400000H;
+	Linker.imagebase := 500000H;
 
 	Linker.code_rawsize := (512 - ip) MOD 512 + ip;
 	Linker.code_size := ip;
@@ -2335,7 +2334,8 @@ BEGIN
 	Linker.code_rva := Linker.data_rva + Linker.data_size;
 	n := (4096 - Linker.code_size) MOD 4096 + Linker.code_size;
 	Linker.idata_rva := Linker.code_rva + n;
-	Linker.edata_rva := Linker.idata_rva + 4096;
+	Linker.reloc_rva := Linker.idata_rva + 4096;
+	Linker.edata_rva := Linker.reloc_rva + 4096;
 	
 	Linker.code_fadr := 400H;
 	Linker.idata_fadr := Linker.code_fadr + Linker.code_rawsize;
@@ -2347,6 +2347,7 @@ BEGIN
 	Write_data_section;
 	Write_reloc_section;
 	Write_edata_section;
+	
 	Write_PEHeader;
 
 	Sys.Close (out);
