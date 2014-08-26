@@ -1546,7 +1546,8 @@ PROCEDURE ImportList;
 		ident (modul, Base.class_module);
 		IF sym = Scanner.becomes THEN
 			Scanner.Get (sym);
-			IF sym = Scanner.ident THEN modul.realname := Scanner.id
+			IF sym = Scanner.ident THEN
+				modul.realname := Scanner.id; Scanner.Get (sym)
 			ELSE Scanner.Mark ('Expect an identifier');
 				modul.realname := modul.name
 			END

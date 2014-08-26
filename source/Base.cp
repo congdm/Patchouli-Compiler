@@ -751,12 +751,15 @@ BEGIN
 	ELSIF n = type_array THEN
 		Sys.Read_4bytes (symfile, typ.len);
 		Detect_typeI (typ.base);
-		typ.size := typ.len * typ.base.size
+		typ.size := typ.len * typ.base.size;
+		typ.alignment := typ.base.alignment
 	ELSIF n = type_pointer THEN
 		typ.size := Word_size;
+		typ.alignment := Word_size;
 		Detect_typeI (typ.base)
 	ELSIF n = type_procedure THEN
 		typ.size := Word_size;
+		typ.alignment := Word_size;
 		Sys.Read_4bytes (symfile, typ.len);
 		Detect_typeI (typ.base);
 		
