@@ -82,7 +82,6 @@ BEGIN
 END Read_ansi_char;
 
 PROCEDURE Read_byte* (VAR file : FileHandle; VAR n : INTEGER);
-	VAR b : UBYTE;
 BEGIN
 	n := file.f.ReadByte()
 END Read_byte;
@@ -90,7 +89,8 @@ END Read_byte;
 PROCEDURE Read_2bytes* (VAR file : FileHandle; VAR n : INTEGER);
 BEGIN
 	n := file.f.ReadByte();
-	n := n * 256 + file.f.ReadByte()
+	n := n + file.f.ReadByte() * 256;
+	IF n > 8000H THEN n := n - 65536 END
 END Read_2bytes;
 
 PROCEDURE Read_string* (VAR file : FileHandle; VAR str : ARRAY OF CHAR);
@@ -105,21 +105,17 @@ END Read_string;
 PROCEDURE Read_4bytes* (VAR file : FileHandle; VAR n : INTEGER);
 BEGIN
 	n := file.f.ReadByte();
-	n := n * 256 + file.f.ReadByte();
-	n := n * 256 + file.f.ReadByte();
-	n := ASH(n, 8) + file.f.ReadByte()
+	n := n + file.f.ReadByte() * 256;
+	n := n + file.f.ReadByte() * 65536;
+	n := n + ASH (file.f.ReadByte(), 24)
 END Read_4bytes;
 	
 PROCEDURE Read_8bytes* (VAR file : FileHandle; VAR n : LONGINT);
+	VAR lo, hi : INTEGER;
 BEGIN
-	n := file.f.ReadByte();
-	n := n * 256 + file.f.ReadByte();
-	n := n * 256 + file.f.ReadByte();
-	n := n * 256 + file.f.ReadByte();
-	n := n * 256 + file.f.ReadByte();
-	n := n * 256 + file.f.ReadByte();
-	n := n * 256 + file.f.ReadByte();
-	n := ASH(n, 8) + file.f.ReadByte()
+	lo := 0; hi := 0;
+	Read_4bytes (file, lo); Read_4bytes (file, hi);
+	n := hi; n := ASH(n, 32); n := n + lo
 END Read_8bytes;
 
 (* -------------------------------------------------------------------------- *)

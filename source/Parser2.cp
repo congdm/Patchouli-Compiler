@@ -1465,8 +1465,9 @@ PROCEDURE StatementSequence;
 		L : INTEGER;
 BEGIN
 	REPEAT
-		IF ~ ((sym = Scanner.ident) OR (sym >= Scanner.if)
-				& (sym <= Scanner.for)	OR (sym = Scanner.semicolon)) THEN
+		IF ~ ((sym = Scanner.ident)
+				OR (sym >= Scanner.if) & (sym <= Scanner.for)
+				OR (sym = Scanner.semicolon)) THEN
 			Scanner.Mark (err1);
 			REPEAT Scanner.Get (sym)
 			UNTIL (sym = Scanner.ident) OR (sym >= Scanner.if)
@@ -1485,7 +1486,10 @@ BEGIN
 			ELSIF (sym = Scanner.lparen) & (x.mode IN classes_Value)
 			& (x.type.form = Base.type_procedure) THEN
 				ProcedureCall (x, TRUE)
-			ELSE Scanner.Mark (err1)
+			ELSE Scanner.Mark (err1);
+				REPEAT Scanner.Get (sym)
+				UNTIL (sym >= Scanner.if) & (sym <= Scanner.case)
+					OR (sym >= Scanner.semicolon)
 			END
 		ELSIF sym = Scanner.if THEN
 			L := 0; Scanner.Get (sym); expression (x); Check_bool (x);
@@ -1581,6 +1585,7 @@ BEGIN
 		DeclarationSequence (varsize);
 
 		Generator.Enter (NIL, 0);
+		Generator.Module_init;
 		IF sym = Scanner.begin THEN
 			Scanner.Get (sym);
 			StatementSequence

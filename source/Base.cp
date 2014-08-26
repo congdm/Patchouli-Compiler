@@ -375,10 +375,12 @@ PROCEDURE Adjust_alignment* (VAR offset : INTEGER; alignment : INTEGER);
 	VAR i : INTEGER;
 BEGIN
 	IF alignment_flag IN compiler_flag THEN
-		i := offset MOD alignment;
-		IF i # 0 THEN
-			IF offset < 0 THEN DEC (offset, i)
-			ELSE INC (offset, alignment - i)
+		IF alignment # 0 THEN
+			i := offset MOD alignment;
+			IF i # 0 THEN
+				IF offset < 0 THEN DEC (offset, i)
+				ELSE INC (offset, alignment - i)
+				END
 			END
 		END
 	END
@@ -748,12 +750,14 @@ BEGIN
 		Close_scope
 	ELSIF n = type_array THEN
 		Sys.Read_4bytes (symfile, typ.len);
-		Detect_typeI (typ.base)
+		Detect_typeI (typ.base);
+		typ.size := typ.len * typ.base.size
 	ELSIF n = type_pointer THEN
+		typ.size := Word_size;
 		Detect_typeI (typ.base)
 	ELSIF n = type_procedure THEN
+		typ.size := Word_size;
 		Sys.Read_4bytes (symfile, typ.len);
-		Sys.Write_4bytes (symfile, typ.len);
 		Detect_typeI (typ.base);
 		
 		Open_scope ('');
@@ -829,7 +833,7 @@ BEGIN
 	Enter (class_sproc, 100, 'GET', NIL);
 	Enter (class_sproc, 101, 'PUT', NIL);
 	Enter (class_sproc, 102, 'COPY', NIL);
-	Enter2 (class_sproc, 103, 'LoadLibrary', NIL, -48);
+	Enter2 (class_sproc, 103, 'LoadLibraryW', NIL, -48);
 	Enter2 (class_sproc, 104, 'GetProcAddress', NIL, -40);
 	
 	Enter (class_sproc, 300, 'ADR', int_type);

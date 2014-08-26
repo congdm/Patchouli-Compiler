@@ -21,7 +21,7 @@ PROCEDURE Init;
 	VAR user32 : INTEGER;
 		str : AsciiStr; 
 BEGIN
-	SYSTEM.LoadLibrary (user32, 'USER32.DLL');
+	SYSTEM.LoadLibraryW (user32, 'USER32.DLL');
 	Make_AsciiStr (str, 'MessageBoxW');
 	SYSTEM.GetProcAddress (MessageBoxW, user32, SYSTEM.ADR(str))
 END Init;

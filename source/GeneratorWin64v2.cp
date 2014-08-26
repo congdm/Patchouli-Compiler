@@ -83,7 +83,7 @@ VAR
 
 	code : ARRAY 65536 OF Instruction;
 	codeinfo : ARRAY 65536 OF InstructionInfo;
-	pc*, ip, entry : INTEGER;
+	pc*, ip : INTEGER;
 	_16bit_allowed : BOOLEAN;
 	
 	staticlist : Base.Type;
@@ -108,7 +108,7 @@ VAR
 	
 	(* Global state for linker *)
 	Linker : RECORD
-		imagebase : LONGINT;
+		imagebase : LONGINT; entry : INTEGER;
 		code_rawsize, data_rawsize, edata_rawsize : INTEGER;
 		code_size, data_size, edata_size : INTEGER;
 		code_rva, data_rva, idata_rva, reloc_rva, edata_rva : INTEGER;
@@ -1657,7 +1657,7 @@ END Restore_reg_stacks;
 	
 PROCEDURE Prepare_to_call* (VAR x : Base.Item; VAR pinfo : ProcInfo);
 BEGIN
-	IF ~ (x.mode IN {mode_regI, Base.class_ref}) THEN (* Do nothing *)
+	IF x.mode = Base.class_proc THEN (* Do nothing *)
 	ELSE load (x); PushR (x.r); Free_reg
 	END;
 	
@@ -1678,11 +1678,6 @@ PROCEDURE Call* (VAR x : Base.Item; VAR pinfo : ProcInfo);
 BEGIN
 	IF x.mode = Base.class_proc THEN n := 0;
 		IF x.lev >= 0 THEN EmitCall (SHORT(x.a));
-		ELSE EmitCallSv (SHORT (x.a))
-		END
-	ELSIF x.mode = Base.class_var THEN n := 0;
-		IF x.lev = 0 THEN EmitCallGv (SHORT (x.a))
-		ELSIF x.lev > 0 THEN EmitCallM (reg_BP, SHORT (x.a))
 		ELSE EmitCallSv (SHORT (x.a))
 		END
 	ELSE EmitCallM (reg_SP, pinfo.parblksize); n := 8
@@ -2005,17 +2000,71 @@ BEGIN
 	FOR i := 0 TO n-1 DO Sys.Write_byte (out, 90H) END
 END Write_padding;
 
+PROCEDURE Module_init*;
+	VAR i, framesize, L : INTEGER; n1, n2, n3, n4 : LONGINT;
+		str : Base.LongString;
+		modul, obj : Base.Object; exit : BOOLEAN;
+BEGIN
+	IF ~ Scanner.Pragma.exe THEN
+		EmitRI (CMPi, reg_D, 4, 1);
+		L := pc; CondBranchS (ccZ, 0);
+		EmitBare (LEAVE); EmitBare (RET);
+		Fix_link (L)
+	END;
+	
+	modul := Base.universe.next;
+	WHILE (modul # Base.guard)
+	& ((modul.class # Base.class_module) OR (modul.realname = 'SYSTEM')) DO
+		modul := modul.next
+	END;
+	
+	IF modul # Base.guard THEN
+		framesize := (Base.max_ident_len + 5) * 2;
+		framesize := (-framesize) MOD 16 + framesize + 32;
+		EmitRI (SUBi, reg_SP, 8, framesize);
+		REPEAT
+			str := ''; Base.Append_str (str, modul.realname);
+			Base.Append_str (str, '.dll');
+			i := 0; n1 := 1; n2 := 1; n3 := 1; n4 := 1;
+			WHILE (n1 # 0) & (n2 # 0) & (n3 # 0) & (n4 # 0) DO
+				n1 := ORD(str[i]);
+				n2 := ORD(str[i + 1]); n2 := ASH(n2, 16);
+				n3 := ORD(str[i + 2]); n3 := ASH(n3, 32);
+				n4 := ORD(str[i + 3]); n4 := ASH(n4, 48);
+				MoveRI (reg_A, 8, n1 + n2 + n3 + n4);
+				EmitRM (0, MOVr, reg_A, 8, reg_SP, 32 + i * 2);
+				i := i + 4
+			END;
+			EmitRM (0, LEAr, reg_C, 8, reg_SP, 32);
+			EmitCallSv (-48); (* LoadLibraryW *)
+			EmitRR (MOVr, reg_SI, 8, reg_A);
+			obj := modul.dsc;
+			WHILE obj # Base.guard DO
+				IF (obj.val # 0) & (obj.val2 # 0) THEN
+					EmitRR (MOVr, reg_C, 8, reg_SI);
+					MoveRI (reg_D, 4, obj.val2);
+					EmitCallSv (-40); (* GetProcAddress *)
+					EmitRSv (0, MOVr, reg_A, 8, SHORT (obj.val))
+				END;
+				obj := obj.next
+			END;
+			modul := modul.next;
+			IF modul.realname = 'SYSTEM' THEN modul := modul.next END
+		UNTIL modul.class # Base.class_module;
+		EmitRI (ADDi, reg_SP, 8, framesize)
+	END
+END Module_init;
+
 PROCEDURE Enter* (proc : Base.Object; locblksize : INTEGER);
 	VAR k : INTEGER;
 BEGIN
 	k := ip MOD 16; IF k # 0 THEN INC (ip, 16 - k); Write_padding (16 - k) END;
-	
 	IF proc # NIL THEN
 		ProcState.locblksize := locblksize;
 		ProcState.parlist := proc.dsc;
 		proc.val := ip
 	ELSE
-		entry := ip;
+		Linker.entry := ip;
 		ProcState.locblksize := 0;
 		ProcState.parlist := NIL
 	END;
@@ -2086,9 +2135,13 @@ END Return;
 
 PROCEDURE Module_exit*;
 BEGIN
-	EmitRI (SUBi, reg_SP, 8, 32);
-	EmitRR (XORr, reg_C, 4, reg_C);
-	EmitCallSv (-56);
+	IF Scanner.Pragma.exe THEN
+		EmitRI (SUBi, reg_SP, 8, 32);
+		EmitRR (XORr, reg_C, 4, reg_C);
+		EmitCallSv (-56); (* ExitProcess *)
+	ELSE
+		MoveRI (reg_A, 4, 1)
+	END
 END Module_exit;
 
 PROCEDURE Check_varsize* (n : LONGINT; g : BOOLEAN);
@@ -2298,7 +2351,7 @@ BEGIN
 	k := Linker.data_rawsize + 200H * 2 + Linker.edata_rawsize;
 	Sys.Write_4bytes (out, k);
 	Sys.SeekRel (out, 4);
-	Sys.Write_4bytes (out, Linker.code_rva + entry);
+	Sys.Write_4bytes (out, Linker.code_rva + Linker.entry);
 	Sys.Write_4bytes (out, Linker.code_rva);
 	
 	Sys.Write_8bytes (out, Linker.imagebase);
