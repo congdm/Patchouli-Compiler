@@ -8,6 +8,7 @@ CONST
 
 	Word_size* = 8;
 	Char_size* = 2;
+	MAX_CHAR* = 65535;
 	MAX_INT* = 9223372036854775807;
 	MIN_INT* = -MAX_INT - 1;
 	max_ident_len* = 63;
@@ -475,7 +476,7 @@ BEGIN
 	ELSIF dst_type = src.type THEN
 		(* Ok *)
 	ELSIF dst_type = char_type THEN
-		IF (src.type.form # type_string) OR (src.type.len # 2) THEN
+		IF (src.type.form # type_string) OR (src.type.len > 2) THEN
 			result := 2
 		END
 	ELSIF dst_type.form = type_integer THEN
@@ -546,9 +547,9 @@ PROCEDURE Comparable* (VAR x, y : Item) : BOOLEAN;
 BEGIN
 	xform := x.type.form; yform := y.type.form;
 	RETURN (xform = yform)
-	OR (xform = type_char) & (yform = type_string) & (y.type.len = 2)
+	OR (xform = type_char) & (yform = type_string) & (y.type.len <= 2)
 	OR (xform = type_string)
-		& ((yform = type_array) OR (yform = type_char) & (x.type.len = 2))
+		& ((yform = type_array) OR (yform = type_char) & (x.type.len <= 2))
 	OR (xform = type_array) & (yform = type_string)
 END Comparable;
 

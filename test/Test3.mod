@@ -7,7 +7,7 @@ IMPORT
 PROCEDURE Main;
 	VAR ch : CHAR;
 BEGIN
-	Console.Write ('C');
+	Console.Write ('C'); Console.WriteLn;
 	Console.Read (ch)
 END Main;
 	

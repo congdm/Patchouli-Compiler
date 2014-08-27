@@ -50,6 +50,7 @@ CONST
 	eof* = 89;
 	
 	errLargeNumber = 'This number is too large to handle (compiler limit)';
+	errLargeChar = 'Value outside character range';
 
 VAR
 	val* : LONGINT;
@@ -200,9 +201,19 @@ BEGIN
 		END;
 		Read_char
 	END;
-	val := hex_int; IF ch = 'H' THEN Read_char ELSE Mark (err_no_suffix) END;
-	IF ~ hex_overflow THEN (* Ok *) ELSE Mark (errLargeNumber) END;
-	typeOfVal := Base.int_type
+	val := hex_int;
+	IF ch = 'H' THEN Read_char;
+		IF ~ hex_overflow THEN (* Ok *) ELSE Mark (errLargeNumber) END;
+		typeOfVal := Base.int_type
+	ELSIF ch = 'X' THEN Read_char;
+		IF ~ hex_overflow & (val <= Base.MAX_CHAR) THEN (* Ok *)
+		ELSE Mark (errLargeChar)
+		END;
+		typeOfVal := Base.char_type
+	ELSE Mark (err_no_suffix);
+		IF ~ hex_overflow THEN (* Ok *) ELSE Mark (errLargeNumber) END;
+		typeOfVal := Base.int_type
+	END
 END Get_hex_number;
 	
 PROCEDURE Finish_real_number
@@ -346,7 +357,12 @@ BEGIN
 	is_decimal := FALSE;
 	IF ch = 'H' THEN
 		val := hex_int; typeOfVal := Base.int_type; Read_char;
-		IF ~ hex_overflow THEN (* Ok *) ELSE Mark (errLargeNumber) END		
+		IF ~ hex_overflow THEN (* Ok *) ELSE Mark (errLargeNumber) END
+	ELSIF ch = 'X' THEN
+		val := hex_int; typeOfVal := Base.char_type; Read_char;
+		IF ~ hex_overflow & (val <= Base.MAX_CHAR) THEN (* Ok *)
+		ELSE Mark (errLargeChar)
+		END
 	ELSIF (ch >= 'A') & (ch <= 'F') THEN Get_hex_number (hex_int, hex_overflow)
 	ELSIF ch = '.' THEN
 		old_filepos := Sys.FilePos (srcfile); Read_char;
@@ -414,7 +430,13 @@ BEGIN
 	IF ~eofFlag THEN
 		CASE ch OF
 			'_', 'A'..'Z', 'a'..'z': Get_word (sym) |
-			'0'..'9': sym := number; Get_number2 |
+			
+			'0'..'9': sym := number; Get_number2;
+			IF typeOfVal = Base.char_type THEN
+				sym := string; str[0] := CHR (val MOD Base.MAX_CHAR);
+				str[1] := 0X
+			END |
+			
 			"'", '"': sym := string; Get_string |
 			'*': sym := times; Read_char; |
 			'/': sym := slash; Read_char; |

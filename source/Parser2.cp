@@ -1036,7 +1036,7 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 		IF (x.mode IN classes_Value) THEN
 			IF x.type.form IN valid_types THEN
 				IF x.mode IN classes_Variable THEN Generator.load (x) END;
-			ELSIF (x.type.form = Base.type_string) & (x.type.len = 2) THEN
+			ELSIF (x.type.form = Base.type_string) & (x.type.len <= 2) THEN
 				x.mode := Base.class_const; x.a := x.b
 			ELSE no_error := FALSE;
 			END

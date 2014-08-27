@@ -14,6 +14,15 @@ BEGIN
 		SYSTEM.ADR(nCharWritten), 0)
 END Write;
 
+PROCEDURE WriteLn*;
+	VAR str : ARRAY 2 OF CHAR;
+		nCharWritten, res : INTEGER;
+BEGIN
+	str[0] := CHR(13); str[1] := CHR(10);
+	res := Win.Kernel.WriteConsoleW (stdout, SYSTEM.ADR(str), 2,
+		SYSTEM.ADR(nCharWritten), 0)
+END WriteLn;
+
 PROCEDURE Read* (VAR ch : CHAR);
 	VAR nCharRead, res : INTEGER;
 BEGIN
