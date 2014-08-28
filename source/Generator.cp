@@ -1,4 +1,4 @@
-MODULE GeneratorWin64v2;
+MODULE Generator;
 
 IMPORT
 	SYSTEM, Sys, Base, Scanner;
@@ -16,9 +16,9 @@ CONST
 	tempfilename = 'output.temp_';
 	tempsymfilename = 'sym.temp_';
 	
-	integer_check = 0;
-	array_check = 1;
-	type_check = 2;
+	overflow_trap = 0;
+	array_trap = 1;
+	type_trap = 2;
 	
 	mode_reg = Base.mode_reg; mode_imm = Base.class_const;
 	mode_regI = Base.mode_regI;
@@ -600,8 +600,7 @@ BEGIN
 		IF x.mode = Base.class_var THEN x.mode := Base.class_ref END;
 		IF x.a # 0 THEN (* Already inited *)
 		ELSE
-			Alloc_static_data (8, 8);
-			x.a := -staticsize; obj.val := x.a;
+			Alloc_static_data (8, 8); x.a := -staticsize; obj.val := x.a;
 			IF (x.mode = Base.class_type)
 			& (x.type.form = Base.type_record) THEN
 				x.type.tdAdr := SHORT (x.a);
@@ -1016,13 +1015,11 @@ END Small_const;
 PROCEDURE Set1* (VAR x : Base.Item);
 	VAR r : UBYTE;
 BEGIN
-	IF x.mode = mode_reg THEN
-		IF x.a # 0 THEN
-			IF (x.a > 0) & (x.a <= MAX_INT32) THEN EmitRI (ORi, x.r, 8, x.a)
-			ELSE
-				r := Alloc_reg(); MoveRI (r, 8, x.a);
-				EmitRR (ORr, x.r, 8, r); Free_reg
-			END
+	IF (x.mode = mode_reg) & (x.a # 0) THEN
+		IF (x.a > 0) & (x.a <= MAX_INT32) THEN EmitRI (ORi, x.r, 8, x.a)
+		ELSE
+			r := Alloc_reg(); MoveRI (r, 8, x.a);
+			EmitRR (ORr, x.r, 8, r); Free_reg
 		END
 	END
 END Set1;
@@ -1101,17 +1098,14 @@ END Set3;
 (* Arithmetic *)
 
 PROCEDURE Op1* (op : INTEGER; VAR x : Base.Item);
-	VAR
-		s : ARRAY 2 OF SET;
-		t, cond : INTEGER;
+	VAR s : ARRAY 2 OF SET; t, cond : INTEGER;
 BEGIN
 	IF op = Scanner.not THEN
-		IF x.mode = mode_imm THEN
-			x.a := (x.a + 1) MOD 2
+		IF x.mode = mode_imm THEN x.a := (x.a + 1) MOD 2
 		ELSE
 			IF x.mode # mode_cond THEN Load_cond (x) END;
 			x.c := negated (x.c);
-			t := SHORT (x.a); x.a := x.b; x.b := t
+			t := SHORT(x.a); x.a := x.b; x.b := t
 		END
 	ELSIF op = Scanner.minus THEN
 		IF x.mode = mode_imm THEN
@@ -1121,14 +1115,14 @@ BEGIN
 				ELSE x.a := -x.a
 				END
 			ELSIF x.type = Base.set_type THEN
-				s[0] := {}; s[1] := {}; SYSTEM.PUT (SYSTEM.ADR (s), x.a);
-				s[0] := -s[0]; s[1] := -s[1]; SYSTEM.GET (SYSTEM.ADR (s), x.a)
+				s[0] := {}; s[1] := {}; SYSTEM.PUT (SYSTEM.ADR(s[0]), x.a);
+				s[0] := -s[0]; s[1] := -s[1]; SYSTEM.GET (SYSTEM.ADR(s[0]), x.a)
 			END
 		ELSE
 			load (x);
 			IF x.type.form = Base.type_integer THEN EmitR (NEGr, x.r, 8);
 				IF Base.CompilerFlag.overflow_check THEN
-					Trap (ccO, integer_check)
+					Trap (ccO, overflow_trap)
 				END
 			ELSIF x.type = Base.set_type THEN EmitR (NOTr, x.r, 8)
 			END
@@ -1182,7 +1176,7 @@ BEGIN
 
 		load (x); load (y);
 		IF Base.CompilerFlag.overflow_check THEN
-			EmitRRnd (TESTr, y.r, 8, y.r); Trap (ccLE, integer_check)
+			EmitRRnd (TESTr, y.r, 8, y.r); Trap (ccLE, overflow_trap)
 		END;
 		
 		dst := Reg_stack(-2);
@@ -1330,28 +1324,28 @@ BEGIN
 		END
 	ELSE
 		IF x.type.form = Base.type_integer THEN
-			CASE op OF
-				Scanner.plus: IntegerOp (ADDr, ADDi, x, y) |
-				Scanner.minus: Subtract (x, y) |
-				Scanner.times: IntegerOp (IMULr, IMULi, x, y) |
-				Scanner.div: Divide (Scanner.div, x, y) |
-				Scanner.mod: Divide (Scanner.mod, x, y)
+			IF op = Scanner.plus THEN IntegerOp (ADDr, ADDi, x, y)
+			ELSIF op = Scanner.minus THEN Subtract (x, y)
+			ELSIF op = Scanner.times THEN IntegerOp (IMULr, IMULi, x, y)
+			ELSIF op = Scanner.div THEN Divide (Scanner.div, x, y)
+			ELSIF op = Scanner.mod THEN Divide (Scanner.mod, x, y)
+			END;
+			IF (op = Scanner.plus) OR (op = Scanner.minus)
+			OR (op = Scanner.times) & Base.CompilerFlag.overflow_check THEN
+				Trap (ccO, overflow_trap)
 			END
 		ELSIF x.type = Base.set_type THEN
-			CASE op OF
-				Scanner.plus: BitwiseOp (ORr, x, y) |
-				Scanner.minus: Difference (x, y) |
-				Scanner.times: BitwiseOp (ANDr, x, y) |
-				Scanner.slash: BitwiseOp (XORr, x, y) |
+			IF op = Scanner.plus THEN BitwiseOp (ORr, x, y)
+			ELSIF op = Scanner.minus THEN Difference (x, y)
+			ELSIF op = Scanner.times THEN BitwiseOp (ANDr, x, y)
+			ELSIF op = Scanner.slash THEN BitwiseOp (XORr, x, y)
 			END
 		ELSIF x.type = Base.bool_type THEN
 			IF y.mode # mode_cond THEN Load_cond (y) END;
 			IF op = Scanner.and THEN
-				x.a := merged (SHORT (y.a), SHORT (x.a));
-				x.b := y.b
+				x.a := merged (SHORT(y.a), SHORT(x.a)); x.b := y.b
 			ELSIF op = Scanner.or THEN
-				x.b := merged (y.b, x.b);
-				x.a := y.a
+				x.b := merged (y.b, x.b); x.a := y.a
 			END;
 			x.c := y.c
 		END
@@ -1413,14 +1407,12 @@ PROCEDURE Open_array_index (VAR x, y : Base.Item);
 	PROCEDURE Check_array_index (VAR x, y : Base.Item);
 		VAR len : UBYTE;
 	BEGIN
-		IF Base.CompilerFlag.array_check THEN
-			len := Alloc_reg();
-			EmitRM (1, MOVr, len, 8, reg_BP, x.b);
-			IF y.mode = mode_imm THEN EmitRI (CMPi, len, 8, y.a)
-			ELSIF y.mode = mode_reg THEN EmitRR (CMPr, len, 8, y.r)
-			END;
-			Trap (ccBE, array_check); Free_reg
-		END
+		len := Alloc_reg();
+		EmitRM (1, MOVr, len, 8, reg_BP, x.b);
+		IF y.mode = mode_imm THEN EmitRI (CMPi, len, 8, y.a)
+		ELSIF y.mode = mode_reg THEN EmitRR (CMPr, len, 8, y.r)
+		END;
+		Trap (ccBE, array_trap); Free_reg
 	END Check_array_index;
 
 BEGIN (* Open_array_index *)
@@ -1431,7 +1423,8 @@ BEGIN (* Open_array_index *)
 	END;
 	
 	IF flag THEN
-		Check_array_index (x, y); size := x.type.base.size;
+		IF Base.CompilerFlag.array_check THEN Check_array_index (x, y) END;
+		size := x.type.base.size;
 		IF size > 0 THEN
 			IF y.mode = mode_imm THEN
 				IF x.mode = Base.class_ref THEN INC (x.c, SHORT(y.a) * size)
@@ -1464,11 +1457,7 @@ END Open_array_index;
 PROCEDURE Index* (VAR x, y : Base.Item);
 	VAR e, size : INTEGER;
 BEGIN
-	IF x.type.len < 0 THEN
-		IF x.b = 0 THEN x.b := SHORT (x.a) + 8 END;
-		Open_array_index (x, y)
-	ELSE
-		size := x.type.base.size;
+	IF x.type.len > 0 THEN size := x.type.base.size;
 		IF y.mode = Base.class_const THEN
 			IF (y.a >= 0) & (y.a < x.type.len) THEN
 				IF x.mode IN {Base.class_var, mode_regI} THEN
@@ -1480,8 +1469,7 @@ BEGIN
 		ELSE
 			load (y);
 			IF Base.CompilerFlag.array_check THEN
-				EmitRI (CMPi, y.r, 8, x.type.len);
-				Trap (ccAE, array_check)
+				EmitRI (CMPi, y.r, 8, x.type.len); Trap (ccAE, array_trap)
 			END;
 				
 			e := Base.log2 (size);
@@ -1499,6 +1487,7 @@ BEGIN
 			END;
 			Free_reg
 		END
+	ELSE Open_array_index (x, y)
 	END;
 	x.type := x.type.base
 END Index;
@@ -1558,8 +1547,9 @@ END SFunc_LEN;
 PROCEDURE SFunc_SHIFT* (shf : INTEGER; VAR x, y : Base.Item);
 	VAR opR, opI : INTEGER; dst : UBYTE;
 BEGIN
-	opR := 0; opI := 0;
-	ASSERT ((x.mode IN {mode_reg, mode_imm}) & (y.mode IN Base.classes_Value));
+	ASSERT (x.mode IN {mode_reg, mode_imm});
+	ASSERT (y.mode IN Base.classes_Value);
+	opR := 0; opI := 0;	
 	IF shf = 0 THEN opR := SHLcl; opI := SHLi
 	ELSIF shf = 1 THEN opR := SARcl; opI := SARi
 	ELSIF shf = 2 THEN opR := RORcl; opI := RORi
@@ -1596,7 +1586,8 @@ END SFunc_SHIFT;
 
 PROCEDURE SFunc_BIT* (VAR x, y : Base.Item);
 BEGIN
-	ASSERT ((x.mode IN {mode_reg, mode_imm}) & (y.mode IN Base.classes_Value));
+	ASSERT (x.mode IN {mode_reg, mode_imm});
+	ASSERT (y.mode IN Base.classes_Value);
 	load (x); x.mode := mode_regI; x.a := 0; load (x);
 	load (y); EmitRR (BTr, y.r, 8, x.r); Free_reg; Free_reg;
 	Set_cond (x, ccB)
@@ -1614,7 +1605,9 @@ BEGIN
 	ELSIF x.type.form = Base.type_integer THEN
 		load (x); r := Alloc_reg();
 		EmitRR (MOVr, r, 8, x.r); EmitRI8 (SHLi, r, 8, 1);
-		Trap (ccBE, integer_check); (* Check for Z and C flag *)
+		IF Base.CompilerFlag.overflow_check THEN
+			Trap (ccBE, overflow_trap) (* Check for Z and C flag *)
+		END;
 		L := pc; CondBranchS (ccAE, 0);
 		EmitR (NEGr, x.r, 8); Fix_link (L); Free_reg
 	ELSE ASSERT(FALSE)
@@ -1662,11 +1655,6 @@ BEGIN
 	ELSE load (x); PushR (x.r); Free_reg
 	END;
 	
-	IF reg_A IN curRegs THEN
-		Sys.Console_WriteInt (Scanner.charNum); Sys.Console_WriteLn;
-		Sys.Console_WriteInt (ORD(curRegs)); Sys.Console_WriteLn;
-		ASSERT(FALSE)
-	END;
 	Save_reg_stacks (pinfo);
 	
 	IF pinfo.parblksize < 32 THEN pinfo.parblksize := 32 END;
@@ -1739,7 +1727,6 @@ PROCEDURE Open_array_param*
 BEGIN
 	array := x; Ref_param (array, pinfo);
 	tp := x.type;
-	IF x.b = 0 THEN x.b := SHORT(x.a) + 8 END; (* For open array *)
 	
 	WHILE (ftype.form = Base.type_array) & (ftype.len < 0) DO
 		IF tp.len < 0 THEN
@@ -1846,6 +1833,7 @@ PROCEDURE String_comparison (op : INTEGER; VAR x, y : Base.Item);
 		charsize, L : INTEGER; r, rc : UBYTE;
 		xstr, ystr : Base.LongString;
 BEGIN
+	ASSERT (x.type.len > 0); ASSERT (y.type.len > 0); (* Open array case not implemented yet *)
 	xform := x.type.form; yform := y.type.form;
 	xsize := x.type.size; ysize := y.type.size;
 	charsize := Base.char_type.size;
@@ -1964,7 +1952,7 @@ BEGIN
 		Get_typedesc (td, typ); Load_adr (td);
 		
 		EmitRM (1, CMPr, td.r, 8, r, typ.len * 8);
-		IF guard THEN Trap (ccNZ, type_check)
+		IF guard THEN Trap (ccNZ, type_trap)
 		ELSE Set_cond (x, ccZ); x.type := Base.bool_type
 		END;
 		Free_reg; Free_reg
@@ -2423,44 +2411,40 @@ PROCEDURE Finish*;
 	VAR i, n, padding, filesize : INTEGER; k : LONGINT;
 		str : Base.LongString;
 BEGIN
-	Base.Write_symbols_file;
-
-	IF Base.CompilerFlag.main THEN Linker.imagebase := 400000H
-	ELSE Linker.imagebase := 10000000H
-	END;
-
-	Linker.code_rawsize := (512 - ip) MOD 512 + ip;
-	Linker.code_size := ip;
-	
-	Linker.data_size := staticsize + varsize;
-	Align (Linker.data_size, 4096);
-	padding := Linker.data_size - staticsize - varsize;
-	Linker.data_rawsize := padding + staticsize;
-	Align (Linker.data_rawsize, 512);
-	
-	Linker.data_rva := 1000H;
-	Linker.code_rva := Linker.data_rva + Linker.data_size;
-	n := (4096 - Linker.code_size) MOD 4096 + Linker.code_size;
-	Linker.idata_rva := Linker.code_rva + n;
-	Linker.reloc_rva := Linker.idata_rva + 4096;
-	Linker.edata_rva := Linker.reloc_rva + 4096;
-	
-	Linker.code_fadr := 400H;
-	Linker.idata_fadr := Linker.code_fadr + Linker.code_rawsize;
-	Linker.data_fadr := Linker.idata_fadr + 200H;
-	Linker.reloc_fadr := Linker.data_fadr + Linker.data_rawsize;
-	Linker.edata_fadr := Linker.reloc_fadr + 200H;
-	
-	Write_idata_section;
-	Write_data_section;
-	Write_reloc_section;
-	Write_edata_section;
-	
-	Write_PEHeader;
-
-	Sys.Close (out);
-	
 	IF ~ Scanner.haveError THEN
+		Base.Write_symbols_file;
+
+		IF Base.CompilerFlag.main THEN Linker.imagebase := 400000H
+		ELSE Linker.imagebase := 10000000H
+		END;
+
+		Linker.code_rawsize := (512 - ip) MOD 512 + ip;
+		Linker.code_size := ip;
+		
+		Linker.data_size := staticsize + varsize;
+		Align (Linker.data_size, 4096);
+		padding := Linker.data_size - staticsize - varsize;
+		Linker.data_rawsize := padding + staticsize;
+		Align (Linker.data_rawsize, 512);
+		
+		Linker.data_rva := 1000H;
+		Linker.code_rva := Linker.data_rva + Linker.data_size;
+		n := (4096 - Linker.code_size) MOD 4096 + Linker.code_size;
+		Linker.idata_rva := Linker.code_rva + n;
+		Linker.reloc_rva := Linker.idata_rva + 4096;
+		Linker.edata_rva := Linker.reloc_rva + 4096;
+		
+		Linker.code_fadr := 400H;
+		Linker.idata_fadr := Linker.code_fadr + Linker.code_rawsize;
+		Linker.data_fadr := Linker.idata_fadr + 200H;
+		Linker.reloc_fadr := Linker.data_fadr + Linker.data_rawsize;
+		Linker.edata_fadr := Linker.reloc_fadr + 200H;
+		
+		Write_idata_section; Write_data_section; Write_reloc_section;
+		Write_edata_section; Write_PEHeader;
+		Sys.Close (out);
+
+		(* Show statistics *)
 		Sys.Console_WriteString ('No errors found.'); Sys.Console_WriteLn;
 		Sys.Console_WriteString ('Code size: ');
 		Sys.Console_WriteInt (Linker.code_size); Sys.Console_WriteLn;
@@ -2469,6 +2453,7 @@ BEGIN
 		Sys.Console_WriteString ('Static data size: ');
 		Sys.Console_WriteInt (staticsize); Sys.Console_WriteLn;
 		
+		(* Rename files *)
 		str := ''; Base.Append_str (str, modid);
 		IF Base.CompilerFlag.main THEN Base.Append_str (str, '.exe')
 		ELSE Base.Append_str (str, '.dll')
@@ -2477,8 +2462,9 @@ BEGIN
 		str := ''; Base.Append_str (str, modid); Base.Append_str (str, '.sym');
 		Sys.Delete_file (str); Sys.Rename_file (tempsymfilename, str)
 	ELSE
+		Sys.Close (out);
 		Sys.Console_WriteLn; Sys.Console_WriteString ('No output generated.');
-		Sys.Delete_file (tempfilename); Sys.Delete_file (tempsymfilename)
+		Sys.Delete_file (tempfilename)
 	END
 END Finish;
 
@@ -2512,4 +2498,4 @@ BEGIN
 	reg_stacks [1].ord [8] := reg_R13;
 	reg_stacks [1].ord [9] := reg_R14;
 	reg_stacks [1].ord [10] := reg_R15
-END GeneratorWin64v2.
+END Generator.

@@ -89,8 +89,7 @@ END Read_byte;
 PROCEDURE Read_2bytes* (VAR file : FileHandle; VAR n : INTEGER);
 BEGIN
 	n := file.f.ReadByte();
-	n := n + file.f.ReadByte() * 256;
-	IF n > 8000H THEN n := n - 65536 END
+	n := n + file.f.ReadByte() * 256
 END Read_2bytes;
 
 PROCEDURE Read_string* (VAR file : FileHandle; VAR str : ARRAY OF CHAR);

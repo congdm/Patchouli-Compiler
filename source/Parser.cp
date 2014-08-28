@@ -1,7 +1,7 @@
-MODULE Parser2;
+MODULE Parser;
 
 IMPORT
-	Sys, Base, Scanner, Generator := GeneratorWin64v2, Console;
+	Sys, Base, Scanner, Generator, Console;
 	
 CONST
 	classes_Variable = Base.classes_Variable;
@@ -299,7 +299,7 @@ PROCEDURE FormalParameters (VAR parblksize : INTEGER; VAR rtype : Base.Type);
 	PROCEDURE FPSection (VAR parblksize : INTEGER);
 		VAR
 			first, obj : Base.Object; tp : Base.Type;
-			cls, par_size : INTEGER; read_only: BOOLEAN;
+			cls, par_size : INTEGER; read_only, open_array : BOOLEAN;
 	BEGIN
 		IF sym # Scanner.var THEN cls := Base.class_var
 		ELSE Scanner.Get (sym); cls := Base.class_ref
@@ -310,10 +310,10 @@ PROCEDURE FormalParameters (VAR parblksize : INTEGER; VAR rtype : Base.Type);
 			Scanner.Get (sym); ident (obj, cls);
 			IF first = Base.guard THEN first := obj END
 		END;
-		
 		Check (Scanner.colon, 'No colon after identifier list');
-			
-		FormalType (tp); par_size := Base.Word_size; read_only := FALSE;
+		
+		par_size := Base.Word_size; read_only := FALSE; open_array := FALSE;
+		FormalType (tp);
 		IF tp.form IN Base.types_Scalar THEN (* Do nothing *)
 		ELSE
 			IF cls = Base.class_var THEN
@@ -322,8 +322,8 @@ PROCEDURE FormalParameters (VAR parblksize : INTEGER; VAR rtype : Base.Type);
 				par_size := Base.Word_size * 2
 			END;
 			IF (tp.form = Base.type_array) & (tp.len < 0) THEN
-				par_size := tp.size
-			END;
+				par_size := tp.size; open_array := TRUE
+			END
 		END;
 		
 		WHILE first # Base.guard DO
@@ -333,9 +333,10 @@ PROCEDURE FormalParameters (VAR parblksize : INTEGER; VAR rtype : Base.Type);
 			first.lev := Base.cur_lev;
 			first.param := TRUE;
 			first.readonly := read_only;
+			IF open_array THEN first.val2 := SHORT(first.val) + 8 END;
 			
 			first := first.next;
-			INC (parblksize, par_size)
+			parblksize := parblksize + par_size
 		END
 	END FPSection;
 		
@@ -394,7 +395,11 @@ BEGIN (* ArrayType *)
 	
 	typ.size := typ.len * typ.base.size;
 	typ.num_ptr := typ.len * typ.base.num_ptr;
-	typ.alignment := typ.base.alignment;
+	IF (typ.size <= Base.Word_size) & (typ.size IN {1, 2, 4, 8}) THEN
+		typ.alignment := typ.size
+	ELSE typ.alignment := typ.base.alignment;
+		Base.Adjust_alignment (typ.size, typ.alignment)
+	END;
 	Generator.Check_varsize (typ.size, FALSE)
 END ArrayType;
 
@@ -478,6 +483,9 @@ BEGIN (* RecordType *)
 	Base.Open_scope ('');
 	IF sym = Scanner.ident THEN
 		FieldListSequence (typ);
+		IF (typ.size <= Base.Word_size) & (typ.size IN {1, 2, 4, 8}) THEN
+			typ.alignment := typ.size
+		END;
 		Base.Adjust_alignment (typ.size, typ.alignment)
 	END;
 	Generator.Check_varsize (typ.size, FALSE);
@@ -500,7 +508,7 @@ BEGIN
 	ELSE
 		qualident (obj);
 		IF obj = Base.guard THEN
-			Base.Register_undefined_pointer_type (typ, obj.name)
+			Base.Register_undef_type (typ, obj.name, hasExport)
 		ELSIF (obj.class = Base.class_type)
 		& (obj.type.form = Base.type_record) THEN
 			typ.base := obj.type; Check_export (obj)
@@ -581,18 +589,22 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 	END ConstanstDeclaration;
 		
 	PROCEDURE TypeDeclaration;
-		VAR obj : Base.Object;
+		VAR obj : Base.Object; error : INTEGER;
 	BEGIN
 		hasExport := FALSE;
 		identdef (obj, Base.class_type);
 		Check (Scanner.equal, 'No = in type declaration');
 		defobj := obj; StrucType (obj.type);
-		obj.type.named := TRUE;
 		
 		IF obj.type.form = Base.type_record THEN
-			Generator.Alloc_typedesc (obj.type);
+			obj.type.obj := obj; Generator.Alloc_typedesc (obj.type);
 			IF Base.undef_ptr_list # NIL THEN
-				Base.Check_undefined_pointer_list (obj)
+				error := 0;
+				Base.Check_undef_list (obj, error);
+				IF error = 0 THEN (* nothing *) ELSIF error = 1 THEN
+					Scanner.Mark ('This record type is not exported')
+				ELSE ASSERT(FALSE)
+				END
 			END
 		END
 	END TypeDeclaration;
@@ -705,7 +717,7 @@ BEGIN (* DeclarationSequence *)
 			Check (Scanner.semicolon, 'No ; after type declaration')
 		END;
 		IF Base.undef_ptr_list # NIL THEN
-			Base.Cleanup_undefined_pointer_list;
+			Base.Cleanup_undef_list;
 			Scanner.Mark ('There are pointer types with undefined base type')
 		END
 	END;
@@ -1607,4 +1619,4 @@ BEGIN
 	END
 END Module;
 
-END Parser2.
+END Parser.

@@ -1,7 +1,7 @@
 MODULE AyaCompile;
 
 IMPORT
-	CPmain, Sys, Scanner, Parser := Parser2, Console, ProgArgs;
+	CPmain, Sys, Scanner, Parser, Console, ProgArgs;
 	
 VAR
 	str : ARRAY 256 OF CHAR;

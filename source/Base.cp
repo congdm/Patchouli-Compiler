@@ -47,7 +47,7 @@ TYPE
 	LongString* = ARRAY max_str_len + 1 OF CHAR;
 
 	Type* = POINTER TO RECORD
-		predefined*, import*, named* : BOOLEAN;
+		predefined*, unsafe*, import* : BOOLEAN;
 		form* : INTEGER;
 		fields*, obj* : Object;
 		base*, next* : Type;
@@ -73,8 +73,7 @@ TYPE
 	END;
 		
 	UndefPtrList* = POINTER TO RECORD
-		ptr_typ : Type;
-		base_typ_name : String;
+		exported : BOOLEAN; typ : Type; basename : String;
 		next : UndefPtrList
 	END;
 
@@ -95,7 +94,7 @@ VAR
 	strpos : INTEGER;
 	
 	CompilerFlag* : RECORD
-		array_check*, overflow_check* : BOOLEAN;
+		array_check*, overflow_check*, type_check* : BOOLEAN;
 		alignment*, main*, console* : BOOLEAN
 	END;
 	
@@ -295,10 +294,11 @@ PROCEDURE New_typ* (VAR typ : Type; form : INTEGER);
 BEGIN
 	NEW (typ);
 	typ.predefined := FALSE;
+	typ.unsafe := FALSE;
 	typ.import := FALSE;
 	typ.form := form;
 	typ.num_ptr := 0;
-	typ.ref := 0;
+	typ.ref := 0
 END New_typ;
 
 PROCEDURE New_predefined_typ (VAR typ : Type; form, size, ref : INTEGER);
@@ -330,42 +330,40 @@ BEGIN
 	top_scope.next.val2 := n2
 END Enter2;
 	
-PROCEDURE Register_undefined_pointer_type* (typ : Type; base_typ_name : String);
+PROCEDURE Register_undef_type* (typ : Type; basename : String; export : BOOLEAN);
 	VAR undef : UndefPtrList;
 BEGIN
-	NEW (undef);
-	undef.ptr_typ := typ;
-	typ.base := int_type;
-	undef.base_typ_name := base_typ_name;
-	undef.next := undef_ptr_list;
-	undef_ptr_list := undef
-END Register_undefined_pointer_type;
+	NEW (undef); undef.typ := typ; undef.basename := basename;
+	undef.exported := export; typ.base := int_type;
+	undef.next := undef_ptr_list; undef_ptr_list := undef
+END Register_undef_type;
 	
-PROCEDURE Check_undefined_pointer_list* (obj : Object);
+PROCEDURE Check_undef_list* (obj : Object; VAR error : INTEGER);
 	VAR p, prev : UndefPtrList;
 BEGIN
 	p := undef_ptr_list;
 	REPEAT
-		IF p.base_typ_name = obj.name THEN
-			p.ptr_typ.base := obj.type;
+		IF p.basename # obj.name THEN prev := p; p := p.next
+		ELSE
+			p.typ.base := obj.type;
+			IF ~ p.exported OR obj.export THEN error := 0 (* Good *)
+			ELSE error := 1
+			END;
 			IF p = undef_ptr_list THEN undef_ptr_list := p.next
 			ELSE prev.next := p.next
 			END;
 			p := NIL
-		ELSE
-			prev := p;
-			p := p.next
 		END
 	UNTIL p = NIL
-END Check_undefined_pointer_list;
+END Check_undef_list;
 	
-PROCEDURE Cleanup_undefined_pointer_list*;
+PROCEDURE Cleanup_undef_list*;
 BEGIN
 	REPEAT
-		undef_ptr_list.ptr_typ.base := nilrecord_type;
+		undef_ptr_list.typ.base := nilrecord_type;
 		undef_ptr_list := undef_ptr_list.next
 	UNTIL undef_ptr_list = NIL
-END Cleanup_undefined_pointer_list;
+END Cleanup_undef_list;
 	
 PROCEDURE Adjust_alignment* (VAR offset : INTEGER; alignment : INTEGER);
 	VAR i : INTEGER;
@@ -379,14 +377,6 @@ BEGIN
 		END
 	END
 END Adjust_alignment;
-
-PROCEDURE Set_compiler_flag* (pragma : ARRAY OF CHAR);
-BEGIN
-	IF pragma = 'MAIN' THEN CompilerFlag.main := TRUE
-	ELSIF pragma = 'CONSOLE' THEN
-		CompilerFlag.main := TRUE; CompilerFlag.console := TRUE
-	END
-END Set_compiler_flag;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -693,8 +683,8 @@ END Get_string;
 PROCEDURE Detect_typeI (VAR typ : Type);
 	VAR ref : INTEGER;
 BEGIN
-	ref := 0;
-	Sys.Read_2bytes (symfile, ref);
+	ref := 0; Sys.Read_2bytes (symfile, ref);
+	IF ref > 8000H THEN ref := ref + 0FFFF0000H END; 
 	IF ref < -1 THEN
 		IF ref = -2 THEN typ := int_type
 		ELSIF ref = -3 THEN typ := bool_type
@@ -978,6 +968,24 @@ BEGIN
 	Sys.Write_byte (symfile, class_head);
 	Sys.Close (symfile)
 END Write_symbols_file;
+
+PROCEDURE Set_compiler_flag* (pragma : ARRAY OF CHAR);
+BEGIN
+	IF pragma = 'MAIN' THEN CompilerFlag.main := TRUE
+	ELSIF pragma = 'CONSOLE' THEN
+		CompilerFlag.main := TRUE; CompilerFlag.console := TRUE
+	END
+END Set_compiler_flag;
+
+PROCEDURE Reset_compiler_flag*;
+BEGIN
+	CompilerFlag.array_check := TRUE;
+	CompilerFlag.overflow_check := TRUE;
+	CompilerFlag.type_check := TRUE;
+	CompilerFlag.alignment := TRUE;
+	CompilerFlag.main := FALSE;
+	CompilerFlag.console := FALSE
+END Reset_compiler_flag;
 	
 PROCEDURE Init* (modid : String);
 BEGIN
@@ -1024,15 +1032,6 @@ BEGIN
 	
 	strpos := 0
 END Init;
-
-PROCEDURE Reset_compiler_flag*;
-BEGIN
-	CompilerFlag.array_check := TRUE;
-	CompilerFlag.overflow_check := TRUE;
-	CompilerFlag.alignment := TRUE;
-	CompilerFlag.main := FALSE;
-	CompilerFlag.console := FALSE
-END Reset_compiler_flag;
 	
 BEGIN
 	_Export_type := Export_type; _Import_type := Import_type;
