@@ -1467,7 +1467,7 @@ BEGIN
 	REPEAT
 		IF ~ ((sym = Scanner.ident)
 				OR (sym >= Scanner.if) & (sym <= Scanner.for)
-				OR (sym = Scanner.semicolon)) THEN
+				OR (sym >= Scanner.semicolon)) THEN
 			Scanner.Mark (err1);
 			REPEAT Scanner.Get (sym)
 			UNTIL (sym = Scanner.ident) OR (sym >= Scanner.if)
@@ -1567,8 +1567,9 @@ PROCEDURE Module*;
 	VAR modid : Base.String;
 		varsize : INTEGER;
 BEGIN
-	Scanner.Get (sym); Check (Scanner.module, 'No MODULE keyword');
+	Base.Reset_compiler_flag;
 	
+	Scanner.Get (sym); Check (Scanner.module, 'No MODULE keyword');
 	IF sym = Scanner.ident THEN modid := Scanner.id; Scanner.Get (sym)
 	ELSE modid := '@'; Scanner.Mark ('No module name')
 	END;

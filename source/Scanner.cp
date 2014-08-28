@@ -47,6 +47,7 @@ CONST
 	array* = 79; record* = 80; pointer* = 81;
 	const* = 82; type* = 83; var* = 84; procedure* = 85;
 	begin* = 86; import* = 87; module* = 88;
+	
 	eof* = 89;
 	
 	errLargeNumber = 'This number is too large to handle (compiler limit)';
@@ -65,19 +66,13 @@ VAR
 	
 	srcfile : Sys.FileHandle;
 	ch : CHAR;
-	charNum, prevCharNum : INTEGER;
+	charNum*, prevCharNum : INTEGER;
 	eofFlag : BOOLEAN;
-	
-	Pragma* : RECORD
-		exe* : BOOLEAN
-	END;
 
 PROCEDURE Init* (VAR file : Sys.FileHandle);
 BEGIN
 	srcfile := file; ch := 0X; charNum := 0; prevCharNum := 0;
-	haveError := FALSE; eofFlag := FALSE;
-	
-	Pragma.exe := FALSE
+	haveError := FALSE; eofFlag := FALSE
 END Init;
 
 PROCEDURE Read_char;
@@ -392,27 +387,24 @@ BEGIN
 	str[i] := 0X; Read_char
 END Get_string;
 
+PROCEDURE Set_pragma (VAR ch : CHAR);
+	VAR pragma : Base.LongString; i : INTEGER;
+BEGIN
+	Read_char; i := 0;
+	WHILE (i < LEN(pragma) - 1) & (ch # '*') & ~ eofFlag DO
+		pragma[i] := ch; Read_char; i := i + 1
+	END;
+	pragma[i] := 0X;
+	IF ch = '*' THEN Base.Set_compiler_flag (pragma)
+	ELSE Mark ('Wrong compiler directive')
+	END
+END Set_pragma;
+
 PROCEDURE Skip_comment (lev : INTEGER);
 	VAR exit : BOOLEAN;
-
-	PROCEDURE Set_pragma;
-		VAR pragma : ARRAY 4 OF CHAR;
-			i : INTEGER;
-	BEGIN
-		Read_char; i := 0;
-		WHILE (i < 3) & (ch # '*') & ~ eofFlag DO
-			pragma[i] := ch; Read_char; i := i + 1
-		END;
-		pragma[i] := 0X;
-		
-		IF pragma = 'EXE' THEN Pragma.exe := TRUE
-		ELSIF pragma = 'DLL' THEN Pragma.exe := FALSE
-		END
-	END Set_pragma;
-
 BEGIN
 	ASSERT (lev >= 0);
-	IF (ch = '$') & (lev = 0) THEN Set_pragma END;
+	IF (ch = '$') & (lev = 0) THEN Set_pragma (ch) END;
 	exit := FALSE;
 	WHILE ~ eofFlag & ~ exit DO
 		IF ch = '(' THEN Read_char;

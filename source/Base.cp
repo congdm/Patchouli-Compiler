@@ -41,11 +41,6 @@ CONST
 	types_Numberic* = {type_integer, type_real};
 	types_Character* = {type_char, type_string};
 	types_HasExt* = {type_record, type_pointer};
-	
-	(* Compiler flag *)
-	array_bound_check* = 0;
-	integer_overflow_check* = 1;
-	alignment_flag* = 17;
 
 TYPE
 	String* = ARRAY max_ident_len + 1 OF CHAR;
@@ -96,13 +91,13 @@ VAR
 	symfile : Sys.FileHandle;
 	importTypes : ARRAY 1024 OF Type;
 	
-	compiler_flag* : SET;
-	CompilerFlag* : RECORD
-		overflow_check*, array_check* : BOOLEAN
-	END;
-	
 	stringdata : ARRAY 65536 OF CHAR;
 	strpos : INTEGER;
+	
+	CompilerFlag* : RECORD
+		array_check*, overflow_check* : BOOLEAN;
+		alignment*, main*, console* : BOOLEAN
+	END;
 	
 	(* Forward decl procedure *)
 	_Export_type : PROCEDURE (typ : Type);
@@ -375,17 +370,23 @@ END Cleanup_undefined_pointer_list;
 PROCEDURE Adjust_alignment* (VAR offset : INTEGER; alignment : INTEGER);
 	VAR i : INTEGER;
 BEGIN
-	IF alignment_flag IN compiler_flag THEN
-		IF alignment # 0 THEN
-			i := offset MOD alignment;
-			IF i # 0 THEN
-				IF offset < 0 THEN DEC (offset, i)
-				ELSE INC (offset, alignment - i)
-				END
+	IF CompilerFlag.alignment & (alignment # 0) THEN
+		i := offset MOD alignment;
+		IF i # 0 THEN
+			IF offset < 0 THEN DEC (offset, i)
+			ELSE INC (offset, alignment - i)
 			END
 		END
 	END
 END Adjust_alignment;
+
+PROCEDURE Set_compiler_flag* (pragma : ARRAY OF CHAR);
+BEGIN
+	IF pragma = 'MAIN' THEN CompilerFlag.main := TRUE
+	ELSIF pragma = 'CONSOLE' THEN
+		CompilerFlag.main := TRUE; CompilerFlag.console := TRUE
+	END
+END Set_compiler_flag;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -1021,9 +1022,17 @@ BEGIN
 	Enter (class_sproc, 208, 'ORD', int_type);
 	Enter (class_sproc, 209, 'CHR', char_type);
 	
-	strpos := 0;
-	compiler_flag := {integer_overflow_check, array_bound_check, alignment_flag}
+	strpos := 0
 END Init;
+
+PROCEDURE Reset_compiler_flag*;
+BEGIN
+	CompilerFlag.array_check := TRUE;
+	CompilerFlag.overflow_check := TRUE;
+	CompilerFlag.alignment := TRUE;
+	CompilerFlag.main := FALSE;
+	CompilerFlag.console := FALSE
+END Reset_compiler_flag;
 	
 BEGIN
 	_Export_type := Export_type; _Import_type := Import_type;

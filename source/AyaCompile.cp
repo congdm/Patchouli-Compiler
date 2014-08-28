@@ -8,14 +8,13 @@ VAR
 	args_num : INTEGER;
 	
 PROCEDURE Compile (filename : ARRAY OF CHAR);
-	VAR
-		in : Sys.FileHandle;
-	BEGIN
+	VAR in : Sys.FileHandle;
+BEGIN
 	Sys.Open (in, filename);
 	Scanner.Init (in);
 	Parser.Module;
 	Sys.Close (in)
-	END Compile;
+END Compile;
 	
 PROCEDURE Valid_filename (filename : ARRAY OF CHAR) : BOOLEAN;
 	BEGIN

@@ -16,8 +16,8 @@ CONST
 	tempfilename = 'output.temp_';
 	tempsymfilename = 'sym.temp_';
 	
-	integer_check = Base.integer_overflow_check;
-	array_check = Base.array_bound_check;
+	integer_check = 0;
+	array_check = 1;
 	type_check = 2;
 	
 	mode_reg = Base.mode_reg; mode_imm = Base.class_const;
@@ -907,8 +907,9 @@ END Load_to_reg;
 PROCEDURE load* (VAR x : Base.Item);
 	VAR rsize : UBYTE; L : INTEGER;
 BEGIN
-	ASSERT ((x.mode IN Base.classes_Value) & (x.type.size IN {1, 2, 4, 8})
-			OR (x.mode = Base.class_proc));
+	IF x.mode IN Base.classes_Value THEN ASSERT (x.type.size IN {1, 2, 4, 8})
+	ELSE ASSERT (x.mode = Base.class_proc)
+	END;
 
 	IF x.mode # mode_reg THEN
 		IF x.mode # mode_cond THEN
@@ -1126,7 +1127,7 @@ BEGIN
 		ELSE
 			load (x);
 			IF x.type.form = Base.type_integer THEN EmitR (NEGr, x.r, 8);
-				IF integer_check IN Base.compiler_flag THEN
+				IF Base.CompilerFlag.overflow_check THEN
 					Trap (ccO, integer_check)
 				END
 			ELSIF x.type = Base.set_type THEN EmitR (NOTr, x.r, 8)
@@ -1180,7 +1181,7 @@ BEGIN
 		r := 0; r2 := 0;
 
 		load (x); load (y);
-		IF integer_check IN Base.compiler_flag THEN
+		IF Base.CompilerFlag.overflow_check THEN
 			EmitRRnd (TESTr, y.r, 8, y.r); Trap (ccLE, integer_check)
 		END;
 		
@@ -1412,7 +1413,7 @@ PROCEDURE Open_array_index (VAR x, y : Base.Item);
 	PROCEDURE Check_array_index (VAR x, y : Base.Item);
 		VAR len : UBYTE;
 	BEGIN
-		IF array_check IN Base.compiler_flag THEN
+		IF Base.CompilerFlag.array_check THEN
 			len := Alloc_reg();
 			EmitRM (1, MOVr, len, 8, reg_BP, x.b);
 			IF y.mode = mode_imm THEN EmitRI (CMPi, len, 8, y.a)
@@ -1478,7 +1479,7 @@ BEGIN
 			END
 		ELSE
 			load (y);
-			IF array_check IN Base.compiler_flag THEN
+			IF Base.CompilerFlag.array_check THEN
 				EmitRI (CMPi, y.r, 8, x.type.len);
 				Trap (ccAE, array_check)
 			END;
@@ -1661,6 +1662,11 @@ BEGIN
 	ELSE load (x); PushR (x.r); Free_reg
 	END;
 	
+	IF reg_A IN curRegs THEN
+		Sys.Console_WriteInt (Scanner.charNum); Sys.Console_WriteLn;
+		Sys.Console_WriteInt (ORD(curRegs)); Sys.Console_WriteLn;
+		ASSERT(FALSE)
+	END;
 	Save_reg_stacks (pinfo);
 	
 	IF pinfo.parblksize < 32 THEN pinfo.parblksize := 32 END;
@@ -1738,7 +1744,7 @@ BEGIN
 	WHILE (ftype.form = Base.type_array) & (ftype.len < 0) DO
 		IF tp.len < 0 THEN
 			len.mode := Base.class_var; len.lev := x.lev; len.a := x.b;
-			INC (x.b, 8)
+			len.type := Base.int_type; x.b := x.b + 8
 		ELSE Make_const (len, Base.int_type, tp.len)
 		END;
 		Value_param (len, pinfo);		
@@ -2005,7 +2011,7 @@ PROCEDURE Module_init*;
 		str : Base.LongString;
 		modul, obj : Base.Object; exit : BOOLEAN;
 BEGIN
-	IF ~ Scanner.Pragma.exe THEN
+	IF ~ Base.CompilerFlag.main THEN
 		EmitRI (CMPi, reg_D, 4, 1);
 		L := pc; CondBranchS (ccZ, 0);
 		EmitBare (LEAVE); EmitBare (RET);
@@ -2069,7 +2075,7 @@ BEGIN
 		ProcState.parlist := NIL
 	END;
 	ProcState.memstack := 0;
-	ProcState.usedRegs := {};
+	ProcState.usedRegs := {}; curRegs := {};
 	ProcState.adr := ip;
 	Reset_reg_stack; pc := 1
 END Enter;
@@ -2120,11 +2126,10 @@ BEGIN (* Return *)
 		paramRegs [0] := reg_C; paramRegs [1] := reg_D;
 		paramRegs [2] := reg_R8; paramRegs [3] := reg_R9;
 		obj := ProcState.parlist; i := 0; k := 0;
-		WHILE obj # Base.guard DO
+		WHILE (i < 4) & (obj # Base.guard) DO
 			IF k = 0 THEN k := Param_size (obj) END;
 			EmitRM (0, MOVr, paramRegs [i], 8, reg_BP, 16 + i * 8);
-			INC (i); DEC (k, 8);
-			IF k = 0 THEN obj := obj.next END
+			i := i + 1; k := k - 8; IF k = 0 THEN obj := obj.next END
 		END
 	END;
 	
@@ -2135,7 +2140,7 @@ END Return;
 
 PROCEDURE Module_exit*;
 BEGIN
-	IF Scanner.Pragma.exe THEN
+	IF Base.CompilerFlag.main THEN
 		EmitRI (SUBi, reg_SP, 8, 32);
 		EmitRR (XORr, reg_C, 4, reg_C);
 		EmitCallSv (-56); (* ExitProcess *)
@@ -2247,7 +2252,7 @@ PROCEDURE Write_edata_section;
 		namesize, tablesize, expno, rva : INTEGER;
 BEGIN
 	name := ''; Base.Append_str (name, modid);
-	IF Scanner.Pragma.exe THEN Base.Append_str (name, '.exe')
+	IF Base.CompilerFlag.main THEN Base.Append_str (name, '.exe')
 	ELSE Base.Append_str (name, '.dll')
 	END;
 	namesize := Base.Str_len (name) + 1;
@@ -2341,7 +2346,7 @@ BEGIN
 	Sys.Write_2bytes (out, 240);
 	
 	(* Characteristics *)
-	IF Scanner.Pragma.exe THEN Sys.Write_2bytes (out, 20H + 2 + 1)
+	IF Base.CompilerFlag.main THEN Sys.Write_2bytes (out, 20H + 2 + 1)
 	ELSE Sys.Write_2bytes (out, 2000H + 20H + 2)
 	END;
 	
@@ -2367,10 +2372,13 @@ BEGIN
 	Sys.Write_4bytes (out, k);
 	Sys.Write_4bytes (out, 400H);
 	Sys.SeekRel (out, 4);
-	Sys.Write_2bytes (out, 2); (* Subsys = GUI *)
+	IF Base.CompilerFlag.console THEN
+		Sys.Write_2bytes (out, 3) (* Subsys = Console *)
+	ELSE Sys.Write_2bytes (out, 2) (* Subsys = GUI *)
+	END;
 	
 	(* DLL Characteristics *)
-	IF Scanner.Pragma.exe THEN Sys.Write_2bytes (out, 0)
+	IF Base.CompilerFlag.main THEN Sys.Write_2bytes (out, 0)
 	ELSE Sys.Write_2bytes (out, 100H + 40H)
 	END;
 	
@@ -2417,7 +2425,7 @@ PROCEDURE Finish*;
 BEGIN
 	Base.Write_symbols_file;
 
-	IF Scanner.Pragma.exe THEN Linker.imagebase := 400000H
+	IF Base.CompilerFlag.main THEN Linker.imagebase := 400000H
 	ELSE Linker.imagebase := 10000000H
 	END;
 
@@ -2462,7 +2470,7 @@ BEGIN
 		Sys.Console_WriteInt (staticsize); Sys.Console_WriteLn;
 		
 		str := ''; Base.Append_str (str, modid);
-		IF Scanner.Pragma.exe THEN Base.Append_str (str, '.exe')
+		IF Base.CompilerFlag.main THEN Base.Append_str (str, '.exe')
 		ELSE Base.Append_str (str, '.dll')
 		END;
 		Sys.Delete_file (str); Sys.Rename_file (tempfilename, str);

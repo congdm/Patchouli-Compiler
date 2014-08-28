@@ -1,7 +1,7 @@
 MODULE Console;
 
 IMPORT
-	SYSTEM, Win := WinApi;
+	SYSTEM, Win := WinApi, Strings;
 	
 VAR
 	stdin, stdout : INTEGER;
@@ -22,6 +22,14 @@ BEGIN
 	res := Win.Kernel.WriteConsoleW (stdout, SYSTEM.ADR(str), 2,
 		SYSTEM.ADR(nCharWritten), 0)
 END WriteLn;
+
+PROCEDURE WriteString* (str : ARRAY OF CHAR);
+	VAR nWritten, res : INTEGER;
+BEGIN
+	nWritten := 0;
+	res := Win.Kernel.WriteConsoleW (stdout, SYSTEM.ADR(str),
+		Strings.Length(str), SYSTEM.ADR(nWritten), 0)
+END WriteString;
 
 PROCEDURE Read* (VAR ch : CHAR);
 	VAR nCharRead, res : INTEGER;

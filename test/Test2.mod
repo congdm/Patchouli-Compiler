@@ -1,5 +1,5 @@
 MODULE Test2;
-(*$EXE*)
+(*$MAIN*)
 
 IMPORT
 	SYSTEM, WinApi;

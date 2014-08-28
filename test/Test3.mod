@@ -1,5 +1,5 @@
 MODULE Test3;
-(*$EXE*)
+(*$CONSOLE*)
 
 IMPORT
 	Console;
@@ -7,8 +7,8 @@ IMPORT
 PROCEDURE Main;
 	VAR ch : CHAR;
 BEGIN
-	Console.Write ('C'); Console.WriteLn;
-	Console.Read (ch)
+	Console.WriteString ('Hello, World!');
+	Console.WriteLn
 END Main;
 	
 BEGIN

@@ -59,8 +59,13 @@ END Delete;
 PROCEDURE Replace* (source : ARRAY OF CHAR; pos : INTEGER;
 		VAR dest : ARRAY OF CHAR);
 BEGIN
-	Delete (source, pos, Length (dest));
+	Delete (dest, pos, Length (source));
 	Insert (source, pos, dest)
 END Replace;
+
+PROCEDURE Extract* (source : ARRAY OF CHAR; pos, n : INTEGER;
+		VAR dest : ARRAY OF CHAR);
+BEGIN
+END Extract;
 
 END Strings.
