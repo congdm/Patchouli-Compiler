@@ -18,7 +18,7 @@ https://github.com/congdm/AyaCompiler/wiki/Niklaus-Wirth-was-right-after-all
 
 ```oberon
 MODULE Test;
-(*$EXE*)
+(*$MAIN*)
 
 IMPORT
 	SYSTEM;
