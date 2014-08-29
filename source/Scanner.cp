@@ -387,21 +387,22 @@ BEGIN
 	str[i] := 0X; Read_char
 END Get_string;
 
-PROCEDURE Set_pragma (VAR ch : CHAR);
-	VAR pragma : Base.LongString; i : INTEGER;
-BEGIN
-	Read_char; i := 0;
-	WHILE (i < LEN(pragma) - 1) & (ch # '*') & ~ eofFlag DO
-		pragma[i] := ch; Read_char; i := i + 1
-	END;
-	pragma[i] := 0X;
-	IF ch = '*' THEN Base.Set_compiler_flag (pragma)
-	ELSE Mark ('Wrong compiler directive')
-	END
-END Set_pragma;
-
 PROCEDURE Skip_comment (lev : INTEGER);
 	VAR exit : BOOLEAN;
+	
+	PROCEDURE Set_pragma (VAR ch : CHAR);
+		VAR pragma : Base.LongString; i : INTEGER;
+	BEGIN
+		Read_char; i := 0;
+		WHILE (i < LEN(pragma) - 1) & (ch # '*') & ~ eofFlag DO
+			pragma[i] := ch; Read_char; i := i + 1
+		END;
+		pragma[i] := 0X;
+		IF ch = '*' THEN Base.Set_compiler_flag (pragma)
+		ELSE Mark ('Wrong compiler directive')
+		END
+	END Set_pragma;
+	
 BEGIN
 	ASSERT (lev >= 0);
 	IF (ch = '$') & (lev = 0) THEN Set_pragma (ch) END;

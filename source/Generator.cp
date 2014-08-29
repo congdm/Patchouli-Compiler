@@ -637,45 +637,6 @@ BEGIN
 	staticlist := x.type
 END Make_string;
 
-(*
-PROCEDURE Fill_pointer_offset (
-	VAR i : INTEGER; offset : INTEGER; type : Base.Type
-);
-	VAR field : Base.Object;
-		n, k, ptrcnt : INTEGER;
-BEGIN
-	ptrcnt := type.num_ptr;
-	IF type.form = Base.type_record THEN
-		field := type.fields;
-		REPEAT
-			k := field.type.num_ptr;
-			IF k > 0 THEN
-				ptrcnt := ptrcnt - k; n := offset + SHORT(field.val);
-				IF field.type.form = Base.type_pointer THEN
-					SYSTEM.PUT (SYSTEM.ADR (staticdata[i]), n); i := i + 4
-				ELSE Fill_pointer_offset (i, n, field.type)
-				END
-			END;
-			field := field.next
-		UNTIL ptrcnt <= 0; ASSERT (ptrcnt = 0)
-	ELSIF type.form = Base.type_array THEN
-		k := type.base.num_ptr; type := type.base;
-		IF type.form = Base.type_pointer THEN
-			REPEAT
-				SYSTEM.PUT (SYSTEM.ADR (staticdata[i]), offset);
-				i := i + 4; DEC (ptrcnt); offset := offset + 8
-			UNTIL ptrcnt <= 0; ASSERT (ptrcnt = 0)
-		ELSE
-			REPEAT
-				Fill_pointer_offset (i, offset, type);
-				ptrcnt := ptrcnt - k; offset := offset + type.size
-			UNTIL ptrcnt <= 0; ASSERT (ptrcnt = 0)
-		END
-	ELSE ASSERT(FALSE)
-	END
-END Fill_pointer_offset;
-*)
-
 PROCEDURE Alloc_typedesc* (type : Base.Type);
 	VAR tdsize, i, n : INTEGER;
 BEGIN
@@ -1995,8 +1956,8 @@ BEGIN
 END Write_padding;
 
 PROCEDURE Module_init*;
-	VAR i, framesize, L : INTEGER; n1, n2, n3, n4 : LONGINT;
-		str : Base.LongString;
+	VAR i, framesize, L : INTEGER; n1, n2, n3, n4 : LONGINT; r : UBYTE;
+		str : Base.LongString; tp : Base.Type; td : Base.Item;
 		modul, obj : Base.Object; exit : BOOLEAN;
 BEGIN
 	IF ~ Base.CompilerFlag.main THEN
@@ -2006,12 +1967,12 @@ BEGIN
 		Fix_link (L)
 	END;
 	
+	(* Import other modules, if there are any *)
 	modul := Base.universe.next;
 	WHILE (modul # Base.guard)
 	& ((modul.class # Base.class_module) OR (modul.realname = 'SYSTEM')) DO
 		modul := modul.next
 	END;
-	
 	IF modul # Base.guard THEN
 		framesize := (Base.max_ident_len + 5) * 2;
 		framesize := (-framesize) MOD 16 + framesize + 32;
@@ -2046,6 +2007,19 @@ BEGIN
 			IF modul.realname = 'SYSTEM' THEN modul := modul.next END
 		UNTIL modul.class # Base.class_module;
 		EmitRI (ADDi, reg_SP, 8, framesize)
+	END;
+	
+	(* Fill value into type descriptors *)
+	tp := staticlist;
+	WHILE tp # NIL DO
+		IF (tp.form = Base.type_record) & (tp.base # NIL) THEN
+			Get_typedesc (td, tp); Load_adr (td); r := td.r;
+			REPEAT EmitRM (0, MOVr, td.r, 8, r, tp.len * 8); Free_reg;
+				tp := tp.base; Get_typedesc (td, tp); Load_adr (td)
+			UNTIL tp.len = 0;
+			Free_reg
+		END;
+		tp := tp.next
 	END
 END Module_init;
 
@@ -2140,9 +2114,11 @@ END Module_exit;
 PROCEDURE Check_varsize* (n : LONGINT; g : BOOLEAN);
 BEGIN
 	IF n > MAX_INT32 THEN
-		Scanner.Mark ('Type or variables area size > 2 GB Limit!'); n := 0
+		Scanner.Mark ('Type size or variables area size > 2 GB Limit!'); n := 0
 	END;
-	IF g THEN varsize := SHORT (n); staticbase := -varsize END
+	IF g THEN varsize := SHORT(n); Base.Adjust_alignment (varsize, 16);
+		staticbase := -varsize
+	END
 END Check_varsize;
 
 (* -------------------------------------------------------------------------- *)
@@ -2151,7 +2127,7 @@ END Check_varsize;
 
 PROCEDURE Init* (modname : Base.String);
 BEGIN
-	ip := 0; varbase := 0; staticsize := 56; modid := modname;
+	ip := 0; varbase := 0; staticsize := 128; modid := modname;
 	Sys.Rewrite (out, tempfilename);
 	Sys.Seek (out, 400H)
 END Init;
@@ -2205,6 +2181,41 @@ BEGIN
 	Sys.Write_ansi_str (out, 'HeapFree')
 END Write_idata_section;
 
+PROCEDURE Fill_pointer_offset (offset : INTEGER; type : Base.Type);
+	VAR field : Base.Object; n, k, ptrcnt : INTEGER;
+BEGIN
+	ptrcnt := type.num_ptr;
+	IF type.form = Base.type_record THEN
+		IF (type.base # NIL) & (type.base.num_ptr > 0) THEN
+			Fill_pointer_offset (offset, type.base)
+		END;
+		field := type.fields;
+		REPEAT
+			k := field.type.num_ptr;
+			IF k > 0 THEN
+				ptrcnt := ptrcnt - k; n := offset + SHORT(field.val);
+				IF field.type.form = Base.type_pointer THEN
+					Sys.Write_4bytes (out, n)
+				ELSE Fill_pointer_offset (n, field.type)
+				END
+			END;
+			field := field.next
+		UNTIL ptrcnt <= 0; ASSERT (ptrcnt = 0)
+	ELSIF type.form = Base.type_array THEN
+		k := type.base.num_ptr; type := type.base;
+		IF type.form = Base.type_pointer THEN
+			REPEAT Sys.Write_4bytes (out, offset); ptrcnt := ptrcnt - 1;
+				offset := offset + 8
+			UNTIL ptrcnt <= 0; ASSERT (ptrcnt = 0)
+		ELSE
+			REPEAT
+				Fill_pointer_offset (offset, type); ptrcnt := ptrcnt - k;
+				offset := offset + type.size
+			UNTIL ptrcnt <= 0; ASSERT (ptrcnt = 0)
+		END
+	ELSE ASSERT(FALSE)
+	END
+END Fill_pointer_offset;
 
 PROCEDURE Write_data_section;
 	VAR elm : Base.Type; basefadr, i, n : INTEGER;
@@ -2221,7 +2232,11 @@ BEGIN
 				n := ORD (str[i]); Sys.Write_2bytes (out, n); i := i + 1
 			END
 		ELSIF elm.form = Base.type_record THEN
-			(* Implement later *)
+			Sys.Seek (out, basefadr + elm.tdAdr);
+			Sys.Write_8bytes (out, elm.size);
+			Sys.SeekRel (out, (Base.max_extension - 1) * 8);
+			IF elm.num_ptr > 0 THEN Fill_pointer_offset (0, elm) END;
+			Sys.Write_4bytes (out, -1)
 		END;
 		elm := elm.next
 	END;

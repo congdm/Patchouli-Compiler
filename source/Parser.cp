@@ -830,33 +830,30 @@ END ProcedureCall;
 PROCEDURE StandProc (VAR x : Base.Item);
 	VAR y : Base.Item;
 	
-	(*
-	PROCEDURE SProc_NEW;
-		VAR
-			x : Base.Item;
+	PROCEDURE SProc_NEW (adr : INTEGER);
+		CONST err1 = 'Not able to NEW read-only variable';
+			err2 = 'Expect a pointer variable';
+		VAR x, par : Base.Item;
 	BEGIN
 		expression (x);
-		IF (x.mode IN Base.cls_Variable)
-		& (x.type.form = Base.type_pointer) THEN
-			IF Base.flag_readOnly IN x.flag THEN
-				Scanner.Mark ('Not able to NEW read-only variable')
-			ELSE Generator.SProc_NEW (x)
+		IF (x.mode IN classes_Variable) & (x.type.form = Base.type_pointer) THEN
+			IF x.readonly THEN (* Generator.SProc_NEW (x) *)
+			ELSE Scanner.Mark (err1); Generator.Free_item (x)
 			END
-		ELSE Scanner.Mark ('Expect a pointer variable')
+		ELSE Scanner.Mark (err2); Generator.Free_item (x)
 		END
 	END SProc_NEW;
 	
 	PROCEDURE SProc_DISPOSE;
-		VAR
-			x : Base.Item;
+		CONST err1 = 'Expect a pointer value';
+		VAR x, par : Base.Item;
 	BEGIN
 		expression (x);
-		IF (x.mode IN Base.cls_HasValue)
-		& (x.type.form = Base.type_pointer) THEN Generator.SProc_DISPOSE (x)
-		ELSE Scanner.Mark ('Expect a pointer')
+		IF (x.mode IN classes_Value) & (x.type.form = Base.type_pointer) THEN
+			(* Generator.SProc_NEW (x) *)
+		ELSE Scanner.Mark (err1); Generator.Free_item (x)
 		END
 	END SProc_DISPOSE;
-	*)
 		
 	PROCEDURE SProc_GET;
 		VAR x, y : Base.Item;
@@ -917,8 +914,8 @@ PROCEDURE StandProc (VAR x : Base.Item);
 		END;
 		
 		IF no_error THEN
-			proc.mode := Base.class_var; proc.type := Base.int_type;
-			proc.lev := -1; proc.a := adr;
+			proc.mode := Base.class_proc; proc.type := Base.int_type;
+			proc.lev := -2; proc.a := adr;
 			pinfo.parblksize := 8; pinfo.rtype := Base.int_type;	
 			Generator.Prepare_to_call (proc, pinfo);
 		END;
@@ -955,8 +952,8 @@ PROCEDURE StandProc (VAR x : Base.Item);
 		END;
 		
 		IF no_error THEN
-			proc.mode := Base.class_var; proc.type := Base.int_type;
-			proc.lev := -1; proc.a := adr;
+			proc.mode := Base.class_proc; proc.type := Base.int_type;
+			proc.lev := -2; proc.a := adr;
 			pinfo.parblksize := 16; pinfo.rtype := Base.int_type;	
 			Generator.Prepare_to_call (proc, pinfo);
 		END;
@@ -1148,13 +1145,15 @@ END StandFunc;
 PROCEDURE selector (VAR x : Base.Item);
 		
 	PROCEDURE Field_selector (VAR x : Base.Item);
-		VAR obj : Base.Object;
+		VAR obj : Base.Object; tp : Base.Type;
 	BEGIN
 		IF x.type.form = Base.type_pointer THEN Generator.Deref (x) END;
 		Scanner.Get (sym);
 		IF x.type.form = Base.type_record THEN
 			IF sym = Scanner.ident THEN
-				Base.Find_field (obj, Scanner.id, x.type);
+				tp := x.type;
+				REPEAT Base.Find_field (obj, Scanner.id, tp); tp := tp.base
+				UNTIL (obj # Base.guard) OR (tp = NIL);
 				IF obj # Base.guard THEN Generator.Field (x, obj)
 				ELSE Scanner.Mark ('Record field not found')
 				END;

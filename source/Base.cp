@@ -227,7 +227,7 @@ END Inc_level;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 	
-PROCEDURE Find_obj_in_scope(VAR obj : Object; IN name : String; scope : Object);
+PROCEDURE Find_obj_in_scope (VAR obj : Object; IN name : String; scope : Object);
 BEGIN
 	guard.name := name; obj := scope.next;
 	WHILE obj.name # name DO obj := obj.next END
@@ -635,18 +635,16 @@ BEGIN
 		ELSE
 			result := 6
 		END
-	ELSE
-		(* Value parameter *)
-		CASE Assignable (formal.type, actual) OF
-			1: result := 7 |
-			3: result := 8 |
-			0:
+	ELSE (* Value parameter *)
+		result := Assignable (formal.type, actual);
+		IF result = 0 THEN
 			IF formal.class = class_var THEN result := 0
 			ELSIF actual.type.form = type_string THEN result := 9
 			ELSE result := 2
 			END
-		ELSE
-			result := 6
+		ELSIF result = 1 THEN result := 7
+		ELSIF result = 3 THEN result := 8
+		ELSE result := 6
 		END
 	END;
 	RETURN result
@@ -748,7 +746,10 @@ BEGIN
 	ELSIF n = type_pointer THEN
 		typ.size := Word_size;
 		typ.alignment := Word_size;
-		Detect_typeI (typ.base)
+		Detect_typeI (typ.base);
+		IF typ.base = int_type THEN Sys.Read_string (symfile, name);
+			Register_undef_type (typ, name, FALSE)
+		END
 	ELSIF n = type_procedure THEN
 		typ.size := Word_size;
 		typ.alignment := Word_size;
@@ -786,7 +787,7 @@ BEGIN
 END Import_proc;
 	
 PROCEDURE Import_symbols_file* (filename : ARRAY OF CHAR);
-	VAR n : INTEGER; obj : Object; name : String;
+	VAR n, error : INTEGER; obj : Object; name : String;
 BEGIN
 	refno := 0;	expno := 0; n := 0;
 	Sys.Open (symfile, filename);
@@ -799,7 +800,8 @@ BEGIN
 			New_obj (obj, name, class_type);
 			Detect_typeI (obj.type);
 			IF obj.type.form = type_record THEN
-				expno := expno + 1; obj.val2 := expno
+				expno := expno + 1; obj.val2 := expno; error := 0;
+				Check_undef_list (obj, error); ASSERT (error = 0)
 			END
 		ELSIF n = class_const THEN
 			Sys.Read_string (symfile, name);
@@ -817,13 +819,12 @@ BEGIN
 		END;
 		Sys.Read_byte (symfile, n)
 	END;
-	Sys.Close (symfile)
+	Sys.Close (symfile); ASSERT (undef_ptr_list = NIL)
 END Import_symbols_file;
 
 PROCEDURE Import_SYSTEM (modul : Object);
 BEGIN
-	cur_lev := -2;
-	Open_scope (modul.name);
+	cur_lev := -2; Open_scope (modul.name);
 	
 	Enter (class_sproc, 100, 'GET', NIL);
 	Enter (class_sproc, 101, 'PUT', NIL);
@@ -836,9 +837,7 @@ BEGIN
 	Enter (class_sproc, 302, 'BIT', bool_type);
 	Enter (class_sproc, 303, 'VAL', int_type);
 	
-	modul.dsc := top_scope.next;
-	Close_scope;
-	cur_lev := 0
+	modul.dsc := top_scope.next; Close_scope; cur_lev := 0
 END Import_SYSTEM;
 
 PROCEDURE Import_module* (modul : Object);
@@ -854,8 +853,7 @@ BEGIN
 		modul.dsc := top_scope.next;
 		Close_scope;
 		cur_lev := 0
-	ELSE
-		Import_SYSTEM (modul)
+	ELSE Import_SYSTEM (modul)
 	END
 END Import_module;
 
@@ -908,7 +906,10 @@ BEGIN
 		Sys.Write_4bytes (symfile, typ.len);
 		Detect_type (typ.base)
 	ELSIF typ.form = type_pointer THEN
-		Detect_type (typ.base)
+		IF typ.base.obj # NIL THEN Detect_type (int_type);
+			Sys.Write_string (symfile, typ.base.obj.name)
+		ELSE Detect_type (typ.base)
+		END
 	ELSIF typ.form = type_procedure THEN
 		Sys.Write_4bytes (symfile, typ.len);
 		Detect_type (typ.base); field := typ.fields;
