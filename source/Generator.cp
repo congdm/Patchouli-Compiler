@@ -1711,6 +1711,41 @@ END String_param;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
+(* Standard Procedures - the remaining *)
+
+PROCEDURE SProc_NEW* (VAR x : Base.Item);
+	VAR proc, par, td : Base.Item; pinfo : ProcInfo;
+BEGIN
+	proc.mode := Base.class_proc; proc.type := Base.int_type;
+	proc.lev := -2; proc.a := -24; (* HeapAlloc *)
+	pinfo.parblksize := 24; pinfo.rtype := Base.int_type;
+	Prepare_to_call (proc, pinfo);
+	
+	par.mode := Base.class_var; par.lev := -1; par.a := -64; (* HeapHandle *)
+	par.type := Base.int_type; Value_param (par, pinfo);
+	Make_const (par, Base.int_type, 8); Value_param (par, pinfo);
+	Make_const (par, Base.int_type, x.type.base.size + 16);
+	Value_param (par, pinfo);
+	
+	Call (proc, pinfo); EmitRI (ADDi, proc.r, 8, 16);
+	Get_typedesc (td, x.type.base); Load_adr (td);
+	EmitRM (0, MOVr, td.r, 8, proc.r, -8); Store (x, proc)
+END SProc_NEW;
+
+PROCEDURE SProc_DISPOSE* (VAR proc : Base.Item; VAR pinfo : ProcInfo);
+	VAR par, td : Base.Item;
+BEGIN
+	proc.mode := Base.class_proc; proc.type := NIL; proc.lev := -2;
+	proc.a := -16; (* HeapFree *) pinfo.parblksize := 24; pinfo.rtype := NIL;
+	Prepare_to_call (proc, pinfo);
+	
+	par.mode := Base.class_var; par.lev := -1; par.a := -64; (* HeapHandle *)
+	par.type := Base.int_type; Value_param (par, pinfo);
+	Make_const (par, Base.int_type, 0); Value_param (par, pinfo)
+END SProc_DISPOSE;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
 (* Conditional Branch *)
 
 PROCEDURE FJump* (VAR L : INTEGER);
@@ -1966,6 +2001,9 @@ BEGIN
 		EmitBare (LEAVE); EmitBare (RET);
 		Fix_link (L)
 	END;
+	
+	EmitRI (SUBi, reg_SP, 8, 32); EmitCallSv (-32); (* GetProcessHeap *)
+	EmitRI (ADDi, reg_SP, 8, 32); EmitRSv (0, MOVr, reg_A, 8, -64);
 	
 	(* Import other modules, if there are any *)
 	modul := Base.universe.next;

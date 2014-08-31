@@ -1005,18 +1005,22 @@ BEGIN
 (*	Enter (class_type, 0, 'REAL', real_type);
 	Enter (class_type, 0, 'LONGREAL', longreal_type);
 *)
+
+	Enter (class_const, 0, 'NIL', nil_type);
 	
 (*
 	Enter (class_sproc, 0, 'INC', NIL);
 	Enter (class_sproc, 1, 'DEC', NIL);
 	Enter (class_sproc, 2, 'INCL', NIL);
 	Enter (class_sproc, 3, 'EXCL', NIL);
+*)
 	Enter (class_sproc, 4, 'NEW', NIL);
+(*
 	Enter (class_sproc, 5, 'ASSERT', NIL);
 	Enter (class_sproc, 6, 'PACK', NIL);
 	Enter (class_sproc, 7, 'UNPK', NIL);
-	Enter (class_sproc, 8, 'DISPOSE', NIL);
 *)
+	Enter (class_sproc, 8, 'DISPOSE', NIL);
 	
 	Enter (class_sproc, 200, 'ABS', int_type);
 	Enter (class_sproc, 201, 'ODD', bool_type);

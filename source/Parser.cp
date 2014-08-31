@@ -830,14 +830,14 @@ END ProcedureCall;
 PROCEDURE StandProc (VAR x : Base.Item);
 	VAR y : Base.Item;
 	
-	PROCEDURE SProc_NEW (adr : INTEGER);
+	PROCEDURE SProc_NEW;
 		CONST err1 = 'Not able to NEW read-only variable';
 			err2 = 'Expect a pointer variable';
 		VAR x, par : Base.Item;
 	BEGIN
 		expression (x);
 		IF (x.mode IN classes_Variable) & (x.type.form = Base.type_pointer) THEN
-			IF x.readonly THEN (* Generator.SProc_NEW (x) *)
+			IF ~ x.readonly THEN Generator.SProc_NEW (x)
 			ELSE Scanner.Mark (err1); Generator.Free_item (x)
 			END
 		ELSE Scanner.Mark (err2); Generator.Free_item (x)
@@ -846,13 +846,15 @@ PROCEDURE StandProc (VAR x : Base.Item);
 	
 	PROCEDURE SProc_DISPOSE;
 		CONST err1 = 'Expect a pointer value';
-		VAR x, par : Base.Item;
+		VAR x, proc : Base.Item; pinfo : Generator.ProcInfo;
 	BEGIN
+		Generator.SProc_DISPOSE (proc, pinfo);
 		expression (x);
 		IF (x.mode IN classes_Value) & (x.type.form = Base.type_pointer) THEN
-			(* Generator.SProc_NEW (x) *)
-		ELSE Scanner.Mark (err1); Generator.Free_item (x)
-		END
+			(* Do nothing *)
+		ELSE Scanner.Mark (err1); Generator.Make_const (x, Base.int_type, 0)
+		END;
+		Generator.Value_param (x, pinfo); Generator.Call (proc, pinfo)
 	END SProc_DISPOSE;
 		
 	PROCEDURE SProc_GET;
@@ -979,8 +981,8 @@ BEGIN (* StandProc *)
 	Check (Scanner.lparen, 'Not enough parameter or missing (');
 	IF x.type = NIL THEN
 		CASE SHORT (x.a) OF
-			(* 4: SProc_NEW |
-			8: SProc_DISPOSE | *)
+			4: SProc_NEW |
+			8: SProc_DISPOSE |
 			100: SProc_GET |
 			101: SProc_PUT |
 			102: SProc_COPY |
