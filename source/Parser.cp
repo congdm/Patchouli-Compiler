@@ -830,6 +830,23 @@ END ProcedureCall;
 PROCEDURE StandProc (VAR x : Base.Item);
 	VAR y : Base.Item;
 	
+	PROCEDURE SProc_INC;
+		VAR x, y : Base.Item;
+	BEGIN
+		expression (x); Check_int (x);
+		IF x.mode IN classes_Variable THEN
+			IF ~ x.readonly THEN
+				IF sym # Scanner.comma THEN Generator.SProc_INC (x)
+				ELSE 
+				END
+			END
+		ELSE Scanner.Mark ('Not a variable'); Generator.Free_item (x);
+			IF sym = Scanner.comma THEN Scanner.Get (sym); expression (y);
+				Check_int (y); Generator.Free_item (y)
+			END
+		END
+	END SProc_INC;
+	
 	PROCEDURE SProc_NEW;
 		CONST err1 = 'Not able to NEW read-only variable';
 			err2 = 'Expect a pointer variable';
@@ -981,7 +998,12 @@ BEGIN (* StandProc *)
 	Check (Scanner.lparen, 'Not enough parameter or missing (');
 	IF x.type = NIL THEN
 		CASE SHORT (x.a) OF
+			0: SProc_INC |
+			1: SProc_DEC |
+			2: SProc_INCL |
+			3: SProc_EXCL |
 			4: SProc_NEW |
+			5: SProc_ASSERT |
 			8: SProc_DISPOSE |
 			100: SProc_GET |
 			101: SProc_PUT |

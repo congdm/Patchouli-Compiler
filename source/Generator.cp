@@ -1457,6 +1457,42 @@ END Index;
 (* -------------------------------------------------------------------------- *)
 (* Standard procedure *)
 
+PROCEDURE SProc_INC* (VAR x : Base.Item);
+	VAR r, rsize : UBYTE;
+BEGIN
+	r := Alloc_reg; MoveRI (r, 4, 1); rsize := USHORT (x.type.size);
+	IF x.mode = Base.class_ref THEN Ref_to_regI (x);
+		EmitRM (0, ADDr, r, rsize, x.r, SHORT(x.a)); Free_reg
+	ELSIF x.mode = Base.mode_regI THEN
+		EmitRM (0, ADDr, r, rsize, x.r, SHORT(x.a)); Free_reg
+	ELSIF x.mode = Base.class_var THEN
+		IF x.lev > 0 THEN EmitRM (0, ADDr, r, rsize, reg_BP, SHORT(x.a))
+		ELSIF x.lev = 0 THEN EmitRGv (0, ADDr, r, rsize, SHORT(x.a))
+		ELSE ASSERT(FALSE)
+		END
+	ELSE ASSERT(FALSE)
+	END;
+	Free_reg
+END SProc_INC;
+
+PROCEDURE SProc_DEC* (VAR x : Base.Item);
+	VAR r, rsize : UBYTE;
+BEGIN
+	r := Alloc_reg; MoveRI (r, 4, 1); rsize := USHORT (x.type.size);
+	IF x.mode = Base.class_ref THEN Ref_to_regI (x);
+		EmitRM (0, SUBr, r, rsize, x.r, SHORT(x.a)); Free_reg
+	ELSIF x.mode = Base.mode_regI THEN
+		EmitRM (0, SUBr, r, rsize, x.r, SHORT(x.a)); Free_reg
+	ELSIF x.mode = Base.class_var THEN
+		IF x.lev > 0 THEN EmitRM (0, SUBr, r, rsize, reg_BP, SHORT(x.a))
+		ELSIF x.lev = 0 THEN EmitRGv (0, SUBr, r, rsize, SHORT(x.a))
+		ELSE ASSERT(FALSE)
+		END
+	ELSE ASSERT(FALSE)
+	END;
+	Free_reg
+END SProc_DEC;
+
 PROCEDURE SProc_GET* (VAR x, y : Base.Item);
 BEGIN
 	load (x); x.mode := mode_regI; x.a := 0;

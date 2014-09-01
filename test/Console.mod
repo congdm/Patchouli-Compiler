@@ -28,6 +28,21 @@ BEGIN
 		SYSTEM.ADR(nWritten), 0)
 END WriteString;
 
+PROCEDURE WriteInt* (n : INTEGER);
+	CONST minInt = -7FFFFFFFFFFFFFFFH - 1;
+	VAR str : ARRAY 21 OF CHAR; i, res, nWritten : INTEGER;
+BEGIN
+	IF n # minInt THEN
+		IF n < 0 THEN n := -n; Write ('-') END; i := LEN(str) - 1;
+		REPEAT str[i] := CHR(n MOD 10 + ORD('0')); i := i - 1; n := n DIV 10
+		UNTIL n = 0;
+		i := SYSTEM.ADR(str) + (i + 1) * SYSTEM.SIZE(CHAR);
+		res := Win.WriteConsoleW (stdout, i, LEN(str) - 1 - i,
+			SYSTEM.ADR(nWritten), 0)
+	ELSE str := '-9223372036854775808'; WriteString (str)
+	END
+END WriteInt;
+
 PROCEDURE Read* (VAR ch : CHAR);
 	VAR nRead, res : INTEGER;
 BEGIN
