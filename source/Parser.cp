@@ -19,129 +19,167 @@ VAR
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE Assignable (VAR dst, src : Base.Item) : BOOLEAN;
-	VAR result : BOOLEAN;
+PROCEDURE Check_val (VAR x : Base.Item);
+	CONST err1 = 'Not a valid value';
 BEGIN
-	result := FALSE;
-	IF ~ (dst.mode IN classes_Variable) THEN
-		Scanner.Mark ('Assignment destination is not a variable')
-	ELSIF dst.readonly THEN
-		Scanner.Mark ('Assignment destination is read-only')
-	ELSIF (dst.type.form = Base.type_array) & (dst.type.len < 0) THEN
-		Scanner.Mark ('Assignment destination is open array')
-	ELSE
-		CASE Base.Assignable (dst.type, src) OF
-			0: result := TRUE |
-			1: Scanner.Mark ('Invalid assignment source') |
-			2: Scanner.Mark ('Incompatible assignment') |
-			3: Scanner.Mark ('Assignment source type is not an extension of destination') |
-			4: Scanner.Mark ('Assignment source is non-global procedure') |
-			5: Scanner.Mark ('Assignment with incompatible procedure') |
-			6: Scanner.Mark ('Assignment source string is oversized')
+	IF x.mode IN classes_Value THEN (* Ok *)
+	ELSE Scanner.Mark (err1);
+		IF x.type = NIL THEN x.type := Base.int_type END;
+		x.mode := Base.class_var; x.lev := 0; x.a := 0
+	END
+END Check_val;
+
+PROCEDURE Check_var (VAR x : Base.Item; can_be_readonly : BOOLEAN);
+	CONST err1 = 'Not a variable';
+		err2 = 'This variable is readonly';
+BEGIN
+	IF x.mode IN classes_Variable THEN
+		IF can_be_readonly OR ~ x.readonly THEN (* Ok *)
+		ELSE Scanner.Mark (err2); x.readonly := FALSE
 		END
-	END;
-	RETURN result
-END Assignable;
+	ELSE Scanner.Mark (err1); Generator.Free_item (x);
+		IF x.type = NIL THEN x.type := Base.int_type END;
+		x.mode := Base.class_var; x.lev := 0; x.a := 0
+	END
+END Check_var;
+
+PROCEDURE Check_dest (VAR x : Base.Item);
+BEGIN
+	Check_var (x, FALSE);
+	IF (x.type.form # Base.type_array) OR (x.type.len > 0) THEN (* Ok *)
+	ELSE Scanner.Mark ('Open array cannot be assigned');
+		x.type := Base.int_type
+	END
+END Check_dest;
+
+PROCEDURE Check_assignment (VAR x, y : Base.Item);
+	CONST err2 = 'Source type is not an extension of dest';
+		err3 = 'Invalid assignment';
+		err4 = 'Procedure signatures are not compatible';
+	VAR xform, yform : INTEGER;
+BEGIN
+	IF y.mode # Base.class_proc THEN
+		IF x.type = y.type THEN (* Ok *)
+		ELSE xform := x.type.form; yform := y.type.form;
+			IF {xform, yform} = {Base.type_integer} THEN (* Ok *)
+			ELSIF (xform = Base.type_char) & (yform = Base.type_string)
+				& (x.type.len <= 2) THEN Str_to_const (y)
+			ELSIF (yform = Base.type_string) & (xform = Base.type_array)
+					& (x.type.base = Base.char_type) THEN
+				IF x.type.len >= y.type.len - 1 THEN (* Ok *)
+				ELSE Scanner.Mark ('String is too long')
+				END
+			ELSIF (y.type = Base.nil_type) & (xform IN Base.types_Address} THEN
+				(* Ok *)
+			ELSIF {xform, yform} = {Base.type_pointer} THEN
+				IF Base.Is_extension (y.type.base, x.type.base) THEN (* Ok *)
+				ELSE Scanner.Mark (err2)
+				END
+			ELSIF {xform, yform} = {Base.type_record} THEN
+				IF Base.Is_extension (y.type, x.type) THEN (* Ok *)
+				ELSE Scanner.Mark (err2)
+				END
+			ELSIF {xform, yform} = {Base.type_procedure} THEN
+				IF Base.Compatible_proc (x.type.fields, x.type.base,
+					y.type.fields, y.type.base) THEN (* Ok *)
+				ELSE Scanner.Mark (err4)
+				END
+			ELSE Scanner.Mark (err3)
+			END
+		END
+	ELSIF x.type.form = Base.type_procedure THEN
+		IF y.lev = 0 THEN
+			IF Base.Compatible_proc (x.type.fields, x.type.base,
+				y.obj.dsc, y.type) THEN (* Ok *) ELSE Scanner.Mark (err4)
+			END
+		ELSE Scanner.Mark ('Not a global procedure')
+		END
+	ELSE Scanner.Mark (err3)
+	END
+END Check_assignment;
 	
 PROCEDURE Check_operator (op : INTEGER; VAR x : Base.Item);
 BEGIN
-	IF ~ (x.mode IN Base.cls_HasValue) THEN
-		Scanner.Mark ('Operator and object are not compatible');
-		Generator.Free_item (x);
-		Generator.Make_const (x, Base.int_type, 0)
-	END;
+	Check_val (x);
 	IF (op = Scanner.plus) OR (op = Scanner.minus)
 	OR (op = Scanner.times) THEN
 		IF ~ (x.type.form IN {Base.type_integer, Base.type_set, Base.type_real}) THEN
 			Scanner.Mark ('+, - and * only compatible with numberic types and SET');
-			Generator.Free_item (x);
-			Generator.Make_const (x, Base.int_type, 0)
+			x.type := Base.int_type
 		END
 	ELSIF op = Scanner.slash THEN
 		IF ~ (x.type.form IN {Base.type_set, Base.type_real}) THEN
 			Scanner.Mark ('/ only compatible with REAL and SET');
-			Generator.Free_item (x);
-			Generator.Make_const (x, Base.set_type, 0)
+			x.type := Base.set_type
 		END
 	ELSIF (op = Scanner.div) OR (op = Scanner.mod) THEN
 		IF ~ (x.type.form = Base.type_integer) THEN
 			Scanner.Mark ('DIV and MOD only compatible with INTEGER');
-			Generator.Free_item (x);
-			Generator.Make_const (x, Base.int_type, 0)
+			x.type := Base.int_type
 		END
 	ELSIF (op = Scanner.not) OR (op = Scanner.or)
 	OR (op = Scanner.and) THEN
 		IF ~ (x.type.form = Base.type_boolean) THEN
 			Scanner.Mark ('~, & and OR only compatible with BOOLEAN');
-			Generator.Free_item (x);
-			Generator.Make_const (x, Base.bool_type, 0)
+			x.type := Base.int_type
 		END
 	END
 END Check_operator;
 	
 PROCEDURE Check_int (VAR x : Base.Item);
 BEGIN
-	IF ~ (x.mode IN Base.cls_HasValue) OR (x.type.form # Base.type_integer) THEN
-		Scanner.Mark ('Expect a integer expression');
-		Generator.Free_item (x);
-		Generator.Make_const (x, Base.int_type, 0)
+	Check_val (x);
+	IF x.type.form = Base.type_integer THEN (* Ok *)
+	ELSE Scanner.Mark ('Not an integer value'); x.type := Base.int_type
 	END
 END Check_int;
 
 PROCEDURE Check_bool (VAR x : Base.Item);
 BEGIN
-	IF ~ (x.mode IN Base.cls_HasValue) OR (x.type # Base.bool_type) THEN
-		Scanner.Mark ('Expect a BOOLEAN expression');
-		Generator.Free_item (x);
-		Generator.Make_const (x, Base.bool_type, 0)
+	Check_val (x);
+	IF x.type = Base.bool_type THEN (* Ok *)
+	ELSE Scanner.Mark ('Not a BOOLEAN value'); x.type := Base.bool_type
 	END
 END Check_bool;
 
 PROCEDURE Check_set (VAR x : Base.Item);
 BEGIN
-	IF ~ (x.mode IN Base.cls_HasValue) OR (x.type # Base.set_type) THEN
-		Scanner.Mark ('Expect a SET expression'); Generator.Free_item (x);
-		Generator.Make_const (x, Base.set_type, 0)
+	Check_val (x);
+	IF x.type = Base.set_type THEN (* Ok *)
+	ELSE Scanner.Mark ('Not a SET value'); x.type := Base.set_type
 	END
 END Check_set;
 
 PROCEDURE Check_set_element (VAR x : Base.Item);
+	CONST limit = Base.set_size_limit;
 BEGIN
 	Check_int (x);
-	IF x.mode = Base.class_const THEN
-		IF (x.a < 0) OR (x.a >= Base.set_size_limit) THEN
-			Scanner.Mark ('This number is not in SET type range');
-			x.a := 0
-		END
+	IF (x.mode # Base.class_const) OR (x.a >= 0) & (x.a <= limit) THEN (* Ok *)
+	ELSE Scanner.Mark ('This number is not in SET type range'); x.a := 0
 	END
 END Check_set_element;
 	
 PROCEDURE Check_relation (rel : INTEGER; VAR x : Base.Item);
-	VAR
-		is_pointer : BOOLEAN;
+	CONST err1 = 'Invalid operand';
+		err2 = 'Not a pointer or record varparam';
 BEGIN
 	IF (rel = Scanner.equal) & (rel = Scanner.not_equal) THEN
-		IF ~ Base.Equality_applied (x) THEN
-			Scanner.Mark ('Invalid operand');
-			Generator.Free_item (x);
-			Generator.Make_const (x, Base.int_type, 0)
+		IF Base.Equality_applied (x) THEN (* Ok *)
+		ELSE Scanner.Mark (err1); x.type := Base.int_type
 		END
 	ELSIF (rel >= Scanner.less) & (rel <= Scanner.less_equal) THEN
+		Check_val (x);
 		IF Base.Comparison_applied (x) THEN
 			(* Ok *)
-		ELSIF ((rel = Scanner.less_equal) OR (rel = Scanner.greater_equal))
-		& (x.mode IN Base.cls_HasValue) & (x.type = Base.set_type) THEN
+		ELSIF (x.type = Base.set_type)
+		& ((rel = Scanner.less_equal) OR (rel = Scanner.greater_equal)) THEN
 			(* Ok *)
-		ELSE
-			Scanner.Mark ('Invalid operand');
-			Generator.Free_item (x);
-			Generator.Make_const (x, Base.int_type, 0)
+		ELSE Scanner.Mark (err1); x.type := Base.int_type
 		END
 	ELSIF rel = Scanner.is THEN
-		IF ~ Base.Type_test_applied (x) THEN
-			Scanner.Mark ('Expected a pointer or record varparam in type test');
-			Generator.Free_item (x);
-			Generator.Make_const (x, Base.nil_type, 0)
+		Check_val (x);
+		IF Base.Type_test_applied (x) THEN (* Ok *)
+		ELSE Scanner.Mark (err2); x.type := Base.nil_type
 		END
 	ELSIF rel = Scanner.in THEN
 		Check_set_element (x)
@@ -149,22 +187,19 @@ BEGIN
 END Check_relation;
 
 PROCEDURE Check_type_test (VAR x, y : Base.Item);
-	VAR
-		fail : BOOLEAN;
+	VAR success : BOOLEAN;
 BEGIN
-	IF y.mode # Base.class_type THEN
-		Scanner.Mark ('Not a type'); fail := TRUE
-	ELSIF (y.type.form # x.type.form)
-	OR ~ Base.Is_extension_type (y.type, x.type) THEN
-		Scanner.Mark ('Incompatible type'); fail := TRUE
-	ELSE
-		fail := FALSE
+	success := FALSE;
+	IF y.mode = Base.class_type THEN
+		IF y.type.form = x.type.form THEN
+			IF Base.Is_extension_type (y.type, x.type) THEN success := TRUE
+			ELSE Scanner.Mark ('Not an extension type')
+			END
+		ELSE Scanner.Mark ('Incompatible type')
+		END
+	ELSE Scanner.Mark ('Not a type'); y.mode := Base.class_type
 	END;
-	IF fail THEN
-		Generator.Free_item (x); Generator.Free_item (y);
-		Generator.Make_const (x, Base.nil_type, 0);
-		y.mode := Base.class_type; y.type := Base.nilrecord_type
-	END
+	IF success THEN (* Ok *) ELSE y.type := x.type END
 END Check_type_test;
 
 PROCEDURE Check_equal_comparison (VAR x, y : Base.Item);
@@ -831,14 +866,18 @@ PROCEDURE StandProc (VAR x : Base.Item);
 	VAR y : Base.Item;
 	
 	PROCEDURE SProc_INC;
+		CONST err1 = 'Cannot modify read-only variable';
 		VAR x, y : Base.Item;
 	BEGIN
 		expression (x); Check_int (x);
 		IF x.mode IN classes_Variable THEN
-			IF ~ x.readonly THEN
-				IF sym # Scanner.comma THEN Generator.SProc_INC (x)
-				ELSE 
-				END
+			IF x.readonly THEN Scanner.Mark (err1) END;
+			IF sym # Scanner.comma THEN
+				Generator.Make_const (y, Base.int_type, 1);
+				Generator.SProc_INC (x, 1)
+			ELSE x.readonly := -x.readonly; Scanner.Get (sym);
+				expression (y); Check_int (y); Generator.SProc_INC (x, y);
+				x.readonly := -x.readonly
 			END
 		ELSE Scanner.Mark ('Not a variable'); Generator.Free_item (x);
 			IF sym = Scanner.comma THEN Scanner.Get (sym); expression (y);
@@ -1487,17 +1526,14 @@ END ForStatement;
 *)
 	
 PROCEDURE StatementSequence;
-	CONST err1 = 'Invalid statement';
-		err3 = 'Missing semicolon?';
+	CONST err1 = 'Invalid statement'; err3 = 'Missing semicolon?';
 		err4 = 'No THEN after IF condition';
 		err5 = 'No THEN after ELSIF condition';
 		err6 = 'No END for structured statement';
 		err7 = 'No DO after WHILE condition';
 		err8 = 'No DO after ELSIF condition';
 		err9 = 'No UNTIL for REPEAT statement';
-	VAR
-		x, y : Base.Item;
-		L : INTEGER;
+	VAR x, y : Base.Item; L : INTEGER;
 BEGIN
 	REPEAT
 		IF ~ ((sym = Scanner.ident)
@@ -1511,11 +1547,8 @@ BEGIN
 		IF sym = Scanner.ident THEN
 			designator (x);
 			IF sym = Scanner.becomes THEN
-				Scanner.Get (sym); expression (y);
-				IF Assignable (x, y) THEN
-					IF x.type = Base.char_type THEN Str_to_const (y) END;
-					Generator.Store (x, y)
-				END
+				Check_dest (x); Scanner.Get (sym); expression (y);
+				Check_assignment (x, y); Generator.Store (x, y)
 			ELSIF x.mode = Base.class_proc THEN ProcedureCall (x, TRUE)
 			ELSIF x.mode = Base.class_sproc THEN StandProc (x)
 			ELSIF (sym = Scanner.lparen) & (x.mode IN classes_Value)
@@ -1592,8 +1625,7 @@ PROCEDURE ImportList;
 	END import;
 
 BEGIN (* ImportList *)
-	Scanner.Get (sym);
-	import;
+	Scanner.Get (sym); import;
 	WHILE sym = Scanner.comma DO Scanner.Get (sym); import END;
 	Check (Scanner.semicolon, 'No ending semicolon')
 END ImportList;

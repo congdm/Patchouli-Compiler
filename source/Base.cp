@@ -441,68 +441,6 @@ BEGIN
 		(proctyp1.base = proctyp2.base) & (proctyp1.len = proctyp2.len)
 		& Same_parlist (proctyp1.fields, proctyp2.fields)
 END Compatible_proc3;
-	
-(* Result codes for procedure Assignable: *)
-(* 0: Good *)
-(* 1: Invalid assignment source *)
-(* 2: Source and destination are incompatible *)
-(* 3: Source is not an extension of destination *)
-(* 4: Assignment with non-global procedure *)
-(* 5: Assignment with incompatible procedure *)
-(* 6: Source string is oversized *)
-PROCEDURE Assignable* (dst_type : Type; VAR src : Item) : INTEGER;
-	VAR result : INTEGER;
-BEGIN
-	result := 0;
-	IF src.mode = class_proc THEN
-		IF dst_type.form # type_procedure THEN
-			result := 2
-		ELSIF src.obj.lev > 0 THEN
-			result := 4
-		ELSIF ~ Compatible_proc2 (src.obj, dst_type) THEN
-			result := 5
-		END
-	ELSIF ~ (src.mode IN cls_HasValue) THEN
-		result := 1
-	ELSIF dst_type = src.type THEN
-		(* Ok *)
-	ELSIF dst_type = char_type THEN
-		IF (src.type.form # type_string) OR (src.type.len > 2) THEN
-			result := 2
-		END
-	ELSIF dst_type.form = type_integer THEN
-		IF src.type.form # type_integer THEN
-			result := 2
-		END
-	ELSIF dst_type.form IN types_Simple - {type_char, type_integer} THEN
-		result := 2
-	ELSIF dst_type.form IN {type_pointer, type_record} THEN
-		IF (dst_type.form = type_pointer) & (src.type = nil_type) THEN
-			(* Ok *)
-		ELSIF src.type.form # dst_type.form THEN
-			result := 2
-		ELSIF ~ Is_extension_type (src.type, dst_type) THEN
-			result := 3
-		END
-	ELSIF dst_type.form = type_array THEN
-		IF (dst_type.base = char_type) & (src.type.form = type_string) THEN
-			IF src.type.len > dst_type.len + 1 THEN
-				result := 6
-			END
-		ELSE
-			result := 2
-		END
-	ELSIF dst_type.form = type_procedure THEN
-		IF src.type = nil_type THEN
-			(* Ok *)
-		ELSIF src.type.form # type_procedure THEN
-			result := 2
-		ELSIF ~ Compatible_proc3 (src.type, dst_type) THEN
-			result := 5
-		END
-	END;
-	RETURN result
-END Assignable;
 
 PROCEDURE Equality_applied* (VAR x : Item) : BOOLEAN;
 BEGIN
