@@ -52,44 +52,44 @@ BEGIN
 	END
 END Check_dest;
 
-PROCEDURE Check_assignment (VAR x, y : Base.Item);
+PROCEDURE Check_assignment (xtype : Base.Type; VAR y : Base.Item);
 	CONST err2 = 'Source type is not an extension of dest';
 		err3 = 'Invalid assignment';
 		err4 = 'Procedure signatures are not compatible';
 	VAR xform, yform : INTEGER;
 BEGIN
 	IF y.mode # Base.class_proc THEN
-		IF x.type = y.type THEN (* Ok *)
-		ELSE xform := x.type.form; yform := y.type.form;
+		IF xtype = y.type THEN (* Ok *)
+		ELSE xform := xtype.form; yform := y.type.form;
 			IF {xform, yform} = {Base.type_integer} THEN (* Ok *)
 			ELSIF (xform = Base.type_char) & (yform = Base.type_string)
-				& (x.type.len <= 2) THEN Str_to_const (y)
+				& (y.type.len <= 2) THEN Str_to_const (y)
 			ELSIF (yform = Base.type_string) & (xform = Base.type_array)
-					& (x.type.base = Base.char_type) THEN
-				IF x.type.len >= y.type.len - 1 THEN (* Ok *)
+					& (xtype.base = Base.char_type) THEN
+				IF xtype.len >= y.type.len - 1 THEN (* Ok *)
 				ELSE Scanner.Mark ('String is too long')
 				END
-			ELSIF (y.type = Base.nil_type) & (xform IN Base.types_Address} THEN
+			ELSIF (y.type = Base.nil_type) & (xform IN Base.types_Address) THEN
 				(* Ok *)
 			ELSIF {xform, yform} = {Base.type_pointer} THEN
-				IF Base.Is_extension (y.type.base, x.type.base) THEN (* Ok *)
+				IF Base.Is_extension (y.type.base, xtype.base) THEN (* Ok *)
 				ELSE Scanner.Mark (err2)
 				END
 			ELSIF {xform, yform} = {Base.type_record} THEN
-				IF Base.Is_extension (y.type, x.type) THEN (* Ok *)
+				IF Base.Is_extension (y.type, xtype) THEN (* Ok *)
 				ELSE Scanner.Mark (err2)
 				END
 			ELSIF {xform, yform} = {Base.type_procedure} THEN
-				IF Base.Compatible_proc (x.type.fields, x.type.base,
+				IF Base.Compatible_proc (xtype.fields, xtype.base,
 					y.type.fields, y.type.base) THEN (* Ok *)
 				ELSE Scanner.Mark (err4)
 				END
 			ELSE Scanner.Mark (err3)
 			END
 		END
-	ELSIF x.type.form = Base.type_procedure THEN
+	ELSIF xtype.form = Base.type_procedure THEN
 		IF y.lev = 0 THEN
-			IF Base.Compatible_proc (x.type.fields, x.type.base,
+			IF Base.Compatible_proc (xtype.fields, xtype.base,
 				y.obj.dsc, y.type) THEN (* Ok *) ELSE Scanner.Mark (err4)
 			END
 		ELSE Scanner.Mark ('Not a global procedure')
@@ -268,8 +268,8 @@ PROCEDURE ident (VAR obj : Base.Object; class : INTEGER);
 BEGIN
 	IF sym = Scanner.ident THEN
 		Base.New_obj (obj, Scanner.id, class);
-		IF obj = Base.guard THEN
-			Scanner.Mark ('Duplicate identifer definition')
+		IF obj # Base.guard THEN (* Ok *)
+		ELSE Scanner.Mark ('Duplicate identifer definition')
 		END;
 		Scanner.Get (sym)
 	ELSE Scanner.Mark ('Identifier expected'); obj := Base.guard
@@ -597,7 +597,7 @@ END type;
 
 PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 
-	PROCEDURE ConstanstDeclaration;
+	PROCEDURE ConstDeclaration;
 		VAR obj : Base.Object; x : Base.Item;
 	BEGIN
 		identdef (obj, Base.class_head); (* Defense again circular definition *)
@@ -621,7 +621,7 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 			obj.type := Base.int_type;
 			obj.val := 0
 		END
-	END ConstanstDeclaration;
+	END ConstDeclaration;
 		
 	PROCEDURE TypeDeclaration;
 		VAR obj : Base.Object; error : INTEGER;
@@ -740,32 +740,27 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 BEGIN (* DeclarationSequence *)
 	IF sym = Scanner.const THEN
 		Scanner.Get (sym);
-		WHILE sym = Scanner.ident DO
-			ConstanstDeclaration;
+		WHILE sym = Scanner.ident DO ConstDeclaration;
 			Check (Scanner.semicolon, 'No ; after const declaration')
 		END
 	END;
 	IF sym = Scanner.type THEN
 		Scanner.Get (sym);
-		WHILE sym = Scanner.ident DO
-			TypeDeclaration;
+		WHILE sym = Scanner.ident DO TypeDeclaration;
 			Check (Scanner.semicolon, 'No ; after type declaration')
 		END;
-		IF Base.undef_ptr_list # NIL THEN
-			Base.Cleanup_undef_list;
+		IF Base.undef_ptr_list # NIL THEN Base.Cleanup_undef_list;
 			Scanner.Mark ('There are pointer types with undefined base type')
 		END
 	END;
 	IF sym = Scanner.var THEN
 		Scanner.Get (sym);
-		WHILE sym = Scanner.ident DO
-			VariableDeclaration (varsize);
+		WHILE sym = Scanner.ident DO VariableDeclaration (varsize);
 			Check (Scanner.semicolon, 'No ; after variable declaration')
 		END;
 		Generator.Check_varsize (varsize, Base.cur_lev = 0)
 	END;
-	WHILE sym = Scanner.procedure DO
-		ProcedureDeclaration;
+	WHILE sym = Scanner.procedure DO ProcedureDeclaration;
 		Check (Scanner.semicolon, 'No ; after procedure declaration')
 	END
 END DeclarationSequence;
@@ -777,11 +772,45 @@ BEGIN
 	END
 END Str_to_const;
 
-PROCEDURE Parameter (VAR pinfo : Generator.ProcInfo; VAR par : Base.Object);
-	VAR y : Base.Item;
+PROCEDURE Parameter (VAR pinfo : Generator.ProcInfo; par : Base.Object);
+	VAR x : Base.Item; ftype, xtype : Base.Type;
 BEGIN
-	expression (y);
-	IF par # Base.guard THEN
+	expression (x);
+	IF par = Base.class_var THEN
+		Check_assignment (par.type, x); Generator.Value_param (x, pinfo)
+	ELSE
+		ftype := par.type; xtype := x.type; Check_var (x, par.readonly);
+		IF (ftype.form = Base.type_array) & (ftype.len < 0) THEN
+			IF Base.Compatible_open_array (xtype, ftype) THEN
+				Generator.Open_array_param (x, pinfo, ftype)
+			ELSE Scanner.Mark ('Not compatible with formal open array')
+			END
+		ELSIF ~ par.readonly THEN
+			IF xtype = ftype THEN Generator.Ref_param (x, pinfo)
+			ELSIF {ftype.form, xtype.form} = {Base.type_record} THEN
+				IF Base.Is_extension (xtype, ftype) THEN
+					Generator.Record_var_param (x, pinfo)
+				ELSE Scanner.Mark ('Actual type is not an extension of formal')
+				END
+			ELSE Scanner.Mark ('Incompatible with formal type')
+			END
+		ELSE Check_assignment (ftype, x); Generator.Ref_param (x, pinfo)
+		END
+	END
+END Parameter;
+
+PROCEDURE Parameter (VAR pinfo : Generator.ProcInfo; VAR formal : Base.Object);
+	VAR x : Base.Item;
+BEGIN
+	expression (x);
+	IF formal # Base.guard THEN
+		IF (formal.class = Base.class_var) OR formal.readonly
+				& (formal.type.form # Base.type_array) OR (formal.type.lenTHEN
+			Check_assignment (formal.type, x)
+		END
+			
+		ELSIF formal.class = Base.class_ref THEN
+		END
 		CASE Base.Check_parameter (par, y) OF
 			0: Str_to_const (y); Generator.Value_param (y, pinfo) |
 			1: Generator.Open_array_param (y, pinfo, par.type) |
