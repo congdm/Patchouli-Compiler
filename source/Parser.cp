@@ -43,14 +43,14 @@ BEGIN
 	END
 END Check_var;
 
-PROCEDURE Check_dest (VAR x : Base.Item);
+PROCEDURE Check_assignment_dest (VAR x : Base.Item);
 BEGIN
 	Check_var (x, FALSE);
 	IF (x.type.form # Base.type_array) OR (x.type.len > 0) THEN (* Ok *)
 	ELSE Scanner.Mark ('Open array cannot be assigned');
 		x.type := Base.int_type
 	END
-END Check_dest;
+END Check_assignment_dest;
 
 PROCEDURE Check_assignment (xtype : Base.Type; VAR y : Base.Item);
 	CONST err2 = 'Source type is not an extension of dest';
@@ -63,7 +63,8 @@ BEGIN
 		ELSE xform := xtype.form; yform := y.type.form;
 			IF {xform, yform} = {Base.type_integer} THEN (* Ok *)
 			ELSIF (xform = Base.type_char) & (yform = Base.type_string)
-				& (y.type.len <= 2) THEN Str_to_const (y)
+					& (y.type.len <= 2) THEN
+				Generator.Make_const (y, Base.char_type, y.b)
 			ELSIF (yform = Base.type_string) & (xform = Base.type_array)
 					& (xtype.base = Base.char_type) THEN
 				IF xtype.len >= y.type.len - 1 THEN (* Ok *)
@@ -765,13 +766,6 @@ BEGIN (* DeclarationSequence *)
 	END
 END DeclarationSequence;
 
-PROCEDURE Str_to_const (VAR x : Base.Item);
-BEGIN
-	IF (x.mode = Base.class_var) & (x.type.form = Base.type_string) THEN
-		Generator.Make_const (x, Base.char_type, x.b)
-	END
-END Str_to_const;
-
 PROCEDURE Parameter (VAR pinfo : Generator.ProcInfo; par : Base.Object);
 	VAR x : Base.Item; ftype, xtype : Base.Type;
 BEGIN
@@ -799,35 +793,6 @@ BEGIN
 	END
 END Parameter;
 
-PROCEDURE Parameter (VAR pinfo : Generator.ProcInfo; VAR formal : Base.Object);
-	VAR x : Base.Item;
-BEGIN
-	expression (x);
-	IF formal # Base.guard THEN
-		IF (formal.class = Base.class_var) OR formal.readonly
-				& (formal.type.form # Base.type_array) OR (formal.type.lenTHEN
-			Check_assignment (formal.type, x)
-		END
-			
-		ELSIF formal.class = Base.class_ref THEN
-		END
-		CASE Base.Check_parameter (par, y) OF
-			0: Str_to_const (y); Generator.Value_param (y, pinfo) |
-			1: Generator.Open_array_param (y, pinfo, par.type) |
-			2: Generator.Ref_param (y, pinfo) |
-			3: Generator.Record_var_param (y, pinfo) |
-			9: Generator.String_param (y, pinfo, par.type) |
-			4: Scanner.Mark ('Formal is variable but actual is read-only') |
-			5: Scanner.Mark ('Formal is variable but actual is not') |
-			6: Scanner.Mark ('Formal and actual type are incompatible') |
-			7: Scanner.Mark ('Invalid parameter') |
-			8: Scanner.Mark ('Actual is not an extension of formal')
-		END;
-		par := par.next
-	ELSE Scanner.Mark ('This procedure do not need parameters')
-	END
-END Parameter;
-
 PROCEDURE Skip_params;
 	VAR x : Base.Item;
 BEGIN
@@ -844,12 +809,13 @@ BEGIN
 	END;
 	Scanner.Get (sym);
 	IF sym # Scanner.rparen THEN
-		Parameter (pinfo, par);
-		WHILE (sym = Scanner.comma) & (par # Base.guard) DO
-			Scanner.Get (sym); Parameter (pinfo, par) 
+		IF par # Base.guard THEN Parameter (pinfo, par); par := par.next
+		ELSE Scanner.Mark ('This procedure does not need parameters')
 		END;
-		IF sym = Scanner.comma THEN
-			Scanner.Mark (errTooMuchParam); Skip_params
+		WHILE (par # Base.guard) & (sym = Scanner.comma) DO
+			Scanner.Get (sym); Parameter (pinfo, par); par := par.next
+		END;
+		IF sym = Scanner.comma THEN Scanner.Mark (errTooMuchParam); Skip_params
 		END
 	END;
 	IF par # Base.guard THEN Scanner.Mark (errTooLittleParam) END;
@@ -857,13 +823,9 @@ BEGIN
 END ActualParameters;
 
 PROCEDURE ProcedureCall (VAR x : Base.Item; proper : BOOLEAN);
-	CONST
-		err1 = 'Function procedure must be called in expression';
+	CONST err1 = 'Function procedure must be called in expression';
 		err2 = 'Proper procedure cannot be called in expression';
-	VAR
-		pinfo : Generator.ProcInfo;
-		has_error : BOOLEAN;
-		rtype : Base.Type;
+	VAR pinfo : Generator.ProcInfo; has_error : BOOLEAN; rtype : Base.Type;
 BEGIN
 	IF x.mode = Base.class_proc THEN
 		pinfo.parblksize := x.obj.parblksize; rtype := x.type
@@ -894,182 +856,123 @@ END ProcedureCall;
 PROCEDURE StandProc (VAR x : Base.Item);
 	VAR y : Base.Item;
 	
-	PROCEDURE SProc_INC;
-		CONST err1 = 'Cannot modify read-only variable';
-		VAR x, y : Base.Item;
+	PROCEDURE SProc_INC (op : INTEGER);
+		VAR x, y, z : Base.Item;
 	BEGIN
-		expression (x); Check_int (x);
-		IF x.mode IN classes_Variable THEN
-			IF x.readonly THEN Scanner.Mark (err1) END;
-			IF sym # Scanner.comma THEN
-				Generator.Make_const (y, Base.int_type, 1);
-				Generator.SProc_INC (x, 1)
-			ELSE x.readonly := -x.readonly; Scanner.Get (sym);
-				expression (y); Check_int (y); Generator.SProc_INC (x, y);
-				x.readonly := -x.readonly
+		expression (x); Check_var (x, FALSE); Check_int (x);
+		IF sym # Scanner.comma THEN
+			IF op = Scanner.plus THEN Generator.SProc_INC (x, 1)
+			ELSE Generator.SProc_INC (x, -1)
 			END
-		ELSE Scanner.Mark ('Not a variable'); Generator.Free_item (x);
-			IF sym = Scanner.comma THEN Scanner.Get (sym); expression (y);
-				Check_int (y); Generator.Free_item (y)
-			END
+		ELSE y := x; Generator.load (y); Scanner.Get (sym); expression (z);
+			Generator.Op2 (op, y, z); Generator.Store (x, y)
 		END
 	END SProc_INC;
 	
-	PROCEDURE SProc_NEW;
-		CONST err1 = 'Not able to NEW read-only variable';
-			err2 = 'Expect a pointer variable';
-		VAR x, par : Base.Item;
+	PROCEDURE SProc_INCL (op : INTEGER);
+		VAR x, y, z, t : Base.Item;
 	BEGIN
-		expression (x);
-		IF (x.mode IN classes_Variable) & (x.type.form = Base.type_pointer) THEN
-			IF ~ x.readonly THEN Generator.SProc_NEW (x)
-			ELSE Scanner.Mark (err1); Generator.Free_item (x)
-			END
-		ELSE Scanner.Mark (err2); Generator.Free_item (x)
-		END
+		expression (x); Check_var (x, FALSE); Check_set (x);
+		Check (Scanner.comma, errTooLittleParam);
+		y := x; Generator.load (y); Generator.Make_const (z, Base.set_type, 0);
+		Scanner.Get (sym); expression (t); Check_set_element (t);
+		Generator.Set2 (z, t); Generator.Op2 (op, y, z); Generator.Store (x, y)
+	END SProc_INCL;
+	
+	PROCEDURE SProc_NEW;
+		VAR x : Base.Item;
+	BEGIN
+		expression (x); Check_var (x, FALSE); Check_pointer (x);
+		Generator.SProc_NEW (x)
 	END SProc_NEW;
 	
 	PROCEDURE SProc_DISPOSE;
-		CONST err1 = 'Expect a pointer value';
 		VAR x, proc : Base.Item; pinfo : Generator.ProcInfo;
 	BEGIN
 		Generator.SProc_DISPOSE (proc, pinfo);
-		expression (x);
-		IF (x.mode IN classes_Value) & (x.type.form = Base.type_pointer) THEN
-			(* Do nothing *)
-		ELSE Scanner.Mark (err1); Generator.Make_const (x, Base.int_type, 0)
-		END;
-		Generator.Value_param (x, pinfo); Generator.Call (proc, pinfo)
+		expression (x); Check_pointer (x); Generator.Value_param (x, pinfo);
+		Generator.Call (proc, pinfo)
 	END SProc_DISPOSE;
 		
 	PROCEDURE SProc_GET;
 		VAR x, y : Base.Item;
 	BEGIN
 		expression (x); Check_int (x);
+		IF x.mode IN classes_Variable THEN load (x) END;
 		Check (Scanner.comma, errTooLittleParam);
-		expression (y);
-		
-		IF (y.mode IN classes_Variable)
-		& (y.type.form IN Base.types_Scalar) THEN
-			IF ~ y.readonly THEN Generator.SProc_GET (x, y)
-			ELSE Scanner.Mark ('Cannot modify read only variable')
-			END
-		ELSE Scanner.Mark ('Expect a scalar variable')
-		END
+		expression (y); Check_var (y, FALSE); Check_scalar (y);
+		Generator.SProc_GET (x, y)
 	END SProc_GET;
 	
 	PROCEDURE SProc_PUT;
 		VAR x, y : Base.Item;
 	BEGIN
 		expression (x); Check_int (x);
+		IF x.mode IN classes_Variable THEN load (x) END;
 		Check (Scanner.comma, errTooLittleParam);
-		expression (y);
-		
-		IF (y.mode IN classes_Value) & (y.type.form IN Base.types_Scalar) THEN
-			Generator.SProc_PUT (x, y)
-		ELSE Scanner.Mark ('Expect a scalar value')
-		END
+		expression (y); Check_scalar (y);
+		Generator.SProc_PUT (x, y)
 	END SProc_PUT;
 	
 	PROCEDURE SProc_COPY;
 		VAR x, y, z : Base.Item;
 	BEGIN
 		expression (x); Check_int (x);
+		IF x.mode IN classes_Variable THEN load (x) END;
 		Check (Scanner.comma, errTooLittleParam);
 		expression (y); Check_int (y);
+		IF y.mode IN classes_Variable THEN load (y) END;
 		Check (Scanner.comma, errTooLittleParam);
 		expression (z); Check_int (z);
-		
 		Generator.SProc_COPY (x, y, z)
 	END SProc_COPY;
 		
 	PROCEDURE SProc_LoadLibrary (adr : INTEGER);
-		VAR
-			x, y, proc : Base.Item;
-			pinfo : Generator.ProcInfo;
-			no_error : BOOLEAN;
+		VAR x, y, proc : Base.Item; pinfo : Generator.ProcInfo;
 	BEGIN
-		expression (x);
-		IF (x.mode IN classes_Variable) & (x.type = Base.int_type) THEN
-			no_error := TRUE;
-			IF ~ x.readonly THEN
-			ELSE Scanner.Mark ('Cannot modify read only variable')
-			END
-		ELSE
-			Scanner.Mark ('Expect an INTEGER variable');
-			Generator.Free_item (x); no_error := FALSE
+		expression (x); Check_var (x, FALSE);
+		IF x.type = Base.int_type THEN (* Ok *)
+		ELSE Scanner.Mark ('Not an INTEGER variable'); x.type := Base.int_type
 		END;
-		
-		IF no_error THEN
-			proc.mode := Base.class_proc; proc.type := Base.int_type;
-			proc.lev := -2; proc.a := adr;
-			pinfo.parblksize := 8; pinfo.rtype := Base.int_type;	
-			Generator.Prepare_to_call (proc, pinfo);
-		END;
+
+		proc.mode := Base.class_proc; proc.type := Base.int_type;
+		proc.lev := -2; proc.a := adr; pinfo.parblksize := 8;
+		pinfo.rtype := Base.int_type; Generator.Prepare_to_call (proc, pinfo);
 		
 		Check (Scanner.comma, errTooLittleParam);
-		expression (y);
+		expression (y); Check_string (y); Generator.Ref_param (y, pinfo);
 		
-		IF no_error THEN
-			IF (y.mode IN classes_Value) & Base.Is_string (y.type) THEN
-				Generator.Ref_param (y, pinfo)
-			ELSE Scanner.Mark ('Expect a string or character array');
-			END;
-			Generator.Call (proc, pinfo); Generator.Store (x, proc)
-		ELSE Generator.Free_item (y)
-		END
+		Generator.Call (proc, pinfo); Generator.Store (x, proc)
 	END SProc_LoadLibrary;
 		
 	PROCEDURE SProc_GetProcAddress (adr : INTEGER);
-		VAR
-			x, y, z, proc : Base.Item;
-			pinfo : Generator.ProcInfo;
-			no_error : BOOLEAN;
+		VAR x, y, z, proc : Base.Item; pinfo : Generator.ProcInfo;
 	BEGIN
-		expression (x);
-		IF (x.mode IN classes_Variable)
-		& (x.type.form = Base.type_procedure) THEN
-			no_error := TRUE;
-			IF ~ x.readonly THEN
-			ELSE Scanner.Mark ('Cannot modify read only variable')
-			END
-		ELSE
-			Scanner.Mark ('Expect a procedure variable');
-			Generator.Free_item (x); no_error := FALSE
+		expression (x); Check_var (x, FALSE);
+		IF x.type.form = Base.type_procedure THEN (* Ok *)
+		ELSE Scanner.Mark ('Expect a procedure variable'); x.type := Base.int_type
 		END;
 		
-		IF no_error THEN
-			proc.mode := Base.class_proc; proc.type := Base.int_type;
-			proc.lev := -2; proc.a := adr;
-			pinfo.parblksize := 16; pinfo.rtype := Base.int_type;	
-			Generator.Prepare_to_call (proc, pinfo);
-		END;
+		proc.mode := Base.class_proc; proc.type := Base.int_type;
+		proc.lev := -2; proc.a := adr; pinfo.parblksize := 16;
+		pinfo.rtype := Base.int_type; Generator.Prepare_to_call (proc, pinfo);
 		
 		Check (Scanner.comma, errTooLittleParam);
-		expression (y); Check_int (y);
-		
-		IF no_error THEN Generator.Value_param (y, pinfo)
-		ELSE Generator.Free_item (y)
-		END;
-		
+		expression (y); Check_int (y); Generator.Value_param (y, pinfo)
 		Check (Scanner.comma, errTooLittleParam);
-		expression (z); Check_int (z);
+		expression (z); Check_int (z); Generator.Value_param (z, pinfo);
 		
-		IF no_error THEN
-			Generator.Value_param (z, pinfo);
-			Generator.Call (proc, pinfo); Generator.Store (x, proc)
-		ELSE Generator.Free_item (y)
-		END
+		Generator.Call (proc, pinfo); Generator.Store (x, proc)
 	END SProc_GetProcAddress;
 
 BEGIN (* StandProc *)
 	Check (Scanner.lparen, 'Not enough parameter or missing (');
 	IF x.type = NIL THEN
 		CASE SHORT (x.a) OF
-			0: SProc_INC |
-			1: SProc_DEC |
-			2: SProc_INCL |
-			3: SProc_EXCL |
+			0: SProc_INC (Scanner.plus) |
+			1: SProc_INC (Scanner.minus) |
+			2: SProc_INCL (Scanner.plus) |
+			3: SProc_INCL (Scanner.minus) |
 			4: SProc_NEW |
 			5: SProc_ASSERT |
 			8: SProc_DISPOSE |
@@ -1088,34 +991,26 @@ BEGIN (* StandProc *)
 END StandProc;
 
 PROCEDURE StandFunc (VAR x : Base.Item);
-	VAR funcno : INTEGER; rtype : Base.Type;
-		y : Base.Item;
+	VAR funcno : INTEGER; rtype : Base.Type; y : Base.Item;
 
 	PROCEDURE SFunc_ABS (VAR x : Base.Item);
-	BEGIN
-		expression (x);
-		IF (x.mode IN classes_Value) & (x.type.form IN Base.types_Numberic) THEN
-			Generator.SFunc_ABS (x)
-		ELSE
-			Scanner.Mark ('Expect a numberic value'); Generator.Free_item (x);
-			Generator.Make_const (x, Base.int_type, 0)
-		END
+	BEGIN expression (x); Check_val (x);
+		IF x.type.form IN Base.types_Numberic THEN (* Ok *)
+		ELSE Scanner.Mark ('Expect a numberic value'); x.type := Base.int_type
+		END;
+		Generator.SFunc_ABS (x)
 	END SFunc_ABS;
 		
 	PROCEDURE SFunc_ODD (VAR x : Base.Item);
-	BEGIN
-		expression (x); Check_int (x); Generator.SFunc_ODD (x)
+	BEGIN expression (x); Check_int (x); Generator.SFunc_ODD (x)
 	END SFunc_ODD;
 		
 	PROCEDURE SFunc_LEN (VAR x : Base.Item);
-	BEGIN
-		expression (x);
-		IF (x.mode IN classes_Variable) & (x.type.form = Base.type_array) THEN
-			Generator.SFunc_LEN (x)
-		ELSE
-			Scanner.Mark ('Expect an array'); Generator.Free_item (x);
-			Generator.Make_const (x, Base.int_type, 0)
-		END
+	BEGIN expression (x); Check_var (x, TRUE);
+		IF x.type.form = Base.type_array THEN (* Ok *)
+		ELSE Scanner.Mark ('Not an array'); x.type := Base.guardArray_type
+		END;
+		Generator.SFunc_LEN (x)
 	END SFunc_LEN;
 	
 	PROCEDURE SFunc_SHIFT (shf : INTEGER; VAR x : Base.Item);
@@ -1129,8 +1024,7 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 	END SFunc_SHIFT;
 		
 	PROCEDURE SFunc_ORD (VAR x : Base.Item);
-		CONST
-			valid_types = {Base.type_char, Base.type_set, Base.type_boolean};
+		CONST valid_types = {Base.type_char, Base.type_set, Base.type_boolean};
 		VAR no_error : BOOLEAN;
 	BEGIN
 		expression (x); no_error := TRUE;
