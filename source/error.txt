@@ -1,0 +1,63 @@
+
+C:\Data\Development\AyaCompiler\source>gpcp /nowarn Sys.cp 
+#gpcp: Created Sys.dll
+#gpcp: <Sys> No errors
+
+C:\Data\Development\AyaCompiler\source>gpcp /nowarn Base.cp 
+#gpcp: Created Base.dll
+#gpcp: <Base> No errors
+
+C:\Data\Development\AyaCompiler\source>gpcp /nowarn /unsafe Scanner.cp 
+#gpcp: Created Scanner.dll
+#gpcp: <Scanner> No errors
+
+C:\Data\Development\AyaCompiler\source>gpcp /nowarn /unsafe Generator.cp 
+#gpcp: Created Generator.dll
+#gpcp: <Generator> No errors
+
+C:\Data\Development\AyaCompiler\source>gpcp /nowarn Parser.cp 
+ 884                 expression (x); Check_var (x, FALSE); Check_pointer (x);
+**** Identifier not known in this scope--------------------^
+ 897                 expression (x); Check_pointer (x); Generator.Value_param (x, pinfo);
+**** --------------------------------^ Identifier not known in this scope
+ 905                 IF x.mode IN classes_Variable THEN load (x) END;
+**** Identifier not known in this scope-----------------^
+ 907                 expression (y); Check_var (y, FALSE); Check_scalar (y);
+**** Identifier not known in this scope--------------------^
+ 915                 IF x.mode IN classes_Variable THEN load (x) END;
+**** Identifier not known in this scope-----------------^
+ 917                 expression (y); Check_scalar (y);
+**** --------------------------------^ Identifier not known in this scope
+ 925                 IF x.mode IN classes_Variable THEN load (x) END;
+**** Identifier not known in this scope-----------------^
+ 928                 IF y.mode IN classes_Variable THEN load (y) END;
+**** Identifier not known in this scope-----------------^
+ 947                 expression (y); Check_string (y); Generator.Ref_param (y, pinfo);
+**** --------------------------------^ Identifier not known in this scope
+ 966                 Check (Scanner.comma, errTooLittleParam);
+**** ----------------^ error in IdentStatement
+1016                 ELSE Scanner.Mark ('Not an array'); x.type := Base.guardArray_type
+**** Identifier not known in qualified scope----------------------------^
+1170                 xform := x.type.form; noerror := TRUE;
+**** Identifier not known in this scope----^
+1174                         ELSE Scanner.Mark ('Not a variable parameter'); noerror := FALSE
+**** Identifier not known in this scope--------------------------------------^
+1176                 ELSE Scanner.Mark ('Type guard is not applicable'); noerror := FALSE
+**** Identifier not known in this scope----------------------------------^
+1178                 IF noerror THEN (* Ok *) ELSE Generator.Free_item (x) END;
+**** -------------------^ Identifier not known in this scope
+1183                         IF noerror & (xform = ytype.form) THEN
+**** ---------------------------^ Identifier not known in this scope
+1189                         ELSIF noerror THEN Scanner.Mark ('Not compatible type');
+**** ------------------------------^ Identifier not known in this scope
+1193                         IF noerror THEN Generator.Free_item (x) END
+**** ---------------------------^ Identifier not known in this scope
+#gpcp: <Parser> There were 18 errors
+
+C:\Data\Development\AyaCompiler\source>gpcp /nowarn AyaCompile.cp 
+   4         CPmain, Sys, Scanner, Parser, Console, ProgArgs;
+**** Cannot open symbol file-------^
+**** Filename <Parser.cps>
+  15         Parser.Module;
+**** ---------------^ Identifier not known in qualified scope
+#gpcp: <AyaCompile> There were 2 errors

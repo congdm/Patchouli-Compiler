@@ -408,7 +408,7 @@ BEGIN
 		& Compatible_open_array (typ1, typ2)
 END Compatible_open_array;
 	
-PROCEDURE Same_parlist (parlist1, parlist2 : Object) : BOOLEAN;
+PROCEDURE Same_parlist* (parlist1, parlist2 : Object) : BOOLEAN;
 BEGIN
 	RETURN (parlist1 = guard) & (parlist2 = guard)
 	OR
@@ -423,8 +423,7 @@ END Same_parlist;
 	
 PROCEDURE Compatible_proc1 (proc1, proc2 : Object) : BOOLEAN;
 BEGIN
-	RETURN
-		(proc1.type = proc2.type) & (proc1.parblksize = proc2.parblksize)
+	RETURN (proc1.type = proc2.type) & (proc1.parblksize = proc2.parblksize)
 		& Same_parlist (proc1.dsc, proc2.dsc)
 END Compatible_proc1;
 	
@@ -517,76 +516,12 @@ BEGIN
 		& Compatible_proc3 (x.type, y.type)
 END Equalable;
 	
-PROCEDURE Is_matching_array* (typ1, typ2 : Type) : BOOLEAN;
+PROCEDURE Compatible_array* (typ1, typ2 : Type) : BOOLEAN;
 BEGIN
 	RETURN (typ1.base = typ2.base)
-	OR
-		(typ1.base.form = type_array) & (typ2.base.form = type_array)
-		& Is_matching_array (typ1.base, typ2.base)
-END Is_matching_array;
-	
-(* Result codes for procedure Check_parameter: *)
-(* 0: Normal parameter *)
-(* 1: Open array *)
-(* 2: Reference parameter *)
-(* 3: Record variable parameter *)
-(* 9: String parameter *)
-(* 4: Formal parameter is variable but actual is read-only *)
-(* 5: Formal parameter is variable but actual is not *)
-(* 6: Formal type and actual type are incompatible *)
-(* 7: Invalid parameter *)
-(* 8: Actual type is not an extension of formal type *)
-PROCEDURE Check_parameter* (formal : Object; VAR actual : Item) : INTEGER;
-	VAR
-		result : INTEGER;
-BEGIN
-	IF actual.readonly & (formal.class = class_ref) & ~ formal.readonly THEN
-		result := 4
-	ELSIF (formal.type.form = type_array) & (formal.type.len < 0) THEN
-		(* Open array formal parameter *)
-		IF ~ (actual.mode IN cls_HasValue) THEN
-			result := 7
-		ELSIF (actual.type.form = type_array)
-		& Is_matching_array (formal.type, actual.type) THEN
-			result := 1
-		ELSIF actual.type.form = type_string THEN
-			IF formal.type.base = char_type THEN result := 1
-			ELSE result := 6
-			END
-		ELSE
-			result := 6
-		END
-	ELSIF (formal.class = class_ref) & ~ formal.readonly THEN
-		(* Variable parameter *)
-		IF ~ (actual.mode IN cls_Variable) THEN
-			result := 5
-		ELSIF formal.type = actual.type THEN
-			result := 2
-		ELSIF formal.type.form = type_record THEN
-			IF actual.type.form # type_record THEN
-				result := 6
-			ELSIF Is_extension_type (actual.type, formal.type) THEN
-				result := 2
-			ELSE
-				result := 8
-			END
-		ELSE
-			result := 6
-		END
-	ELSE (* Value parameter *)
-		result := Assignable (formal.type, actual);
-		IF result = 0 THEN
-			IF formal.class = class_var THEN result := 0
-			ELSIF actual.type.form = type_string THEN result := 9
-			ELSE result := 2
-			END
-		ELSIF result = 1 THEN result := 7
-		ELSIF result = 3 THEN result := 8
-		ELSE result := 6
-		END
-	END;
-	RETURN result
-END Check_parameter;
+	OR (typ1.base.form = type_array) & (typ2.base.form = type_array)
+		& Compatible_array (typ1.base, typ2.base)
+END Compatible_array;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
