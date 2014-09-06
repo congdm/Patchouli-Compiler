@@ -16,43 +16,33 @@ C:\Data\Development\AyaCompiler\source>gpcp /nowarn /unsafe Generator.cp
 #gpcp: <Generator> No errors
 
 C:\Data\Development\AyaCompiler\source>gpcp /nowarn Parser.cp 
- 884                 expression (x); Check_var (x, FALSE); Check_pointer (x);
-**** Identifier not known in this scope--------------------^
- 897                 expression (x); Check_pointer (x); Generator.Value_param (x, pinfo);
-**** --------------------------------^ Identifier not known in this scope
- 905                 IF x.mode IN classes_Variable THEN load (x) END;
-**** Identifier not known in this scope-----------------^
- 907                 expression (y); Check_var (y, FALSE); Check_scalar (y);
-**** Identifier not known in this scope--------------------^
- 915                 IF x.mode IN classes_Variable THEN load (x) END;
-**** Identifier not known in this scope-----------------^
- 917                 expression (y); Check_scalar (y);
-**** --------------------------------^ Identifier not known in this scope
- 925                 IF x.mode IN classes_Variable THEN load (x) END;
-**** Identifier not known in this scope-----------------^
- 928                 IF y.mode IN classes_Variable THEN load (y) END;
-**** Identifier not known in this scope-----------------^
- 947                 expression (y); Check_string (y); Generator.Ref_param (y, pinfo);
-**** --------------------------------^ Identifier not known in this scope
- 966                 Check (Scanner.comma, errTooLittleParam);
-**** ----------------^ error in IdentStatement
-1016                 ELSE Scanner.Mark ('Not an array'); x.type := Base.guardArray_type
-**** Identifier not known in qualified scope----------------------------^
-1170                 xform := x.type.form; noerror := TRUE;
-**** Identifier not known in this scope----^
-1174                         ELSE Scanner.Mark ('Not a variable parameter'); noerror := FALSE
-**** Identifier not known in this scope--------------------------------------^
-1176                 ELSE Scanner.Mark ('Type guard is not applicable'); noerror := FALSE
-**** Identifier not known in this scope----------------------------------^
-1178                 IF noerror THEN (* Ok *) ELSE Generator.Free_item (x) END;
-**** -------------------^ Identifier not known in this scope
-1183                         IF noerror & (xform = ytype.form) THEN
+ 185                 IF Base.Equality_applicable (x) THEN (* Ok *)
+**** ------------------------^ Identifier not known in qualified scope
+ 193                 IF Base.Comparison_applicable (x) THEN (* Ok *)
+**** ------------------------^ Identifier not known in qualified scope
+ 229         IF Base.Equality_applicable (y) & Base.Equalable (x, y) THEN ok := TRUE
+**** ----------------^ Identifier not known in qualified scope
+ 242         IF Base.Comparison_applicable (y) & Base.Comparable (x, y) THEN ok := TRUE
+**** ----------------^ Identifier not known in qualified scope
+1195                         ELSIF Scanner.Mark ('Not compatible type'); Generator.Free_item (x)
+**** Attempt to use a proper procedure when function needed-----------^
+1280                 Check_operator (Scanner.not, x); Generator.Op1 (Scanner.not, x)
+**** ----------------^ Identifier not known in this scope
+1290                 op := sym; Check_operator (op, x);
 **** ---------------------------^ Identifier not known in this scope
-1189                         ELSIF noerror THEN Scanner.Mark ('Not compatible type');
-**** ------------------------------^ Identifier not known in this scope
-1193                         IF noerror THEN Generator.Free_item (x) END
+1295                 Scanner.Get (sym); factor (y); Check_operator (op, y);
+**** Identifier not known in this scope-------------^
+1308                 Scanner.Get (sym); term (x); Check_operator (Scanner.plus, x)
+**** Identifier not known in this scope-----------^
+1310                 Scanner.Get (sym); term (x); Check_operator (Scanner.minus, x);
+**** Identifier not known in this scope-----------^
+1316                 op := sym; Check_operator (op, x);
 **** ---------------------------^ Identifier not known in this scope
-#gpcp: <Parser> There were 18 errors
+1321                 Scanner.Get (sym); term (y); Check_operator (op, y);
+**** Identifier not known in this scope-----------^
+1347                 op := sym; Check_relation (op, x);
+**** ---------------------------^ Identifier not known in this scope
+#gpcp: <Parser> There were 13 errors
 
 C:\Data\Development\AyaCompiler\source>gpcp /nowarn AyaCompile.cp 
    4         CPmain, Sys, Scanner, Parser, Console, ProgArgs;

@@ -33,7 +33,7 @@ CONST
 	(* Type form *)
 	type_integer* = 0; type_boolean* = 1; type_set* = 2; type_char* = 3;
 	type_real* = 4; type_pointer* = 5; type_procedure* = 6;
-	type_array* = 7; type_record* = 8; type_string* = 9;
+	type_array* = 7; type_record* = 8; type_string* = 9; type_nil* = 10;
 	
 	types_Simple* = {type_integer, type_boolean, type_set, type_real, type_char};
 	types_Address* = {type_pointer, type_procedure};
@@ -84,7 +84,8 @@ VAR
 	
 	(* predefined type *)
 	int_type*, bool_type*, set_type*, char_type*, byte_type*, real_type* : Type;
-	longreal_type*, nilrecord_type*, nil_type* : Type;
+	longreal_type*, nil_type* : Type;
+	guardRecord_type*, guardPointer_type*, guardArray_type* : Type;
 	
 	refno, expno* : INTEGER;
 	symfile : Sys.FileHandle;
@@ -360,7 +361,7 @@ END Check_undef_list;
 PROCEDURE Cleanup_undef_list*;
 BEGIN
 	REPEAT
-		undef_ptr_list.typ.base := nilrecord_type;
+		undef_ptr_list.typ.base := guardRecord_type;
 		undef_ptr_list := undef_ptr_list.next
 	UNTIL undef_ptr_list = NIL
 END Cleanup_undef_list;
@@ -386,13 +387,6 @@ BEGIN
 	RETURN (type.form = type_string)
 	OR (type.form = type_array) & (type.base = char_type)
 END Is_string;
-	
-PROCEDURE Is_extension_type* (ext, bas : Type) : BOOLEAN;
-BEGIN
-	IF ext.form = type_pointer THEN ext := ext.base END;
-	IF bas.form = type_pointer THEN bas := bas.base END;
-	RETURN (ext = bas) OR (ext.base # NIL) & Is_extension_type (ext.base, bas)
-END Is_extension_type;
 
 PROCEDURE Is_extension* (ext, bas : Type) : BOOLEAN;
 BEGIN
@@ -420,101 +414,28 @@ BEGIN
 			& (parlist2.type.form = type_array) & (parlist2.type.len < 0)
 			& Compatible_open_array (parlist1.type, parlist2.type))
 END Same_parlist;
-	
-PROCEDURE Compatible_proc1 (proc1, proc2 : Object) : BOOLEAN;
-BEGIN
-	RETURN (proc1.type = proc2.type) & (proc1.parblksize = proc2.parblksize)
-		& Same_parlist (proc1.dsc, proc2.dsc)
-END Compatible_proc1;
-	
-PROCEDURE Compatible_proc2 (proc : Object; proctyp : Type) : BOOLEAN;
-BEGIN
-	RETURN
-		(proc.type = proctyp.base) & (proc.parblksize = proctyp.len)
-		& Same_parlist (proc.dsc, proctyp.fields)
-END Compatible_proc2;
-	
-PROCEDURE Compatible_proc3 (proctyp1, proctyp2 : Type) : BOOLEAN;
-BEGIN
-	RETURN
-		(proctyp1.base = proctyp2.base) & (proctyp1.len = proctyp2.len)
-		& Same_parlist (proctyp1.fields, proctyp2.fields)
-END Compatible_proc3;
 
-PROCEDURE Equality_applied* (VAR x : Item) : BOOLEAN;
+PROCEDURE Equality_applicable* (VAR x : Item) : BOOLEAN;
 BEGIN
-	RETURN
-		(x.mode = class_proc) & (x.lev = 0)
-	OR
-		(x.mode IN cls_HasValue)
-		&
-			((x.type.form IN types_Scalar + {type_string})
+	RETURN (x.mode = class_proc) & (x.lev = 0)
+	OR (x.mode IN classes_Value)
+		& ((x.type.form IN types_Scalar + {type_string, type_nil})
 			OR (x.type.form = type_array) & (x.type.base = char_type))
-END Equality_applied;
+END Equality_applicable;
 
-PROCEDURE Comparison_applied* (VAR x : Item) : BOOLEAN;
+PROCEDURE Comparison_applicable* (VAR x : Item) : BOOLEAN;
 BEGIN
-	RETURN 
-		(x.mode IN cls_HasValue)
-		& 
-			((x.type.form IN {type_integer, type_real, type_char, type_string})
+	RETURN (x.mode IN classes_Value)
+		& ((x.type.form IN {type_integer, type_real, type_char, type_string})
 			OR (x.type.form = type_array) & (x.type.base = char_type))
-END Comparison_applied;
+END Comparison_applicable;
 
-PROCEDURE Type_test_applied* (VAR x : Item) : BOOLEAN;
+PROCEDURE Type_test_applicable* (VAR x : Item) : BOOLEAN;
 BEGIN
-	RETURN 
-		(x.mode IN cls_HasValue)
-		& 
-			((x.type.form = type_pointer)
+	RETURN (x.mode IN classes_Value)
+		& ((x.type.form = type_pointer)
 			OR (x.type.form = type_record) & x.param & ~ x.readonly)
-END Type_test_applied;
-
-PROCEDURE Comparable* (VAR x, y : Item) : BOOLEAN;
-	VAR xform, yform : INTEGER;
-BEGIN
-	xform := x.type.form; yform := y.type.form;
-	RETURN (xform = yform)
-	OR (xform = type_char) & (yform = type_string) & (y.type.len <= 2)
-	OR (xform = type_string)
-		& ((yform = type_array) OR (yform = type_char) & (x.type.len <= 2))
-	OR (xform = type_array) & (yform = type_string)
-END Comparable;
-
-PROCEDURE Equalable* (VAR x, y : Item) : BOOLEAN;
-	VAR
-		xform, yform : INTEGER;
-BEGIN
-	IF x.mode = class_proc THEN xform := -1 ELSE xform := x.type.form END;
-	IF y.mode = class_proc THEN yform := -1 ELSE yform := y.type.form END;
-	RETURN
-		(xform = -1)
-		&
-			((yform = -1) & Compatible_proc1 (x.obj, y.obj)
-			OR (y.type = nil_type)
-			OR (yform = type_procedure) & Compatible_proc2 (x.obj, y.type))
-	OR
-		(yform = -1)
-		&
-			((x.type = nil_type)
-			OR (xform = type_procedure) & Compatible_proc2 (y.obj, x.type))
-	OR
-		(x.type = y.type)
-	OR
-		(xform IN types_Numberic + types_Character + {type_array})
-		& (yform IN types_Numberic + types_Character + {type_array})
-		& Comparable (x, y)
-	OR
-		(x.type = nil_type) & (yform IN types_Address)
-	OR
-		(y.type = nil_type) & (xform IN types_Address)
-	OR
-		(xform = type_pointer) & (yform = type_pointer)
-		& (Is_extension_type (x.type, y.type) OR Is_extension_type (y.type, x.type))
-	OR
-		(xform = type_procedure) & (yform = type_procedure)
-		& Compatible_proc3 (x.type, y.type)
-END Equalable;
+END Type_test_applicable;
 	
 PROCEDURE Compatible_array* (typ1, typ2 : Type) : BOOLEAN;
 BEGIN
@@ -565,7 +486,9 @@ BEGIN
 		ELSIF ref = -7 THEN typ := nil_type
 		ELSIF ref = -8 THEN typ := real_type
 		ELSIF ref = -9 THEN typ := longreal_type
-		ELSIF ref = -10 THEN typ := nilrecord_type
+		ELSIF ref = -10 THEN typ := guardRecord_type
+		ELSIF ref = -11 THEN typ := guardPointer_type
+		ELSIF ref = -12 THEN typ := guardArray_type
 		ELSE ASSERT(FALSE)
 		END
 	ELSIF ref = -1 THEN
@@ -918,10 +841,14 @@ BEGIN
 	New_predefined_typ (set_type, type_set, Word_size, -4);
 	New_predefined_typ (byte_type, type_integer, 1, -5);
 	New_predefined_typ (char_type, type_char, Char_size, -6);
-	New_predefined_typ (nil_type, type_pointer, Word_size, -7);
+	New_predefined_typ (nil_type, type_nil, Word_size, -7);
 	New_predefined_typ (real_type, type_real, 4, -8);
 	New_predefined_typ (longreal_type, type_real, 8, -9);
 	
-	New_predefined_typ (nilrecord_type, type_record, Word_size, -10);
-	nilrecord_type.fields := guard
+	New_predefined_typ (guardRecord_type, type_record, Word_size, -10);
+	guardRecord_type.fields := guard;
+	New_predefined_typ (guardPointer_type, type_pointer, Word_size, -11);
+	guardPointer_type.base := guardRecord_type; guardPointer_type.num_ptr := 1;
+	New_predefined_typ (guardArray_type, type_array, Word_size, -12);
+	guardArray_type.base := int_type; guardPointer_type.len := 1
 END Base.
