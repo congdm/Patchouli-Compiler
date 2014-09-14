@@ -649,14 +649,10 @@ END Alloc_typedesc;
 PROCEDURE Get_typedesc (VAR x : Base.Item; type : Base.Type);
 BEGIN
 	ASSERT (type.tdAdr # 0);
-	IF ~ type.import THEN
-		x.mode := Base.class_var;
-		x.lev := -1; x.type := NIL
-	ELSE
-		x.mode := Base.class_ref;
-		x.lev := -2; x.type := NIL; x.c := 0
+	IF ~ type.import THEN x.mode := Base.class_var; x.lev := -1
+	ELSE x.mode := Base.class_ref; x.lev := -2; x.c := 0
 	END;
-	x.a := type.tdAdr
+	x.type := Base.int_type; x.a := type.tdAdr
 END Get_typedesc;
 
 (* -------------------------------------------------------------------------- *)
@@ -867,15 +863,11 @@ END Load_to_reg;
 PROCEDURE load* (VAR x : Base.Item);
 	VAR rsize : UBYTE; L : INTEGER;
 BEGIN
-	IF x.mode IN Base.classes_Value THEN ASSERT (x.type.size IN {1, 2, 4, 8})
-	ELSE ASSERT (x.mode = Base.class_proc)
-	END;
-
+	ASSERT (x.mode IN Base.classes_Value);
+	ASSERT (x.type.size IN {1, 2, 4, 8});
 	IF x.mode # mode_reg THEN
 		IF x.mode # mode_cond THEN
-			IF x.mode # Base.class_proc THEN rsize := USHORT (x.type.size)
-			ELSE rsize := 8
-			END;
+			rsize := USHORT (x.type.size);
 			IF x.mode # mode_regI THEN x.r := Alloc_reg() END;
 			Load_to_reg (x.r, rsize, x)
 		ELSE

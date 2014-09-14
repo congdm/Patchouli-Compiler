@@ -25,10 +25,9 @@ CONST
 	class_string = 255;
 	
 	classes_Variable* = {class_var, class_ref, mode_regI};
-	classes_Value* = classes_Variable + {class_const, mode_reg, mode_cond};
-	cls_Variable* = {class_var, class_ref, mode_regI};
-	cls_HasValue* = cls_Variable + {class_const, mode_reg, mode_cond};
-	modes_UseReg* = {mode_reg, mode_regI};
+	classes_Value* = classes_Variable
+		+ {class_const, mode_reg, mode_cond, class_proc};
+	cls_Variable* = classes_Variable; cls_HasValue* = classes_Value;
 
 	(* Type form *)
 	type_integer* = 0; type_boolean* = 1; type_set* = 2; type_char* = 3;
@@ -390,7 +389,7 @@ END Is_string;
 
 PROCEDURE Is_extension* (ext, bas : Type) : BOOLEAN;
 BEGIN
-	RETURN (ext = bas) OR (ext.base # NIL) & Is_extension_type (ext.base, bas)
+	RETURN (ext = bas) OR (ext.base # NIL) & Is_extension (ext.base, bas)
 END Is_extension;
 	
 PROCEDURE Compatible_open_array* (typ1, typ2 : Type) : BOOLEAN;
@@ -415,20 +414,10 @@ BEGIN
 			& Compatible_open_array (parlist1.type, parlist2.type))
 END Same_parlist;
 
-PROCEDURE Equality_applicable* (VAR x : Item) : BOOLEAN;
+PROCEDURE Compatible_proc* (xtype, ytype : Type) : BOOLEAN;
 BEGIN
-	RETURN (x.mode = class_proc) & (x.lev = 0)
-	OR (x.mode IN classes_Value)
-		& ((x.type.form IN types_Scalar + {type_string, type_nil})
-			OR (x.type.form = type_array) & (x.type.base = char_type))
-END Equality_applicable;
-
-PROCEDURE Comparison_applicable* (VAR x : Item) : BOOLEAN;
-BEGIN
-	RETURN (x.mode IN classes_Value)
-		& ((x.type.form IN {type_integer, type_real, type_char, type_string})
-			OR (x.type.form = type_array) & (x.type.base = char_type))
-END Comparison_applicable;
+	RETURN (xtype.base = ytype.base) & Same_parlist (xtype.fields, ytype.fields)
+END Compatible_proc;
 
 PROCEDURE Type_test_applicable* (VAR x : Item) : BOOLEAN;
 BEGIN
