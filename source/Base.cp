@@ -64,10 +64,10 @@ TYPE
 	END;
 	
 	Item* = RECORD
-		r* : UBYTE; readonly*, param* : BOOLEAN;
+		readonly*, param* : BOOLEAN;
 		mode*, lev* : INTEGER;
 		obj* : Object; type* : Type;
-		b*, c* : INTEGER;
+		r* : INTEGER; b*, c* : INTEGER;
 		a* : LONGINT
 	END;
 		
