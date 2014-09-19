@@ -1,7 +1,7 @@
 MODULE Parser;
 
 IMPORT
-	Sys, Base, Scanner, Generator, Console;
+	Sys, Base, Scanner, Generator := Generator3, Console;
 	
 CONST
 	classes_Variable = Base.classes_Variable;
@@ -1554,12 +1554,10 @@ BEGIN
 		DeclarationSequence (varsize);
 
 		Generator.Enter (NIL, 0);
-		Generator.Module_init;
 		IF sym = Scanner.begin THEN
 			Scanner.Get (sym);
 			StatementSequence
 		END;
-		Generator.Module_exit;
 		Generator.Return;
 
 		Check (Scanner.end, 'No END for module');

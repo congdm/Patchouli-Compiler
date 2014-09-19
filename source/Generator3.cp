@@ -39,7 +39,7 @@ CONST
 	(* Opcodes used with EmitRegRm *)
 	ADD = 00H; ADDd = 02H; AND = 20H; ANDd = 22H; XOR = 30H; XORd = 32H;
 	TEST = 84H; XCHG = 86H; 
-	OR = 08H; ORd = 0AH; SUB = 28H; SUBd = 2AH; CMP = 38H; CMPd = 3AH;
+	_OR = 08H; ORd = 0AH; SUB = 28H; SUBd = 2AH; CMP = 38H; CMPd = 3AH;
 	MOV = 88H; MOVd = 8AH; LEA = 8DH;
 	BT = 0A30FH; BTR = 0B30FH; MOVZX = 0B60FH;
 	BTS = 0AB0FH; IMUL = 0AF0FH;
@@ -47,22 +47,26 @@ CONST
 	(* Opcodes used with EmitRm *)
 	POP = 8FH; ROR1 = 1D0H; RORcl = 1D2H; SHL1 = 4D0H; SHLcl = 4D2H;
 	SHR1 = 5D0H; SHRcl = 5D2H; SAR1 = 7D0H; SARcl = 7D2H;
-	NOT = 2F6H; NEG = 3F6H; IDIVa = 7F7H; INC = 0FEH; DEC = 1FEH;
+	NOT = 2F6H; NEG = 3F6H; IDIVa = 7F7H; _INC = 0FEH; _DEC = 1FEH;
 	CALL = 2FFH; JMP = 4FFH; PUSH = 6FFH;
 	
 	(* Opcodes used with EmitRmImm *)
 	ADDi = 80H; ORi = 180H; ANDi = 480H; SUBi = 580H; XORi = 680H; CMPi = 780H;
-	RORi = 1C0H; SHLi = 4C0H; SHRi = 5C0H; SARi = 7C0H; MOVi = C6H; TESTi = 76H;
+	RORi = 1C0H; SHLi = 4C0H; SHRi = 5C0H; SARi = 7C0H; MOVi = 0C6H; TESTi = 76H;
 	BTi = 4BA0FH; BTSi = 5BA0FH; BTRi = 6BA0FH;
+	IMULi = 69H (* Special case *);
 	
 	(* Opcodes used with EmitBare *)
-	MOVSrep = 0A4H; CQO = 9948H; LEAVE = 0C9H; RET = 0C3H;
+	CQO = 9948H; LEAVE = 0C9H; RET = 0C3H;
+	
+	(* REP instructions *)
+	MOVSrep = 0A4H;
 	
 TYPE
 	InstructionInfo = RECORD
-		relfixup, absfixup : BOOLEAN;
-		size : UBYTE;
-		ip : INTEGER
+		relfixup : BOOLEAN;
+		size, dispPos : UBYTE;
+		link, ip : INTEGER
 	END;
 
 	RegStack = RECORD
@@ -78,11 +82,11 @@ TYPE
 	
 VAR
 	modid : Base.String;
-	out : Sys.FileHandle;
+	out, fixupFile : Sys.FileHandle;
 
-	code : ARRAY 100000H OF UBYTE;
+	code : POINTER TO ARRAY OF UBYTE;
 	codeinfo : ARRAY 20000H OF InstructionInfo;
-	ip, pc* : INTEGER;
+	ip*, pc* : INTEGER;
 	
 	(* Global variables for code emitter *)
 	Emit : RECORD
@@ -121,6 +125,11 @@ VAR
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 (* Machine code emitter *)
+
+PROCEDURE Reset_code_buffer;
+BEGIN
+	Emit.i := 0; Emit.oldi := 0; pc := 1
+END Reset_code_buffer;
 	
 PROCEDURE Emit_REX_prefix (reg, rsize : INTEGER);
 	CONST W_bit = 8; R_bit = 4; X_bit = 2; B_bit = 1;
@@ -142,7 +151,7 @@ BEGIN
 	END
 END Emit_REX_prefix;
 
-PROCEDURE Emit_16bit_prefix (rsize : UBYTE);
+PROCEDURE Emit_16bit_prefix (rsize : INTEGER);
 BEGIN
 	IF rsize = 2 THEN code [Emit.i] := 66H; INC (Emit.i) END
 END Emit_16bit_prefix;
@@ -150,7 +159,7 @@ END Emit_16bit_prefix;
 PROCEDURE Handle_multibytes_opcode (VAR op : INTEGER);
 BEGIN
 	IF op MOD 256 # 0FH THEN (* One byte opcode *)
-	ELSE code [Emit.i] := 0FH; op := op DIV 256; INC (Emit.i)
+	ELSE code [Emit.i] := 0FH; op := op DIV 256; INC (Emit.i);
 		IF (op MOD 256 = 038H) OR (op MOD 256 = 03AH) THEN
 			code [Emit.i] := USHORT (op MOD 256); op := op DIV 256; INC (Emit.i)
 		END
@@ -167,11 +176,12 @@ BEGIN
 			b := Emit.mem.scl * 16 + Emit.mem.idx * 8 + Emit.mem.bas;
 			code [Emit.i] := USHORT (b); INC (Emit.i)
 		END;
+		codeinfo [pc].dispPos := USHORT (Emit.i - ip);
 		IF (Emit.mem.mod = 0) & (Emit.mem.rm = reg_BP) OR (Emit.mem.mod = 2) THEN
-			SYSTEM.PUT (SYSTEM.ADR (code [Emit.i]), mem.disp);
+			SYSTEM.PUT (SYSTEM.ADR (code [Emit.i]), Emit.mem.disp);
 			Emit.i := Emit.i + 4
 		ELSIF Emit.mem.mod = 1 THEN
-			code [Emit.i] := USHORT (mem.disp); INC (Emit.i)
+			code [Emit.i] := USHORT (Emit.mem.disp); INC (Emit.i)
 		END
 	END
 END Emit_ModRM;
@@ -182,8 +192,7 @@ BEGIN
 	ip := ip + Emit.i - Emit.oldi; INC (pc);
 	
 	Emit.oldi := Emit.i;
-	codeinfo [pc].relfixup := FALSE;
-	codeinfo [pc].absfixup := FALSE
+	codeinfo [pc].relfixup := FALSE
 END Next_inst;
 
 (* -------------------------------------------------------------------------- *)
@@ -212,7 +221,7 @@ BEGIN
 	
 	op3bits := op DIV 256; op := op MOD 256;
 	IF (rsize > 1) THEN op := op + w_bit END;
-	code [Emit.i] := USHORT (op); INC (Emit.i)
+	code [Emit.i] := USHORT (op); INC (Emit.i);
 	Emit_ModRM (op3bits);
 	
 	Next_inst
@@ -232,18 +241,27 @@ BEGIN
 		END;
 		op := op + w_bit
 	END;
-	code [Emit.i] := USHORT (op); INC (Emit.i)
+	code [Emit.i] := USHORT (op); INC (Emit.i);
 	Emit_ModRM (op3bits);
-	SYSTEM.PUT (SYSTEM.ADR (code [Emit.i]), imm); Emit.i := Emit.i + rsize
+	SYSTEM.PUT (SYSTEM.ADR (code [Emit.i]), imm); Emit.i := Emit.i + rsize;
 	
 	Next_inst
 END EmitRmImm;
+
+PROCEDURE EmitBare (op : INTEGER);
+BEGIN
+	WHILE op > 0 DO
+		code [Emit.i] := USHORT (op MOD 256); INC (Emit.i);
+		op := op DIV 256
+	END;
+	Next_inst
+END EmitBare;
 
 (* -------------------------------------------------------------------------- *)
 
 PROCEDURE SetRmOperand_reg (reg : INTEGER);
 BEGIN
-	Emit.mem.rm := x.r; Emit.mem.mod := 3
+	Emit.mem.rm := reg; Emit.mem.mod := 3
 END SetRmOperand_reg;
 
 PROCEDURE SetRmOperand_regI (reg, disp : INTEGER);
@@ -259,6 +277,12 @@ BEGIN
 		Emit.mem.bas := reg_SP; Emit.mem.idx := reg_SP; Emit.mem.scl := 0
 	END
 END SetRmOperand_regI;
+
+PROCEDURE SetRmOperand_staticvar (adr : INTEGER);
+BEGIN
+	Emit.mem.rm := reg_BP; Emit.mem.disp := adr + staticbase;
+	Emit.mem.mod := 0; codeinfo [pc].relfixup := TRUE
+END SetRmOperand_staticvar;
 
 PROCEDURE SetRmOperand (x : Base.Item);
 BEGIN
@@ -279,9 +303,6 @@ BEGIN
 	ELSIF x.mode = Base.class_proc THEN
 		Emit.mem.rm := reg_BP; Emit.mem.disp := SHORT (x.a);
 		Emit.mem.mod := 0; codeinfo [pc].relfixup := TRUE;
-		IF Emit.mem.disp = -1 THEN
-			Emit.mem.disp := 0; codeinfo [pc].absfixup := TRUE
-		END;
 		IF x.lev < 0 THEN Emit.mem.disp := Emit.mem.disp + staticbase END
 	END
 END SetRmOperand;
@@ -295,7 +316,9 @@ END EmitRR;
 
 PROCEDURE EmitRI (op, rm, rsize : INTEGER; imm : LONGINT);
 BEGIN
-	SetRmOperand_reg (rm); EmitRmImm (op, rsize, SHORT (imm))
+	SetRmOperand_reg (rm);
+	IF op # IMULi THEN (* nothing *) ELSE op := op + rm * 256 END;
+	EmitRmImm (op, rsize, SHORT (imm))
 END EmitRI;
 
 PROCEDURE EmitR (op, rm, rsize : INTEGER);
@@ -314,7 +337,7 @@ BEGIN
 	op := 0B0H + rm MOD 8;
 	IF rsize > 1 THEN op := op + w_bit END;
 	code [Emit.i] := USHORT (op); INC (Emit.i);
-	SYSTEM.PUT (SYSTEM.ADR (code [Emit.i]), imm); Emit.i := Emit.i + rsize
+	SYSTEM.PUT (SYSTEM.ADR (code [Emit.i]), imm); Emit.i := Emit.i + rsize;
 	Next_inst
 END MoveRI;
 
@@ -326,7 +349,7 @@ BEGIN
 	Next_inst
 END PushR;
 
-PROCEDURE PopR (rm : UBYTE);
+PROCEDURE PopR (rm : INTEGER);
 BEGIN
 	SetRmOperand_reg (rm); Emit_REX_prefix (0, 8);
 	code [Emit.i] := USHORT (58H + rm MOD 8); INC (Emit.i);
@@ -334,49 +357,68 @@ BEGIN
 	Next_inst
 END PopR;
 
-PROCEDURE Branch (disp : INTEGER);
+PROCEDURE Branch (link : INTEGER);
 BEGIN
 	code [Emit.i] := 0E9H; INC (Emit.i);
-	SYSTEM.PUT (SYSTEM.ADR (code [Emit.i]), disp); INC (Emit.i, 4);
+	codeinfo [pc].dispPos := USHORT (Emit.i - ip);
+	codeinfo [pc].link := link; INC (Emit.i, 4);
 	Next_inst
 END Branch;
 
-PROCEDURE BranchS (disp : INTEGER);
+PROCEDURE BranchS (link : INTEGER);
 BEGIN
 	code [Emit.i] := 0EBH; INC (Emit.i);
-	SYSTEM.PUT (SYSTEM.ADR (code [Emit.i]), disp); INC (Emit.i);
+	codeinfo [pc].dispPos := USHORT (Emit.i - ip);
+	codeinfo [pc].link := link; INC (Emit.i);
 	Next_inst
 END BranchS;
 
 PROCEDURE CallNear (disp : INTEGER);
 BEGIN
 	code [Emit.i] := 0E8H; INC (Emit.i);
-	IF disp = -1 THEN disp := 0; codeinfo [Emit.i].absfixup := TRUE END;
+	codeinfo [pc].dispPos := USHORT (Emit.i - ip);
 	SYSTEM.PUT (SYSTEM.ADR (code [Emit.i]), disp); INC (Emit.i, 4);
-	codeinfo [Emit.i].relfixup := TRUE;
+	codeinfo [pc].relfixup := TRUE;
 	Next_inst
 END CallNear;
 
-(*
-
-PROCEDURE CondBranch (cond, disp : INTEGER);
+PROCEDURE CondBranch (cond, link : INTEGER);
 BEGIN
-	Emit.iflag := {}; Emit.i := 0;
-	code [pc, Emit.i] := 0FH; INC (Emit.i);
-	code [pc, Emit.i] := USHORT (80H + cond); INC (Emit.i);
-	SYSTEM.PUT (SYSTEM.ADR (code [pc, Emit.i]), disp); INC (Emit.i, 4);
+	code [Emit.i] := 0FH; INC (Emit.i);
+	code [Emit.i] := USHORT (80H + cond); INC (Emit.i);
+	codeinfo [pc].dispPos := USHORT (Emit.i - ip);
+	codeinfo [pc].link := link; INC (Emit.i, 4);
 	Next_inst
 END CondBranch;
 
-PROCEDURE CondBranchS (cond, disp : INTEGER);
+PROCEDURE CondBranchS (cond, link : INTEGER);
 BEGIN
-	Emit.iflag := {}; Emit.i := 0;
-	code [pc, Emit.i] := USHORT (70H + cond); INC (Emit.i);
-	SYSTEM.PUT (SYSTEM.ADR (code [pc, Emit.i]), disp); INC (Emit.i);
+	code [Emit.i] := USHORT (70H + cond); INC (Emit.i);
+	codeinfo [pc].dispPos := USHORT (Emit.i - ip);
+	codeinfo [pc].link := link; INC (Emit.i);
 	Next_inst
 END CondBranchS;
 
-*)
+PROCEDURE SetccRm (cond : INTEGER);
+BEGIN
+	Emit_REX_prefix (0, 1);
+	code [Emit.i] := 0FH; INC (Emit.i);
+	code [Emit.i] := USHORT (90H + cond); INC (Emit.i);
+	Emit_ModRM (0);
+	Next_inst
+END SetccRm;
+
+PROCEDURE EmitREPop (op, rsize, z : INTEGER);
+	CONST w_bit = 1;
+BEGIN
+	code [Emit.i] := USHORT (0F2H + z); INC (Emit.i); (* REP prefix *)
+	Emit_16bit_prefix (rsize); Emit_REX_prefix (0, rsize);
+	
+	IF (rsize > 1) & (BITS(op) * BITS(w_bit) = {}) THEN INC (op, w_bit) END;
+	code [Emit.i] := USHORT (op); INC (Emit.i);
+	
+	Next_inst
+END EmitREPop;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -479,43 +521,40 @@ END Get_typedesc;
 (* Branch Fixup *)
 
 PROCEDURE Fix_link* (L : INTEGER);
-	VAR L1, i, size : INTEGER;
+	VAR i, dispPos, size, n : INTEGER;
 BEGIN
 	WHILE L # 0 DO
-		size := codeinfo [L].size;
-		IF code [L, 0] # 0FH THEN i := 1 ELSE i := 2 END;
-		SYSTEM.GET (SYSTEM.ADR (code [L, i]), L1);
-		SYSTEM.PUT (SYSTEM.ADR (code [L, i]), ip - codeinfo [L].ip - size);
-		L := L1
+		size := codeinfo [L].size; dispPos := codeinfo [L].dispPos;
+		i := codeinfo [L].ip; n := ip - i - size;
+		i := i - ProcState.adr + dispPos;
+		IF size - dispPos = 1 THEN code [i] := USHORT (n)
+		ELSE SYSTEM.PUT (SYSTEM.ADR (code [i]), n)
+		END;
+		L := codeinfo [L].link
 	END
 END Fix_link;
 
 PROCEDURE Fix_link_with (L : INTEGER; dst : INTEGER);
-	VAR L1, i, size : INTEGER;
+	VAR i, dispPos, size, n : INTEGER;
 BEGIN
 	WHILE L # 0 DO
-		i := 1;
-		size := codeinfo [L].size;
-		IF size = 6 THEN INC (i) END;
-		SYSTEM.GET (SYSTEM.ADR (code [L, i]), L1);
-		SYSTEM.PUT (SYSTEM.ADR (code [L, i]), dst - codeinfo [L].ip - size);
-		L := L1
+		size := codeinfo [L].size; dispPos := codeinfo [L].dispPos;
+		i := codeinfo [L].ip; n := dst - i - size;
+		i := i - ProcState.adr + dispPos;
+		IF size - dispPos = 1 THEN code [i] := USHORT (n)
+		ELSE SYSTEM.PUT (SYSTEM.ADR (code [i]), n)
+		END;
+		L := codeinfo [L].link
 	END
 END Fix_link_with;
 
 PROCEDURE merged (L0, L1: INTEGER) : INTEGER;
-	VAR L2, L3, size, i : INTEGER;
+	VAR L2, L3, size, i, dispPos : INTEGER;
 BEGIN 
 	IF L0 # 0 THEN
 		L3 := L0;
-		REPEAT
-			L2 := L3;
-			i := 1;
-			size := codeinfo [L2].size;
-			IF size = 6 THEN INC (i) END;
-			SYSTEM.GET (SYSTEM.ADR (code [L2, i]), L3)
-		UNTIL L3 = 0;
-		SYSTEM.PUT (SYSTEM.ADR (code [L2, i]), L1);
+		REPEAT L2 := L3; L3 := codeinfo [L2].link UNTIL L3 = 0;
+		codeinfo [L2].link := L1;
 		L1 := L0
 	END;
     RETURN L1
@@ -551,8 +590,7 @@ END negated;
 
 PROCEDURE Reset_reg_stack;
 BEGIN
-	reg_stacks [0].i := 0;
-	crs := 0
+	reg_stacks [0].i := 0; crs := 0
 END Reset_reg_stack;
 
 PROCEDURE Reg_stack (offset : INTEGER) : INTEGER;
@@ -594,28 +632,13 @@ END Free_item;
 (* -------------------------------------------------------------------------- *)
 (* Trap *)
 
-(* Trap implementation.
-   Sacrifice register B and let it always hold zero value (like in some RISC).
-   Therefore, every access to [RBX] will cause an access violation.
-   The instruction sequence will be the following one:
-   
-        Jcc    trap
-        JMP    good
- trap:  MOV    [RBX], reg      ; Trap number will decide which register
- good:
-   
-   The above sequence only cost 6-7 bytes and because the trap branch
-   is forward one, the CPU static branch predictor will pretty much ignore it.
-   On modern CPU (>= Core microarchitecture), the cost will be acceptable.
-*)
-
+(* Need to be replaced *)
 PROCEDURE Trap (cond : INTEGER; trapno : UBYTE);
 	VAR L : INTEGER;
 BEGIN
 	ASSERT (trapno < 16);
 	L := pc; CondBranchS (cond, 0); BranchS (0); Fix_link (L); L := pc - 1;
-	EmitRM (0, MOVr, trapno, 4, reg_B, 0);
-	Fix_link (L)
+	SetRmOperand_regI (reg_B, 0); EmitRegRm (MOV, trapno, 4); Fix_link (L)
 END Trap;
 
 (* -------------------------------------------------------------------------- *)
@@ -643,10 +666,11 @@ BEGIN
 		IF rsize >= 4 THEN op := MOVd
 		ELSIF rsize = 2 THEN op := MOVZX; rsize := 4
 		ELSIF rsize = 1 THEN op := MOVZX
+		ELSE op := 0; ASSERT(FALSE)
 		END;
 		EmitRegRm (op, reg, rsize)
 	ELSIF x.mode = mode_imm THEN
-		IF x.a = 0 THEN EmitRR (XORr, reg, 4, reg)
+		IF x.a = 0 THEN EmitRR (XOR, reg, 4, reg)
 		ELSIF (rsize <= 4) OR (x.a > 0) & (x.a <= MAX_UINT32) THEN
 			MoveRI (reg, 4, x.a)
 		ELSE MoveRI (reg, rsize, x.a)
@@ -677,16 +701,17 @@ BEGIN
 			x.r := Alloc_reg();
 			IF (x.a = 0) & (x.b = 0) THEN
 				IF (x.c < 16) & (x.c >= 0) THEN
-					EmitSetccR (x.c, x.r); EmitRR (MOVZXr, x.r, 1, x.r)
+					SetRmOperand_reg (x.r); SetccRm (x.c);
+					EmitRR (MOVZX, x.r, 1, x.r)
 				ELSIF x.c = ccAlways THEN MoveRI (x.r, 4, 1)
-				ELSIF x.c = ccNever THEN EmitRR (XORr, x.r, 4, x.r)
+				ELSIF x.c = ccNever THEN EmitRR (XOR, x.r, 4, x.r)
 				ELSE ASSERT(FALSE)
 				END
 			ELSE
 				L := pc; CondBranchS (negated(x.c), 0); Fix_link (x.b);
 				MoveRI (x.r, 4, 1);
 				BranchS (0); Fix_link (L); Fix_link (SHORT (x.a)); L := pc - 1;
-				EmitRR (XORr, x.r, 4, x.r); Fix_link (L)
+				EmitRR (XOR, x.r, 4, x.r); Fix_link (L)
 			END
 		END;
 		x.mode := mode_reg
@@ -697,9 +722,11 @@ PROCEDURE Load_adr_to_reg (reg : INTEGER; x : Base.Item);
 BEGIN
 	SetRmOperand (x);
 	IF x.mode = Base.class_var THEN EmitRegRm (LEA, reg, 8)
-	ELSIF x.mode = Base.class_ref THEN EmitRegRm (MOVd, reg, 8)
+	ELSIF x.mode = Base.class_ref THEN
+		EmitRegRm (MOVd, reg, 8);
 		IF x.c # 0 THEN EmitRI (ADDi, reg, 8, x.c) END
-	ELSIF x.mode = mode_regI THEN EmitRR (MOVr, reg, 8, x.r)
+	ELSIF x.mode = mode_regI THEN
+		EmitRR (MOVd, reg, 8, x.r);
 		IF x.a # 0 THEN EmitRI (ADDi, reg, 8, x.a) END
 	ELSE ASSERT(FALSE)
 	END
@@ -734,8 +761,8 @@ BEGIN
 		IF (y.type.form = Base.type_string) & (y.type.size < count) THEN
 			count := y.type.size
 		END;
-		Load_adr (x); Load_adr (y); EmitRR (MOVr, reg_DI, 8, x.r);
-		EmitRR (MOVr, reg_SI, 8, y.r);
+		Load_adr (x); Load_adr (y); EmitRR (MOVd, reg_DI, 8, x.r);
+		EmitRR (MOVd, reg_SI, 8, y.r);
 		IF count MOD 8 = 0 THEN count := count DIV 8; rsize := 8
 		ELSIF count MOD 4 = 0 THEN count := count DIV 4; rsize := 4
 		ELSE rsize := 1
@@ -1106,7 +1133,7 @@ BEGIN
 	ELSIF x.mode = Base.class_var THEN
 		load (x); x.a := 0; x.mode := mode_regI
 	ELSIF x.mode = mode_regI THEN
-		SetRmOperand_regI (x); EmitRegRm (MOVd, x.r, 8); x.a := 0
+		SetRmOperand (x); EmitRegRm (MOVd, x.r, 8); x.a := 0
 	ELSIF x.mode = mode_reg THEN
 		x.mode := mode_regI; x.a := 0
 	END;
@@ -1116,7 +1143,7 @@ END Deref;
 PROCEDURE Open_array_index (VAR x, y : Base.Item);
 	VAR	flag : BOOLEAN; size, e : INTEGER;
 
-	PROCEDURE Calculate_offset (r : UBYTE; typ : Base.Type; loff : INTEGER);
+	PROCEDURE Calculate_offset (r : INTEGER; typ : Base.Type; loff : INTEGER);
 		VAR size, e : INTEGER; r2 : INTEGER;
 	BEGIN
 		r2 := Alloc_reg(); SetRmOperand_regI (reg_BP, loff);
@@ -1342,7 +1369,7 @@ BEGIN
 		END
 	ELSIF x.type.form = Base.type_integer THEN
 		load (x); r := Alloc_reg();
-		EmitRR (MOVr, r, 8, x.r); EmitRI (SHLi, r, 8, 1);
+		EmitRR (MOVd, r, 8, x.r); EmitRI (SHLi, r, 8, 1);
 		IF Base.CompilerFlag.overflow_check THEN
 			Trap (ccBE, overflow_trap) (* Check for Z and C flag *)
 		END;
@@ -1596,10 +1623,11 @@ END Scalar_comparison;
 	
 PROCEDURE String_comparison (op : INTEGER; VAR x, y : Base.Item);
 	VAR xform, yform, xsize, ysize, i : INTEGER;
-		charsize, L : INTEGER; r, rc : UBYTE;
-		xstr, ystr : Base.LongString;
+		charsize, L, r, rc : INTEGER; xstr, ystr : Base.LongString;
 BEGIN
-	ASSERT (x.type.len > 0); ASSERT (y.type.len > 0); (* Open array case not implemented yet *)
+	ASSERT (x.type.len > 0); ASSERT (y.type.len > 0);
+	(* Open array case not implemented yet *)
+	
 	xform := x.type.form; yform := y.type.form;
 	xsize := x.type.size; ysize := y.type.size;
 	charsize := Base.char_type.size;
@@ -1617,21 +1645,18 @@ BEGIN
 		x.mode := mode_imm; x.a := 0
 	ELSE
 		Load_adr (x); Load_adr (y);
-		EmitRR (MOVr, reg_DI, 8, x.r); EmitRR (MOVr, reg_SI, 8, y.r);
-		r := x.r; rc := y.r;
-		IF xsize > ysize THEN xsize := ysize END;
+		EmitRR (MOVd, reg_DI, 8, x.r); EmitRR (MOVd, reg_SI, 8, y.r);
+		r := x.r; rc := y.r; IF xsize > ysize THEN xsize := ysize END;
 		MoveRI (rc, 4, xsize);
 		
-		L := pc; EmitRM (1, MOVr, r, 2, reg_DI, 0);
-		EmitRM (1, CMPr, r, 2, reg_SI, 0);
-		Set_cond (x, ccZ); CFJump (x);
-		EmitRRnd (TESTr, x.r, 4, x.r);
-		Set_cond (x, ccNZ); CFJump (x);
-		EmitRI (SUBi, rc, 4, 2);
-		Set_cond (x, ccNZ); CFJump (x);
+		L := pc; SetRmOperand_regI (reg_DI, 0); EmitRegRm (MOVd, r, 2);
+		SetRmOperand_regI (reg_SI, 0);
+		EmitRegRm (CMPd, r, 2); Set_cond (x, ccZ); CFJump (x);
+		EmitRR (TEST, x.r, 4, x.r); Set_cond (x, ccNZ); CFJump (x);
+		EmitRI (SUBi, rc, 4, 2); Set_cond (x, ccNZ); CFJump (x);
 		EmitRI (ADDi, reg_DI, 8, 2); EmitRI (ADDi, reg_SI, 8, 2);
 		BJump (L); Fixup (x);
-		EmitRM (1, CMPr, r, 2, reg_SI, 0);
+		SetRmOperand_regI (reg_SI, 0); EmitRegRm (CMPd, r, 2);
 		Set_cond (x, ccZ);
 		
 		Free_reg; Free_reg
@@ -1667,7 +1692,7 @@ BEGIN
 		x.a := ASH (y.a, -x.a) MOD 2
 	ELSE
 		load (y);
-		IF x.mode = mode_reg THEN EmitRR (BTr, x.r, 8, y.r); Free_reg
+		IF x.mode = mode_reg THEN EmitRR (BT, x.r, 8, y.r); Free_reg
 		ELSE EmitRI (BTi, y.r, 8, x.a)
 		END;
 		Free_reg; Set_cond (x, ccB)
@@ -1676,24 +1701,23 @@ BEGIN
 END Membership;
 	
 PROCEDURE Inclusion* (op : INTEGER; VAR x, y : Base.Item);
-	VAR
-		xset, yset : ARRAY 2 OF SET;
+	VAR xset, yset : ARRAY 2 OF SET;
 BEGIN
 	IF (x.mode = mode_imm) & (y.mode = mode_imm) THEN
 		xset[0] := {}; xset[1] := {}; SYSTEM.PUT (SYSTEM.ADR(xset[0]), x.a);
 		yset[0] := {}; yset[1] := {}; SYSTEM.PUT (SYSTEM.ADR(yset[0]), y.a);
 		IF op = Scanner.less_equal THEN
 			IF (xset[0] - yset[0] = {}) & (xset[1] - yset[1] = {})
-				THEN x.a := 1 ELSE x.a := 0
+			THEN x.a := 1 ELSE x.a := 0
 			END
 		ELSE
 			IF (yset[0] - xset[0] = {}) & (yset[1] - xset[1] = {})
-				THEN x.a := 1 ELSE x.a := 0
+			THEN x.a := 1 ELSE x.a := 0
 			END
 		END
 	ELSE
-		IF op = Scanner.less_equal THEN Difference (x, y)
-		ELSE Difference (y, x)
+		IF op = Scanner.less_equal
+		THEN Difference (x, y) ELSE Difference (y, x)
 		END;
 		Free_reg; Set_cond (x, ccZ)
 	END;
@@ -1701,23 +1725,22 @@ BEGIN
 END Inclusion;
 
 PROCEDURE Type_test* (VAR x : Base.Item; typ : Base.Type; guard : BOOLEAN);
-	VAR r : UBYTE;
-		td : Base.Item;
+	VAR r : INTEGER; td : Base.Item;
 BEGIN
 	ASSERT ((typ.form = Base.type_record) & (x.mode IN Base.classes_Value));
 	IF x.type # typ THEN
 		IF x.type.form = Base.type_pointer THEN
 			load (x); IF guard THEN r := Alloc_reg() ELSE r := x.r END;
-			EmitRM (1, MOVr, r, 8, x.r, -8) 
+			SetRmOperand_regI (x.r, -8); EmitRegRm (MOVd, r, 8)
 		ELSIF (x.mode = Base.class_ref) & x.param & ~ x.readonly
 		& (x.type.form = Base.type_record) THEN
-			r := Alloc_reg(); EmitRM (0, LEAr, r, 8, reg_BP, SHORT(x.a + 8))
+			r := Alloc_reg(); SetRmOperand_regI (reg_BP, SHORT(x.a + 8));
+			EmitRegRm (LEA, r, 8)
 		ELSE ASSERT(FALSE); r := 0
 		END;
 
 		Get_typedesc (td, typ); Load_adr (td);
-		
-		EmitRM (1, CMPr, td.r, 8, r, typ.len * 8);
+		SetRmOperand_regI (r, typ.len * 8); EmitRegRm (CMPd, td.r, 8);
 		IF guard THEN Trap (ccNZ, type_trap)
 		ELSE Set_cond (x, ccZ); x.type := Base.bool_type
 		END;
@@ -1732,26 +1755,25 @@ END Type_test;
 (* Procedure Prolog, Epilog - Code Generation to File *)
 
 PROCEDURE Write_to_file* (from, to : INTEGER);
-	VAR	file : Sys.FileHandle; i, j : INTEGER;
+	VAR	i, count : INTEGER;
 		
 	PROCEDURE Fixup_disp (p : INTEGER);
 		VAR i, disp : INTEGER;
 	BEGIN
-		disp := 0;
-		i := codeinfo [p].size - 4;
-		SYSTEM.GET (SYSTEM.ADR (code [p, i]), disp);
+		disp := 0; i := codeinfo [p].ip - ProcState.adr + codeinfo [p].dispPos;
+		SYSTEM.GET (SYSTEM.ADR (code [i]), disp);
 		DEC (disp, codeinfo [p].ip + codeinfo [p].size + ProcState.prolog_size);
-		SYSTEM.PUT (SYSTEM.ADR (code [p, i]), disp)
+		SYSTEM.PUT (SYSTEM.ADR (code [i]), disp)
 	END Fixup_disp;
 	
 BEGIN (* Write_to_file *)
 	ASSERT ((from > 0) & (to > 0) & (from <= pc) & (to <= pc));
 	FOR i := from TO to DO
-		IF if_fix1 IN codeinfo [i].flag THEN Fixup_disp (i) END;
-		FOR j := 0 TO codeinfo [i].size - 1 DO
-			Sys.Write_byte (out, code [i, j])
-		END
-	END
+		IF codeinfo [i].relfixup THEN Fixup_disp (i) END
+	END;
+	i := codeinfo [from].ip - ProcState.adr;
+	count := codeinfo [to].ip + codeinfo [to].size - codeinfo [from].ip;
+	Sys.Write_block (out, code, i, count)
 END Write_to_file;
 
 PROCEDURE Write_padding (n : INTEGER);
@@ -1760,20 +1782,20 @@ BEGIN
 	FOR i := 0 TO n-1 DO Sys.Write_byte (out, 90H) END
 END Write_padding;
 
-PROCEDURE Module_init*;
-	VAR i, framesize, L : INTEGER; n1, n2, n3, n4 : LONGINT; r : UBYTE;
+PROCEDURE Module_init;
+	VAR i, framesize, L, r : INTEGER; n1, n2, n3, n4 : LONGINT;
 		str : Base.LongString; tp : Base.Type; td : Base.Item;
 		modul, obj : Base.Object; exit : BOOLEAN;
 BEGIN
 	IF ~ Base.CompilerFlag.main THEN
-		EmitRI (CMPi, reg_D, 4, 1);
-		L := pc; CondBranchS (ccZ, 0);
-		EmitBare (LEAVE); EmitBare (RET);
-		Fix_link (L)
+		EmitRI (CMPi, reg_D, 4, 1); L := pc; CondBranchS (ccZ, 0);
+		EmitBare (LEAVE); EmitBare (RET); Fix_link (L)
 	END;
 	
-	EmitRI (SUBi, reg_SP, 8, 32); EmitCallSv (-32); (* GetProcessHeap *)
-	EmitRI (ADDi, reg_SP, 8, 32); EmitRSv (0, MOVr, reg_A, 8, -64);
+	EmitRI (SUBi, reg_SP, 8, 32);
+	SetRmOperand_staticvar (-32); EmitRm (CALL, 8); (* GetProcessHeap *)
+	EmitRI (ADDi, reg_SP, 8, 32);
+	SetRmOperand_staticvar (-64); EmitRegRm (MOV, reg_A, 8); (* Heap Handle of Process *)
 	
 	(* Import other modules, if there are any *)
 	modul := Base.universe.next;
@@ -1795,19 +1817,22 @@ BEGIN
 				n3 := ORD(str[i + 2]); n3 := ASH(n3, 32);
 				n4 := ORD(str[i + 3]); n4 := ASH(n4, 48);
 				MoveRI (reg_A, 8, n1 + n2 + n3 + n4);
-				EmitRM (0, MOVr, reg_A, 8, reg_SP, 32 + i * 2);
+				SetRmOperand_regI (reg_SP, 32 + i * 2);
+				EmitRegRm (MOV, reg_A, 8);
 				i := i + 4
 			END;
-			EmitRM (0, LEAr, reg_C, 8, reg_SP, 32);
-			EmitCallSv (-48); (* LoadLibraryW *)
-			EmitRR (MOVr, reg_SI, 8, reg_A);
+			SetRmOperand_regI (reg_SP, 32); EmitRegRm (LEA, reg_C, 8);
+			SetRmOperand_staticvar (-48); EmitRm (CALL, 8); (* LoadLibraryW *)
+			EmitRR (MOVd, reg_SI, 8, reg_A);
 			obj := modul.dsc;
 			WHILE obj # Base.guard DO
 				IF (obj.val # 0) & (obj.val2 # 0) THEN
-					EmitRR (MOVr, reg_C, 8, reg_SI);
+					EmitRR (MOVd, reg_C, 8, reg_SI);
 					MoveRI (reg_D, 4, obj.val2);
-					EmitCallSv (-40); (* GetProcAddress *)
-					EmitRSv (0, MOVr, reg_A, 8, SHORT (obj.val))
+					SetRmOperand_staticvar (-40); (* GetProcAddress *)
+					EmitRm (CALL, 8);
+					SetRmOperand_staticvar (SHORT (obj.val));
+					EmitRegRm (MOV, reg_A, 8)
 				END;
 				obj := obj.next
 			END;
@@ -1822,7 +1847,9 @@ BEGIN
 	WHILE tp # NIL DO
 		IF (tp.form = Base.type_record) & (tp.base # NIL) THEN
 			Get_typedesc (td, tp); Load_adr (td); r := td.r;
-			REPEAT EmitRM (0, MOVr, td.r, 8, r, tp.len * 8); Free_reg;
+			REPEAT
+				SetRmOperand_regI (r, tp.len * 8); EmitRegRm (MOV, td.r, 8);
+				IF td.r # r THEN Free_reg END;
 				tp := tp.base; Get_typedesc (td, tp); Load_adr (td)
 			UNTIL tp.len = 0;
 			Free_reg
@@ -1835,11 +1862,17 @@ PROCEDURE Enter* (proc : Base.Object; locblksize : INTEGER);
 	VAR k : INTEGER;
 BEGIN
 	k := ip MOD 16; IF k # 0 THEN INC (ip, 16 - k); Write_padding (16 - k) END;
+	Reset_code_buffer;
 	IF proc # NIL THEN
 		ProcState.locblksize := locblksize;
 		ProcState.parlist := proc.dsc;
-		proc.val := ip
+		IF proc.val # ip THEN (* Need fixup *)
+			Sys.Write_4bytes (fixupFile, SHORT (proc.val));
+			Sys.Write_4bytes (fixupFile, ip);
+			proc.val := ip
+		END
 	ELSE
+		Module_init;
 		Linker.entry := ip;
 		ProcState.locblksize := 0;
 		ProcState.parlist := NIL
@@ -1849,8 +1882,19 @@ BEGIN
 	ProcState.adr := ip;
 	Reset_reg_stack; pc := 1
 END Enter;
+
+PROCEDURE Module_exit;
+BEGIN
+	IF Base.CompilerFlag.main THEN
+		EmitRI (SUBi, reg_SP, 8, 32);
+		EmitRR (XOR, reg_C, 4, reg_C);
+		SetRmOperand_staticvar (-56); EmitRm (CALL, 8) (* ExitProcess *)
+	ELSE MoveRI (reg_A, 4, 1)
+	END
+END Module_exit;
 	
 PROCEDURE Return*;
+	CONST savedRegs = {reg_DI, reg_SI, reg_R12, reg_R13, reg_R14, reg_R15};
 	VAR i, k, nRegs, endPC, endIP : INTEGER;
 		paramRegs : ARRAY 4 OF UBYTE; obj : Base.Object;
 		
@@ -1867,57 +1911,44 @@ PROCEDURE Return*;
 	END Param_size;
 		
 BEGIN (* Return *)
-	nRegs := 0;
-	IF reg_R15 IN ProcState.usedRegs THEN PopR (reg_R15); INC (nRegs) END;
-	IF reg_R14 IN ProcState.usedRegs THEN PopR (reg_R14); INC (nRegs) END;
-	IF reg_R13 IN ProcState.usedRegs THEN PopR (reg_R13); INC (nRegs) END;
-	IF reg_R12 IN ProcState.usedRegs THEN PopR (reg_R12); INC (nRegs) END;
-	IF reg_SI IN ProcState.usedRegs THEN PopR (reg_SI); INC (nRegs) END;
-	IF reg_DI IN ProcState.usedRegs THEN PopR (reg_DI); INC (nRegs) END;
-	
-	i := (ProcState.locblksize + nRegs * 8) MOD 16;
-	IF i > 0 THEN INC (ProcState.locblksize, 16 - i) END;
-	EmitBare (LEAVE); EmitBare (RET);
-	endPC := pc; endIP := ip;
-	
-	PushR (reg_BP); EmitRR (MOVr, reg_BP, 8, reg_SP);
-	IF ProcState.locblksize > 0 THEN
-		EmitRI (SUBi, reg_SP, 8, ProcState.locblksize)
-	END;
-	
-	IF reg_DI IN ProcState.usedRegs THEN PushR (reg_DI); INC (nRegs) END;
-	IF reg_SI IN ProcState.usedRegs THEN PushR (reg_SI); INC (nRegs) END;
-	IF reg_R12 IN ProcState.usedRegs THEN PushR (reg_R12); INC (nRegs) END;
-	IF reg_R13 IN ProcState.usedRegs THEN PushR (reg_R13); INC (nRegs) END;
-	IF reg_R14 IN ProcState.usedRegs THEN PushR (reg_R14); INC (nRegs) END;
-	IF reg_R15 IN ProcState.usedRegs THEN PushR (reg_R15); INC (nRegs) END;
-	
 	IF ProcState.parlist # NIL THEN
+		nRegs := 0;
+		FOR i := 15 TO 0 BY -1 DO
+			IF i IN savedRegs THEN PopR (i); INC (nRegs) END
+		END;
+		
+		i := (ProcState.locblksize + nRegs * 8) MOD 16;
+		IF i > 0 THEN INC (ProcState.locblksize, 16 - i) END;
+		EmitBare (LEAVE); EmitBare (RET);
+		endPC := pc; endIP := ip;
+		
+		PushR (reg_BP); EmitRR (MOVd, reg_BP, 8, reg_SP);
+		IF ProcState.locblksize > 0 THEN
+			EmitRI (SUBi, reg_SP, 8, ProcState.locblksize)
+		END;
+		
+		FOR i := 0 TO 15 DO
+			IF i IN savedRegs THEN PushR (i); INC (nRegs) END
+		END;
+		
 		paramRegs [0] := reg_C; paramRegs [1] := reg_D;
 		paramRegs [2] := reg_R8; paramRegs [3] := reg_R9;
 		obj := ProcState.parlist; i := 0; k := 0;
 		WHILE (i < 4) & (obj # Base.guard) DO
 			IF k = 0 THEN k := Param_size (obj) END;
-			EmitRM (0, MOVr, paramRegs [i], 8, reg_BP, 16 + i * 8);
-			i := i + 1; k := k - 8; IF k = 0 THEN obj := obj.next END
-		END
-	END;
+			SetRmOperand_regI (reg_BP, 16 + i * 8);
+			EmitRegRm (MOV, paramRegs [i], 8);
+			i := i + 1; k := k - 8;
+			IF k = 0 THEN obj := obj.next END
+		END;
 	
-	ProcState.prolog_size := ip - endIP;
-	Write_to_file (endPC, pc - 1);
-	Write_to_file (1, endPC - 1)
-END Return;
-
-PROCEDURE Module_exit*;
-BEGIN
-	IF Base.CompilerFlag.main THEN
-		EmitRI (SUBi, reg_SP, 8, 32);
-		EmitRR (XORr, reg_C, 4, reg_C);
-		EmitCallSv (-56); (* ExitProcess *)
+		ProcState.prolog_size := ip - endIP;
+		Write_to_file (endPC, pc - 1);
+		Write_to_file (1, endPC - 1)
 	ELSE
-		MoveRI (reg_A, 4, 1)
+		Module_exit; Write_to_file (1, pc - 1)
 	END
-END Module_exit;
+END Return;
 
 PROCEDURE Check_varsize* (n : LONGINT; g : BOOLEAN);
 BEGIN
@@ -1936,7 +1967,7 @@ END Check_varsize;
 PROCEDURE Init* (modname : Base.String);
 BEGIN
 	ip := 0; varbase := 0; staticsize := 128; modid := modname;
-	Sys.Rewrite (out, tempfilename);
+	Sys.Rewrite (out, tempOutputName);
 	Sys.Seek (out, 400H)
 END Init;
 
@@ -2054,7 +2085,6 @@ BEGIN
 		Sys.Write_8bytes (out, Kernel32Table[i]); i := i + 1
 	END
 END Write_data_section;
-
 
 PROCEDURE Write_edata_section;
 	CONST dirsize = 40;
@@ -2281,17 +2311,19 @@ BEGIN
 		IF Base.CompilerFlag.main THEN Base.Append_str (str, '.exe')
 		ELSE Base.Append_str (str, '.dll')
 		END;
-		Sys.Delete_file (str); Sys.Rename_file (tempfilename, str);
+		Sys.Delete_file (str); Sys.Rename_file (tempOutputName, str);
 		str := ''; Base.Append_str (str, modid); Base.Append_str (str, '.sym');
-		Sys.Delete_file (str); Sys.Rename_file (tempsymfilename, str)
+		Sys.Delete_file (str); Sys.Rename_file (tempSymName, str)
 	ELSE
 		Sys.Close (out);
 		Sys.Console_WriteLn; Sys.Console_WriteString ('No output generated.');
-		Sys.Delete_file (tempfilename)
+		Sys.Delete_file (tempOutputName)
 	END
 END Finish;
 
 BEGIN
+	NEW (code, 100000H);
+
 	reg_stacks [0].i := 0;
 	reg_stacks [0].n := 11;
 	reg_stacks [0].ord [0] := reg_A;
