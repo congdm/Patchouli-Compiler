@@ -176,12 +176,12 @@ BEGIN
 			b := Emit.mem.scl * 16 + Emit.mem.idx * 8 + Emit.mem.bas;
 			code [Emit.i] := USHORT (b); INC (Emit.i)
 		END;
-		codeinfo [pc].dispPos := USHORT (Emit.i - ip);
+		codeinfo [pc].dispPos := USHORT (Emit.i - Emit.oldi);
 		IF (Emit.mem.mod = 0) & (Emit.mem.rm = reg_BP) OR (Emit.mem.mod = 2) THEN
 			SYSTEM.PUT (SYSTEM.ADR (code [Emit.i]), Emit.mem.disp);
 			Emit.i := Emit.i + 4
 		ELSIF Emit.mem.mod = 1 THEN
-			code [Emit.i] := USHORT (Emit.mem.disp); INC (Emit.i)
+			code [Emit.i] := USHORT (Emit.mem.disp MOD 256); INC (Emit.i)
 		END
 	END
 END Emit_ModRM;
@@ -221,7 +221,7 @@ BEGIN
 	
 	op3bits := op DIV 256; op := op MOD 256;
 	IF (rsize > 1) THEN op := op + w_bit END;
-	code [Emit.i] := USHORT (op); INC (Emit.i);
+	code [Emit.i] := USHORT (op MOD 256); INC (Emit.i);
 	Emit_ModRM (op3bits);
 	
 	Next_inst
@@ -360,7 +360,7 @@ END PopR;
 PROCEDURE Branch (link : INTEGER);
 BEGIN
 	code [Emit.i] := 0E9H; INC (Emit.i);
-	codeinfo [pc].dispPos := USHORT (Emit.i - ip);
+	codeinfo [pc].dispPos := USHORT (Emit.i - Emit.oldi);
 	codeinfo [pc].link := link; INC (Emit.i, 4);
 	Next_inst
 END Branch;
@@ -368,7 +368,7 @@ END Branch;
 PROCEDURE BranchS (link : INTEGER);
 BEGIN
 	code [Emit.i] := 0EBH; INC (Emit.i);
-	codeinfo [pc].dispPos := USHORT (Emit.i - ip);
+	codeinfo [pc].dispPos := USHORT (Emit.i - Emit.oldi);
 	codeinfo [pc].link := link; INC (Emit.i);
 	Next_inst
 END BranchS;
@@ -376,7 +376,7 @@ END BranchS;
 PROCEDURE CallNear (disp : INTEGER);
 BEGIN
 	code [Emit.i] := 0E8H; INC (Emit.i);
-	codeinfo [pc].dispPos := USHORT (Emit.i - ip);
+	codeinfo [pc].dispPos := USHORT (Emit.i - Emit.oldi);
 	SYSTEM.PUT (SYSTEM.ADR (code [Emit.i]), disp); INC (Emit.i, 4);
 	codeinfo [pc].relfixup := TRUE;
 	Next_inst
@@ -386,7 +386,7 @@ PROCEDURE CondBranch (cond, link : INTEGER);
 BEGIN
 	code [Emit.i] := 0FH; INC (Emit.i);
 	code [Emit.i] := USHORT (80H + cond); INC (Emit.i);
-	codeinfo [pc].dispPos := USHORT (Emit.i - ip);
+	codeinfo [pc].dispPos := USHORT (Emit.i - Emit.oldi);
 	codeinfo [pc].link := link; INC (Emit.i, 4);
 	Next_inst
 END CondBranch;
@@ -394,7 +394,7 @@ END CondBranch;
 PROCEDURE CondBranchS (cond, link : INTEGER);
 BEGIN
 	code [Emit.i] := USHORT (70H + cond); INC (Emit.i);
-	codeinfo [pc].dispPos := USHORT (Emit.i - ip);
+	codeinfo [pc].dispPos := USHORT (Emit.i - Emit.oldi);
 	codeinfo [pc].link := link; INC (Emit.i);
 	Next_inst
 END CondBranchS;
@@ -1776,12 +1776,6 @@ BEGIN (* Write_to_file *)
 	Sys.Write_block (out, code, i, count)
 END Write_to_file;
 
-PROCEDURE Write_padding (n : INTEGER);
-	VAR i : INTEGER;
-BEGIN
-	FOR i := 0 TO n-1 DO Sys.Write_byte (out, 90H) END
-END Write_padding;
-
 PROCEDURE Module_init;
 	VAR i, framesize, L, r : INTEGER; n1, n2, n3, n4 : LONGINT;
 		str : Base.LongString; tp : Base.Type; td : Base.Item;
@@ -1861,7 +1855,6 @@ END Module_init;
 PROCEDURE Enter* (proc : Base.Object; locblksize : INTEGER);
 	VAR k : INTEGER;
 BEGIN
-	k := ip MOD 16; IF k # 0 THEN INC (ip, 16 - k); Write_padding (16 - k) END;
 	Reset_code_buffer;
 	IF proc # NIL THEN
 		ProcState.locblksize := locblksize;

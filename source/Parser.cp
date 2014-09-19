@@ -721,21 +721,23 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 		END ProcedureHeading;
 			
 		PROCEDURE ProcedureBody (proc : Base.Object);
-			VAR locblksize : INTEGER; x : Base.Item;
+			VAR locblksize : INTEGER; x : Base.Item; restype : Base.Type;
 		BEGIN
-			locblksize := 0; DeclarationSequence (locblksize);
+			locblksize := 0; proc.val := Generator.ip;
+			DeclarationSequence (locblksize);
 			Generator.Enter (proc, locblksize);
 			IF sym = Scanner.begin THEN
 				Scanner.Get (sym); StatementSequence
 			END;
-				
+			
+			restype := proc.type.base;
 			IF sym = Scanner.return THEN
 				Scanner.Get (sym); expression (x);
-				IF proc.type # NIL THEN Check_assignment (proc.type, x)
+				IF restype # NIL THEN Check_assignment (restype, x)
 				ELSE Scanner.Mark ('Proper procedure do not need RETURN')
 				END;
 				Generator.load (x)
-			ELSIF proc.type # NIL THEN
+			ELSIF restype # NIL THEN
 				Scanner.Mark ('No return value for function procedure')
 			END;
 			
@@ -795,7 +797,7 @@ BEGIN
 	ELSE
 		ftype := par.type; xtype := x.type; Check_var (x, par.readonly);
 		IF (ftype.form = Base.type_array) & (ftype.len < 0) THEN
-			IF (xtype.form = Base.type_array)
+			IF (xtype.form IN {Base.type_array, Base.type_string})
 			& Base.Compatible_array (xtype, ftype) THEN
 				Generator.Open_array_param (x, pinfo, ftype)
 			ELSE Scanner.Mark (err1); Generator.Free_item (x)
