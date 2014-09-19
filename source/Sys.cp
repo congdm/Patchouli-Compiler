@@ -118,19 +118,11 @@ BEGIN
 END Read_8bytes;
 
 (* -------------------------------------------------------------------------- *)
-
-PROCEDURE Write_block* (
-	VAR file : FileHandle; buf : POINTER TO ARRAY OF UBYTE; from, cnt : INTEGER
-);
-BEGIN
-	file.f.Write (buf, from, cnt)
-END Write_block;
 	
 PROCEDURE Write_byte* (VAR file : FileHandle; n : INTEGER);
 	VAR b : UBYTE;
 BEGIN
-	b := USHORT(n);
-	file.f.WriteByte (b)
+	b := USHORT(n); file.f.WriteByte (b)
 END Write_byte;
 
 PROCEDURE Write_ansi_str* (VAR file : FileHandle; str : ARRAY OF CHAR);

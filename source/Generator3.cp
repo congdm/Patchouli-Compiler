@@ -66,7 +66,7 @@ TYPE
 	InstructionInfo = RECORD
 		relfixup : BOOLEAN;
 		size, dispPos : UBYTE;
-		link, ip : INTEGER
+		ip : INTEGER
 	END;
 
 	RegStack = RECORD
@@ -84,7 +84,7 @@ VAR
 	modid : Base.String;
 	out, fixupFile : Sys.FileHandle;
 
-	code : POINTER TO ARRAY OF UBYTE;
+	code : ARRAY 100000H OF UBYTE;
 	codeinfo : ARRAY 20000H OF InstructionInfo;
 	ip*, pc* : INTEGER;
 	
@@ -128,8 +128,40 @@ VAR
 
 PROCEDURE Reset_code_buffer;
 BEGIN
-	Emit.i := 0; Emit.oldi := 0; pc := 1
+	Emit.i := 0; Emit.oldi := 0; pc := 1; codeinfo [pc].relfixup := FALSE
 END Reset_code_buffer;
+
+PROCEDURE Put_byte (n : INTEGER);
+BEGIN
+	code [Emit.i] := USHORT (n MOD 256); INC (Emit.i)
+END Put_byte;
+
+PROCEDURE Put_2bytes (n : INTEGER);
+BEGIN
+	code [Emit.i] := USHORT (n MOD 256); n := n DIV 256;
+	code [Emit.i + 1] := USHORT (n MOD 256); INC (Emit.i, 2)
+END Put_2bytes;
+
+PROCEDURE Put_4bytes (n : INTEGER);
+BEGIN
+	code [Emit.i] := USHORT (n MOD 256); n := n DIV 256;
+	code [Emit.i + 1] := USHORT (n MOD 256); n := n DIV 256;
+	code [Emit.i + 2] := USHORT (n MOD 256); n := n DIV 256;
+	code [Emit.i + 3] := USHORT (n MOD 256); INC (Emit.i, 4)
+END Put_4bytes;
+
+PROCEDURE Put_8bytes (n : LONGINT);
+	VAR k : INTEGER;
+BEGIN
+	code [Emit.i] := USHORT (n MOD 256); n := n DIV 256;
+	code [Emit.i + 1] := USHORT (n MOD 256); n := n DIV 256;
+	code [Emit.i + 2] := USHORT (n MOD 256); n := n DIV 256;
+	code [Emit.i + 3] := USHORT (n MOD 256); n := n DIV 256;
+	code [Emit.i + 4] := USHORT (n MOD 256); n := n DIV 256;
+	code [Emit.i + 5] := USHORT (n MOD 256); n := n DIV 256;
+	code [Emit.i + 6] := USHORT (n MOD 256); n := n DIV 256;
+	code [Emit.i + 7] := USHORT (n MOD 256); INC (Emit.i, 8)
+END Put_8bytes;
 	
 PROCEDURE Emit_REX_prefix (reg, rsize : INTEGER);
 	CONST W_bit = 8; R_bit = 4; X_bit = 2; B_bit = 1;
@@ -147,21 +179,21 @@ BEGIN
 	END;
 	IF (rex # 40H) OR (rsize = 1) & ((reg IN {reg_SP .. reg_DI})
 		OR (Emit.mem.mod = 3) & (Emit.mem.rm IN {reg_SP .. reg_DI}))
-	THEN code [Emit.i] := USHORT(rex); INC (Emit.i)
+	THEN Put_byte (rex)
 	END
 END Emit_REX_prefix;
 
 PROCEDURE Emit_16bit_prefix (rsize : INTEGER);
 BEGIN
-	IF rsize = 2 THEN code [Emit.i] := 66H; INC (Emit.i) END
+	IF rsize = 2 THEN Put_byte (66H) END
 END Emit_16bit_prefix;
 
 PROCEDURE Handle_multibytes_opcode (VAR op : INTEGER);
 BEGIN
 	IF op MOD 256 # 0FH THEN (* One byte opcode *)
-	ELSE code [Emit.i] := 0FH; op := op DIV 256; INC (Emit.i);
+	ELSE Put_byte (0FH); op := op DIV 256;
 		IF (op MOD 256 = 038H) OR (op MOD 256 = 03AH) THEN
-			code [Emit.i] := USHORT (op MOD 256); op := op DIV 256; INC (Emit.i)
+			Put_byte (op); op := op DIV 256
 		END
 	END
 END Handle_multibytes_opcode;
@@ -169,19 +201,15 @@ END Handle_multibytes_opcode;
 PROCEDURE Emit_ModRM (reg : INTEGER);
 	VAR b : INTEGER;
 BEGIN
-	b := Emit.mem.mod * 64 + reg * 8 + Emit.mem.rm;
-	code [Emit.i] := USHORT (b MOD 256); INC (Emit.i);
+	Put_byte (Emit.mem.mod * 64 + reg MOD 8 * 8 + Emit.mem.rm MOD 8);
 	IF Emit.mem.mod # 3 THEN
-		IF Emit.mem.rm = reg_SP THEN
-			b := Emit.mem.scl * 64 + Emit.mem.idx * 8 + Emit.mem.bas;
-			code [Emit.i] := USHORT (b MOD 256); INC (Emit.i)
+		IF Emit.mem.rm IN {reg_SP, reg_R12} THEN
+			Put_byte (Emit.mem.scl * 64 + Emit.mem.idx MOD 8 * 8 + Emit.mem.bas MOD 8)
 		END;
 		codeinfo [pc].dispPos := USHORT (Emit.i - Emit.oldi);
-		IF (Emit.mem.mod = 0) & (Emit.mem.rm = reg_BP) OR (Emit.mem.mod = 2) THEN
-			SYSTEM.PUT (SYSTEM.ADR (code [Emit.i]), Emit.mem.disp);
-			Emit.i := Emit.i + 4
-		ELSIF Emit.mem.mod = 1 THEN
-			code [Emit.i] := USHORT (Emit.mem.disp MOD 256); INC (Emit.i)
+		IF (Emit.mem.mod = 0) & (Emit.mem.rm IN {reg_BP, reg_R13}) OR (Emit.mem.mod = 2)
+		THEN Put_4bytes (Emit.mem.disp)
+		ELSIF Emit.mem.mod = 1 THEN Put_byte (Emit.mem.disp)
 		END
 	END
 END Emit_ModRM;
@@ -190,9 +218,7 @@ PROCEDURE Next_inst;
 BEGIN
 	codeinfo [pc].ip := ip; codeinfo [pc].size := USHORT (Emit.i - Emit.oldi);
 	ip := ip + Emit.i - Emit.oldi; INC (pc);
-	
-	Emit.oldi := Emit.i;
-	codeinfo [pc].relfixup := FALSE
+	Emit.oldi := Emit.i; codeinfo [pc].relfixup := FALSE
 END Next_inst;
 
 (* -------------------------------------------------------------------------- *)
@@ -206,8 +232,7 @@ BEGIN
 	IF (rsize > 1) & ((op < LEA) OR (op = MOVZX) OR (op = IMUL)) THEN
 		op := op + w_bit
 	END;
-	code [Emit.i] := USHORT (op); INC (Emit.i);
-	Emit_ModRM (reg);
+	Put_byte (op); Emit_ModRM (reg);
 	
 	Next_inst
 END EmitRegRm;
@@ -220,9 +245,10 @@ BEGIN
 	Handle_multibytes_opcode (op);
 	
 	op3bits := op DIV 256; op := op MOD 256;
-	IF (rsize > 1) THEN op := op + w_bit END;
-	code [Emit.i] := USHORT (op MOD 256); INC (Emit.i);
-	Emit_ModRM (op3bits);
+	IF (rsize > 1) & (BITS(op) * BITS(w_bit) = {}) THEN
+		op := op + w_bit
+	END;
+	Put_byte (op); Emit_ModRM (op3bits);
 	
 	Next_inst
 END EmitRm;
@@ -235,25 +261,25 @@ BEGIN
 	Handle_multibytes_opcode (op);
 	
 	op3bits := op DIV 256; op := op MOD 256;
-	IF (rsize > 1) THEN
-		IF (imm >= MIN_INT8) & (imm <= MAX_INT8) & (op = 80H) THEN
+	IF rsize > 1 THEN
+		IF (op = 0C0H) OR (op = 0BAH) THEN rsize := 1
+		ELSIF (imm >= MIN_INT8) & (imm <= MAX_INT8) & (op = 80H) THEN
 			op := op + s_bit; rsize := 1
 		END;
-		op := op + w_bit
+		IF BITS(op) * BITS(w_bit) = {} THEN op := op + w_bit END
 	END;
-	code [Emit.i] := USHORT (op); INC (Emit.i);
-	Emit_ModRM (op3bits);
-	SYSTEM.PUT (SYSTEM.ADR (code [Emit.i]), imm); Emit.i := Emit.i + rsize;
+	Put_byte (op); Emit_ModRM (op3bits);
+	
+	IF rsize = 1 THEN Put_byte (imm) ELSIF rsize = 2 THEN Put_2bytes (imm)
+	ELSE Put_4bytes (imm)
+	END;
 	
 	Next_inst
 END EmitRmImm;
 
 PROCEDURE EmitBare (op : INTEGER);
 BEGIN
-	WHILE op > 0 DO
-		code [Emit.i] := USHORT (op MOD 256); INC (Emit.i);
-		op := op DIV 256
-	END;
+	WHILE op > 0 DO	Put_byte (op); op := op DIV 256 END;
 	Next_inst
 END EmitBare;
 
@@ -268,12 +294,12 @@ PROCEDURE SetRmOperand_regI (reg, disp : INTEGER);
 BEGIN
 	Emit.mem.rm := reg; Emit.mem.disp := disp;
 	IF (disp >= MIN_INT8) & (disp <= MAX_INT8) THEN
-		IF (disp = 0) & (reg # reg_BP) THEN Emit.mem.mod := 0
+		IF (disp = 0) & ~ (reg IN {reg_BP, reg_R13}) THEN Emit.mem.mod := 0
 		ELSE Emit.mem.mod := 1
 		END
 	ELSE Emit.mem.mod := 2
 	END;
-	IF reg = reg_SP THEN
+	IF reg IN {reg_SP, reg_R12} THEN
 		Emit.mem.bas := reg_SP; Emit.mem.idx := reg_SP; Emit.mem.scl := 0
 	END
 END SetRmOperand_regI;
@@ -332,91 +358,66 @@ PROCEDURE MoveRI (rm, rsize : INTEGER; imm : LONGINT);
 	CONST w_bit = 8;
 	VAR op : INTEGER;
 BEGIN
-	SetRmOperand_reg (rm);
-	Emit_16bit_prefix (rsize); Emit_REX_prefix (0, rsize);
-	op := 0B0H + rm MOD 8;
-	IF rsize > 1 THEN op := op + w_bit END;
-	code [Emit.i] := USHORT (op); INC (Emit.i);
-	SYSTEM.PUT (SYSTEM.ADR (code [Emit.i]), imm); Emit.i := Emit.i + rsize;
+	SetRmOperand_reg (rm); Emit_16bit_prefix (rsize); Emit_REX_prefix (0, rsize);
+	op := 0B0H + rm MOD 8; IF rsize > 1 THEN op := op + w_bit END; Put_byte (op);
+	IF rsize = 1 THEN Put_byte (SHORT(imm))
+	ELSIF rsize = 2 THEN Put_2bytes (SHORT(imm))
+	ELSIF rsize = 4 THEN Put_4bytes (SHORT(imm))
+	ELSE Put_8bytes (imm)
+	END;
 	Next_inst
 END MoveRI;
 
 PROCEDURE PushR (rm : INTEGER);
 BEGIN
-	SetRmOperand_reg (rm); Emit_REX_prefix (0, 4);
-	code [Emit.i] := USHORT (50H + rm MOD 8); INC (Emit.i);
+	SetRmOperand_reg (rm); Emit_REX_prefix (0, 4); Put_byte (50H + rm MOD 8);
 	INC (ProcState.memstack, 8);
 	Next_inst
 END PushR;
 
 PROCEDURE PopR (rm : INTEGER);
 BEGIN
-	SetRmOperand_reg (rm); Emit_REX_prefix (0, 4);
-	code [Emit.i] := USHORT (58H + rm MOD 8); INC (Emit.i);
+	SetRmOperand_reg (rm); Emit_REX_prefix (0, 4); Put_byte (58H + rm MOD 8);
 	INC (ProcState.memstack, 8);
 	Next_inst
 END PopR;
 
-PROCEDURE Branch (link : INTEGER);
+PROCEDURE Branch (disp : INTEGER);
 BEGIN
-	code [Emit.i] := 0E9H; INC (Emit.i);
-	codeinfo [pc].dispPos := USHORT (Emit.i - Emit.oldi);
-	codeinfo [pc].link := link; INC (Emit.i, 4);
+	Put_byte (0E9H); codeinfo [pc].dispPos := USHORT (Emit.i - Emit.oldi);
+	Put_4bytes (disp);
 	Next_inst
 END Branch;
 
-PROCEDURE BranchS (link : INTEGER);
-BEGIN
-	code [Emit.i] := 0EBH; INC (Emit.i);
-	codeinfo [pc].dispPos := USHORT (Emit.i - Emit.oldi);
-	codeinfo [pc].link := link; INC (Emit.i);
-	Next_inst
-END BranchS;
-
 PROCEDURE CallNear (disp : INTEGER);
 BEGIN
-	code [Emit.i] := 0E8H; INC (Emit.i);
-	codeinfo [pc].dispPos := USHORT (Emit.i - Emit.oldi);
-	SYSTEM.PUT (SYSTEM.ADR (code [Emit.i]), disp); INC (Emit.i, 4);
-	codeinfo [pc].relfixup := TRUE;
+	Put_byte (0E8H); codeinfo [pc].dispPos := USHORT (Emit.i - Emit.oldi);
+	Put_4bytes (disp); codeinfo [pc].relfixup := TRUE;
 	Next_inst
 END CallNear;
 
-PROCEDURE CondBranch (cond, link : INTEGER);
+PROCEDURE CondBranch (cond, disp : INTEGER);
 BEGIN
-	code [Emit.i] := 0FH; INC (Emit.i);
-	code [Emit.i] := USHORT (80H + cond); INC (Emit.i);
+	Put_byte (0FH); Put_byte (80H + cond);
 	codeinfo [pc].dispPos := USHORT (Emit.i - Emit.oldi);
-	codeinfo [pc].link := link; INC (Emit.i, 4);
+	Put_4bytes (disp);
 	Next_inst
 END CondBranch;
-
-PROCEDURE CondBranchS (cond, link : INTEGER);
-BEGIN
-	code [Emit.i] := USHORT (70H + cond); INC (Emit.i);
-	codeinfo [pc].dispPos := USHORT (Emit.i - Emit.oldi);
-	codeinfo [pc].link := link; INC (Emit.i);
-	Next_inst
-END CondBranchS;
 
 PROCEDURE SetccRm (cond : INTEGER);
 BEGIN
 	Emit_REX_prefix (0, 1);
-	code [Emit.i] := 0FH; INC (Emit.i);
-	code [Emit.i] := USHORT (90H + cond); INC (Emit.i);
-	Emit_ModRM (0);
+	Put_byte (0FH); Put_byte (90H + cond); Emit_ModRM (0);
 	Next_inst
 END SetccRm;
 
 PROCEDURE EmitREPop (op, rsize, z : INTEGER);
 	CONST w_bit = 1;
 BEGIN
-	code [Emit.i] := USHORT (0F2H + z); INC (Emit.i); (* REP prefix *)
+	Put_byte (0F2H + z); (* REP prefix *)
 	Emit_16bit_prefix (rsize); Emit_REX_prefix (0, rsize);
-	
 	IF (rsize > 1) & (BITS(op) * BITS(w_bit) = {}) THEN INC (op, w_bit) END;
-	code [Emit.i] := USHORT (op); INC (Emit.i);
-	
+	Put_byte (op);
 	Next_inst
 END EmitREPop;
 
@@ -520,41 +521,36 @@ END Get_typedesc;
 (* -------------------------------------------------------------------------- *)
 (* Branch Fixup *)
 
-PROCEDURE Fix_link* (L : INTEGER);
-	VAR i, dispPos, size, n : INTEGER;
-BEGIN
-	WHILE L # 0 DO
-		size := codeinfo [L].size; dispPos := codeinfo [L].dispPos;
-		i := codeinfo [L].ip; n := ip - i - size;
-		i := i - ProcState.adr + dispPos;
-		IF size - dispPos = 1 THEN code [i] := USHORT (n)
-		ELSE SYSTEM.PUT (SYSTEM.ADR (code [i]), n)
-		END;
-		L := codeinfo [L].link
-	END
-END Fix_link;
-
 PROCEDURE Fix_link_with (L : INTEGER; dst : INTEGER);
 	VAR i, dispPos, size, n : INTEGER;
 BEGIN
 	WHILE L # 0 DO
 		size := codeinfo [L].size; dispPos := codeinfo [L].dispPos;
-		i := codeinfo [L].ip; n := dst - i - size;
+		i := codeinfo [L].ip;
+		n := dst - i - size;
 		i := i - ProcState.adr + dispPos;
-		IF size - dispPos = 1 THEN code [i] := USHORT (n)
-		ELSE SYSTEM.PUT (SYSTEM.ADR (code [i]), n)
-		END;
-		L := codeinfo [L].link
+		SYSTEM.GET (SYSTEM.ADR (code [i]), L);
+		SYSTEM.PUT (SYSTEM.ADR (code [i]), n)
 	END
 END Fix_link_with;
+
+PROCEDURE Fix_link* (L : INTEGER);
+BEGIN
+	Fix_link_with (L, ip)
+END Fix_link;
 
 PROCEDURE merged (L0, L1: INTEGER) : INTEGER;
 	VAR L2, L3, size, i, dispPos : INTEGER;
 BEGIN 
 	IF L0 # 0 THEN
 		L3 := L0;
-		REPEAT L2 := L3; L3 := codeinfo [L2].link UNTIL L3 = 0;
-		codeinfo [L2].link := L1;
+		REPEAT
+			L2 := L3;
+			size := codeinfo [L2].size; dispPos := codeinfo [L2].dispPos;
+			i := codeinfo [L2].ip - ProcState.adr + dispPos;
+			SYSTEM.GET (SYSTEM.ADR (code [i]), L3)
+		UNTIL L3 = 0;
+		SYSTEM.PUT (SYSTEM.ADR (code [i]), L1);
 		L1 := L0
 	END;
     RETURN L1
@@ -636,9 +632,11 @@ END Free_item;
 PROCEDURE Trap (cond : INTEGER; trapno : UBYTE);
 	VAR L : INTEGER;
 BEGIN
+	(*
 	ASSERT (trapno < 16);
-	L := pc; CondBranchS (cond, 0); BranchS (0); Fix_link (L); L := pc - 1;
+	L := pc; CondBranch (cond, 0); Branch (0); Fix_link (L); L := pc - 1;
 	SetRmOperand_regI (reg_B, 0); EmitRegRm (MOV, trapno, 4); Fix_link (L)
+	*)
 END Trap;
 
 (* -------------------------------------------------------------------------- *)
@@ -708,9 +706,9 @@ BEGIN
 				ELSE ASSERT(FALSE)
 				END
 			ELSE
-				L := pc; CondBranchS (negated(x.c), 0); Fix_link (x.b);
+				L := pc; CondBranch (negated(x.c), 0); Fix_link (x.b);
 				MoveRI (x.r, 4, 1);
-				BranchS (0); Fix_link (L); Fix_link (SHORT (x.a)); L := pc - 1;
+				Branch (0); Fix_link (L); Fix_link (SHORT (x.a)); L := pc - 1;
 				EmitRR (XOR, x.r, 4, x.r); Fix_link (L)
 			END
 		END;
@@ -956,14 +954,14 @@ BEGIN
 		EmitBare (CQO);
 		
 		EmitRR (TEST, reg_A, 8, reg_A);
-		L := pc; CondBranchS (ccS, 0);
+		L := pc; CondBranch (ccS, 0);
 		
 		IF ~ (y.r IN {reg_A, reg_D}) THEN EmitR (IDIVa, y.r, 8)
 		ELSIF y.r = reg_D THEN EmitR (IDIVa, r2, 8)
 		ELSE EmitR (IDIVa, r, 8)
 		END;
 		
-		BranchS (0); Fix_link (L); L := pc - 1; 
+		Branch (0); Fix_link (L); L := pc - 1; 
 		
 		IF ~ (y.r IN {reg_A, reg_D}) THEN EmitR (IDIVa, y.r, 8)
 		ELSIF y.r = reg_D THEN EmitR (IDIVa, r2, 8)
@@ -971,7 +969,7 @@ BEGIN
 		END;
 		
 		EmitRR (TEST, reg_D, 8, reg_D);
-		CondBranchS (ccZ, L); L := pc - 1;
+		CondBranch (ccZ, L); L := pc - 1;
 		
 		IF op = Scanner.div THEN EmitRI (SUBi, reg_A, 8, 1)
 		ELSIF ~ (y.r IN {reg_A, reg_D}) THEN EmitRR (ADDd, reg_D, 8, y.r)
@@ -1373,7 +1371,7 @@ BEGIN
 		IF Base.CompilerFlag.overflow_check THEN
 			Trap (ccBE, overflow_trap) (* Check for Z and C flag *)
 		END;
-		L := pc; CondBranchS (ccAE, 0);
+		L := pc; CondBranch (ccAE, 0);
 		EmitR (NEG, x.r, 8); Fix_link (L); Free_reg
 	ELSE ASSERT(FALSE)
 	END
@@ -1586,7 +1584,6 @@ BEGIN
 	Fix_link (SHORT (x.a))
 END Fixup;
 
-
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 (* Relation expression *)
@@ -1755,12 +1752,12 @@ END Type_test;
 (* Procedure Prolog, Epilog - Code Generation to File *)
 
 PROCEDURE Write_to_file* (from, to : INTEGER);
-	VAR	i, count : INTEGER;
+	VAR	p, i, k : INTEGER;
 		
-	PROCEDURE Fixup_disp (p : INTEGER);
-		VAR i, disp : INTEGER;
+	PROCEDURE Fixup_disp (p, i : INTEGER);
+		VAR disp : INTEGER;
 	BEGIN
-		disp := 0; i := codeinfo [p].ip - ProcState.adr + codeinfo [p].dispPos;
+		disp := 0; i := i + codeinfo [p].dispPos;
 		SYSTEM.GET (SYSTEM.ADR (code [i]), disp);
 		DEC (disp, codeinfo [p].ip + codeinfo [p].size + ProcState.prolog_size);
 		SYSTEM.PUT (SYSTEM.ADR (code [i]), disp)
@@ -1768,12 +1765,13 @@ PROCEDURE Write_to_file* (from, to : INTEGER);
 	
 BEGIN (* Write_to_file *)
 	ASSERT ((from > 0) & (to > 0) & (from <= pc) & (to <= pc));
-	FOR i := from TO to DO
-		IF codeinfo [i].relfixup THEN Fixup_disp (i) END
-	END;
 	i := codeinfo [from].ip - ProcState.adr;
-	count := codeinfo [to].ip + codeinfo [to].size - codeinfo [from].ip;
-	Sys.Write_block (out, code, i, count)
+	FOR p := from TO to DO
+		IF codeinfo [p].relfixup THEN Fixup_disp (p, i) END;
+		FOR k := 1 TO codeinfo [p].size DO
+			Sys.Write_byte (out, code [i]); INC (i)
+		END
+	END
 END Write_to_file;
 
 PROCEDURE Module_init;
@@ -1782,11 +1780,11 @@ PROCEDURE Module_init;
 		modul, obj : Base.Object; exit : BOOLEAN;
 BEGIN
 	IF ~ Base.CompilerFlag.main THEN
-		EmitRI (CMPi, reg_D, 4, 1); L := pc; CondBranchS (ccZ, 0);
+		EmitRI (CMPi, reg_D, 4, 1); L := pc; CondBranch (ccZ, 0);
 		EmitBare (LEAVE); EmitBare (RET); Fix_link (L)
 	END;
 	
-	EmitRI (SUBi, reg_SP, 8, 32);
+	EmitRI (SUBi, reg_SP, 8, 40);
 	SetRmOperand_staticvar (-32); EmitRm (CALL, 8); (* GetProcessHeap *)
 	EmitRI (ADDi, reg_SP, 8, 32);
 	SetRmOperand_staticvar (-64); EmitRegRm (MOV, reg_A, 8); (* Heap Handle of Process *)
@@ -1855,7 +1853,8 @@ END Module_init;
 PROCEDURE Enter* (proc : Base.Object; locblksize : INTEGER);
 	VAR k : INTEGER;
 BEGIN
-	Reset_code_buffer;
+	Reset_code_buffer; pc := 1; ProcState.adr := ip; Reset_reg_stack;
+	ProcState.usedRegs := {}; curRegs := {}; ProcState.memstack := 0;
 	IF proc # NIL THEN
 		ProcState.locblksize := locblksize;
 		ProcState.parlist := proc.dsc;
@@ -1865,15 +1864,11 @@ BEGIN
 			proc.val := ip
 		END
 	ELSE
-		Module_init;
 		Linker.entry := ip;
 		ProcState.locblksize := 0;
-		ProcState.parlist := NIL
+		ProcState.parlist := NIL;
+		Module_init
 	END;
-	ProcState.memstack := 0;
-	ProcState.usedRegs := {}; curRegs := {};
-	ProcState.adr := ip;
-	Reset_reg_stack; pc := 1
 END Enter;
 
 PROCEDURE Module_exit;
@@ -1939,6 +1934,7 @@ BEGIN (* Return *)
 		Write_to_file (endPC, pc - 1);
 		Write_to_file (1, endPC - 1)
 	ELSE
+		ProcState.prolog_size := 0;
 		Module_exit; Write_to_file (1, pc - 1)
 	END
 END Return;
@@ -2315,8 +2311,6 @@ BEGIN
 END Finish;
 
 BEGIN
-	NEW (code, 100000H);
-
 	reg_stacks [0].i := 0;
 	reg_stacks [0].n := 11;
 	reg_stacks [0].ord [0] := reg_A;
