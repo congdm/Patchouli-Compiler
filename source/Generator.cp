@@ -1469,7 +1469,7 @@ END SProc_INC;
 
 PROCEDURE Assert* (VAR x : Base.Item);
 BEGIN
-	(* Implement later *)
+	Load_cond (x); Trap (negated (x.c), assert_trap)
 END Assert;
 
 PROCEDURE SProc_GET* (VAR x, y : Base.Item);

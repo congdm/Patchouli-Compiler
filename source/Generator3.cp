@@ -20,6 +20,7 @@ CONST
 	overflow_trap = 0;
 	array_trap = 1;
 	type_trap = 2;
+	assert_trap = 3;
 	
 	mode_reg = Base.mode_reg;
 	mode_imm = Base.class_const;
@@ -754,7 +755,6 @@ BEGIN
 		IF x.mode = mode_regI THEN Free_reg END;
 		Free_reg
 	ELSIF x.type.form IN {Base.type_array, Base.type_record} THEN
-		(* Need rewriting *)
 		count := x.type.size;
 		IF (y.type.form = Base.type_string) & (y.type.size < count) THEN
 			count := y.type.size
@@ -928,6 +928,7 @@ BEGIN
 	END
 END Subtract;
 
+(* One of the most complex procedure in this module... *)
 PROCEDURE Divide (op : INTEGER; VAR x, y : Base.Item);
 	VAR dst, r, r2, L : INTEGER; saveA, saveD : BOOLEAN;
 BEGIN
@@ -1435,9 +1436,9 @@ PROCEDURE Call* (VAR x : Base.Item; VAR pinfo : ProcInfo);
 BEGIN
 	IF x.mode = Base.class_proc THEN n := 0;
 		IF x.lev >= 0 THEN CallNear (SHORT(x.a));
-		ELSE SetRmOperand (x); EmitRm (CALL, 8)
+		ELSE SetRmOperand (x); EmitRm (CALL, 4)
 		END
-	ELSE SetRmOperand_regI (reg_SP, pinfo.parblksize); EmitRm (CALL, 8); n := 8
+	ELSE SetRmOperand_regI (reg_SP, pinfo.parblksize); EmitRm (CALL, 4); n := 8
 	END;
 	
 	(* Release the stack area used for parameters and proc address *)
@@ -1448,7 +1449,7 @@ BEGIN
 	
 	(* Return value *)
 	IF pinfo.rtype # NIL THEN
-		IF x.mode # Base.class_proc THEN x.type := pinfo.rtype END;
+		x.type := pinfo.rtype;
 		IF reg_A IN curRegs THEN x.r := Reg_stack(-1)
 		ELSE x.r := Alloc_reg();
 			IF x.r # reg_A THEN EmitRR (MOVd, x.r, 8, reg_A) END
@@ -1781,11 +1782,11 @@ PROCEDURE Module_init;
 BEGIN
 	IF ~ Base.CompilerFlag.main THEN
 		EmitRI (CMPi, reg_D, 4, 1); L := pc; CondBranch (ccZ, 0);
-		EmitBare (LEAVE); EmitBare (RET); Fix_link (L)
+		EmitBare (RET); Fix_link (L)
 	END;
 	
 	EmitRI (SUBi, reg_SP, 8, 40);
-	SetRmOperand_staticvar (-32); EmitRm (CALL, 8); (* GetProcessHeap *)
+	SetRmOperand_staticvar (-32); EmitRm (CALL, 4); (* GetProcessHeap *)
 	EmitRI (ADDi, reg_SP, 8, 32);
 	SetRmOperand_staticvar (-64); EmitRegRm (MOV, reg_A, 8); (* Heap Handle of Process *)
 	
@@ -1814,7 +1815,7 @@ BEGIN
 				i := i + 4
 			END;
 			SetRmOperand_regI (reg_SP, 32); EmitRegRm (LEA, reg_C, 8);
-			SetRmOperand_staticvar (-48); EmitRm (CALL, 8); (* LoadLibraryW *)
+			SetRmOperand_staticvar (-48); EmitRm (CALL, 4); (* LoadLibraryW *)
 			EmitRR (MOVd, reg_SI, 8, reg_A);
 			obj := modul.dsc;
 			WHILE obj # Base.guard DO
@@ -1822,7 +1823,7 @@ BEGIN
 					EmitRR (MOVd, reg_C, 8, reg_SI);
 					MoveRI (reg_D, 4, obj.val2);
 					SetRmOperand_staticvar (-40); (* GetProcAddress *)
-					EmitRm (CALL, 8);
+					EmitRm (CALL, 4);
 					SetRmOperand_staticvar (SHORT (obj.val));
 					EmitRegRm (MOV, reg_A, 8)
 				END;
@@ -1850,6 +1851,16 @@ BEGIN
 	END
 END Module_init;
 
+PROCEDURE Module_exit;
+BEGIN
+	IF Base.CompilerFlag.main THEN
+		EmitRI (SUBi, reg_SP, 8, 32);
+		EmitRR (XOR, reg_C, 4, reg_C);
+		SetRmOperand_staticvar (-56); EmitRm (CALL, 4) (* ExitProcess *)
+	ELSE MoveRI (reg_A, 4, 1); EmitRI (ADDi, reg_SP, 8, 8); EmitBare (RET)
+	END
+END Module_exit;
+
 PROCEDURE Enter* (proc : Base.Object; locblksize : INTEGER);
 	VAR k : INTEGER;
 BEGIN
@@ -1870,16 +1881,6 @@ BEGIN
 		Module_init
 	END;
 END Enter;
-
-PROCEDURE Module_exit;
-BEGIN
-	IF Base.CompilerFlag.main THEN
-		EmitRI (SUBi, reg_SP, 8, 32);
-		EmitRR (XOR, reg_C, 4, reg_C);
-		SetRmOperand_staticvar (-56); EmitRm (CALL, 8) (* ExitProcess *)
-	ELSE MoveRI (reg_A, 4, 1)
-	END
-END Module_exit;
 	
 PROCEDURE Return*;
 	CONST savedRegs = {reg_DI, reg_SI, reg_R12, reg_R13, reg_R14, reg_R15};
