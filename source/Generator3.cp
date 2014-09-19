@@ -169,12 +169,12 @@ END Handle_multibytes_opcode;
 PROCEDURE Emit_ModRM (reg : INTEGER);
 	VAR b : INTEGER;
 BEGIN
-	b := Emit.mem.mod * 16 + reg * 8 + Emit.mem.rm;
-	code [Emit.i] := USHORT (b); INC (Emit.i);
+	b := Emit.mem.mod * 64 + reg * 8 + Emit.mem.rm;
+	code [Emit.i] := USHORT (b MOD 256); INC (Emit.i);
 	IF Emit.mem.mod # 3 THEN
 		IF Emit.mem.rm = reg_SP THEN
-			b := Emit.mem.scl * 16 + Emit.mem.idx * 8 + Emit.mem.bas;
-			code [Emit.i] := USHORT (b); INC (Emit.i)
+			b := Emit.mem.scl * 64 + Emit.mem.idx * 8 + Emit.mem.bas;
+			code [Emit.i] := USHORT (b MOD 256); INC (Emit.i)
 		END;
 		codeinfo [pc].dispPos := USHORT (Emit.i - Emit.oldi);
 		IF (Emit.mem.mod = 0) & (Emit.mem.rm = reg_BP) OR (Emit.mem.mod = 2) THEN
@@ -343,7 +343,7 @@ END MoveRI;
 
 PROCEDURE PushR (rm : INTEGER);
 BEGIN
-	SetRmOperand_reg (rm); Emit_REX_prefix (0, 8);
+	SetRmOperand_reg (rm); Emit_REX_prefix (0, 4);
 	code [Emit.i] := USHORT (50H + rm MOD 8); INC (Emit.i);
 	INC (ProcState.memstack, 8);
 	Next_inst
@@ -351,7 +351,7 @@ END PushR;
 
 PROCEDURE PopR (rm : INTEGER);
 BEGIN
-	SetRmOperand_reg (rm); Emit_REX_prefix (0, 8);
+	SetRmOperand_reg (rm); Emit_REX_prefix (0, 4);
 	code [Emit.i] := USHORT (58H + rm MOD 8); INC (Emit.i);
 	INC (ProcState.memstack, 8);
 	Next_inst
@@ -1907,7 +1907,7 @@ BEGIN (* Return *)
 	IF ProcState.parlist # NIL THEN
 		nRegs := 0;
 		FOR i := 15 TO 0 BY -1 DO
-			IF i IN savedRegs THEN PopR (i); INC (nRegs) END
+			IF i IN (savedRegs * ProcState.usedRegs) THEN PopR (i); INC (nRegs) END
 		END;
 		
 		i := (ProcState.locblksize + nRegs * 8) MOD 16;
@@ -1921,7 +1921,7 @@ BEGIN (* Return *)
 		END;
 		
 		FOR i := 0 TO 15 DO
-			IF i IN savedRegs THEN PushR (i); INC (nRegs) END
+			IF i IN (savedRegs * ProcState.usedRegs) THEN PushR (i); INC (nRegs) END
 		END;
 		
 		paramRegs [0] := reg_C; paramRegs [1] := reg_D;
