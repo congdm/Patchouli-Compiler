@@ -781,6 +781,9 @@ BEGIN (* DeclarationSequence *)
 		END;
 		Generator.Check_varsize (varsize, Base.cur_lev = 0)
 	END;
+	IF (sym = Scanner.procedure) & (Base.cur_lev = 1) THEN
+		Generator.Placeholder_proc
+	END;
 	WHILE sym = Scanner.procedure DO ProcedureDeclaration;
 		Check (Scanner.semicolon, 'No ; after procedure declaration')
 	END

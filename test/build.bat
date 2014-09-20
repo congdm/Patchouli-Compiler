@@ -5,3 +5,5 @@
 ..\source\AyaCompile Test.mod
 ..\source\AyaCompile Test2.mod
 ..\source\AyaCompile Test3.mod
+..\source\AyaCompile Test4.mod
+..\source\AyaCompile Test5.mod

@@ -21,6 +21,7 @@ CONST
 	array_trap = 1;
 	type_trap = 2;
 	assert_trap = 3;
+	nil_trap = 4;
 	
 	mode_reg = Base.mode_reg;
 	mode_imm = Base.class_const;
@@ -58,7 +59,7 @@ CONST
 	IMULi = 69H (* Special case *);
 	
 	(* Opcodes used with EmitBare *)
-	CQO = 9948H; LEAVE = 0C9H; RET = 0C3H;
+	CQO = 9948H; LEAVE = 0C9H; RET = 0C3H; INT3 = 0CCH;
 	
 	(* REP instructions *)
 	MOVSrep = 0A4H;
@@ -78,7 +79,7 @@ TYPE
 	ProcInfo* = RECORD
 		oldi, oldrs : INTEGER; oldcurRegs : SET;
 		parblksize*, memstack, paradr : INTEGER;
-		rtype* : Base.Type;
+		rtype* : Base.Type
 	END;
 	
 VAR
@@ -630,14 +631,15 @@ END Free_item;
 (* Trap *)
 
 (* Need to be replaced *)
-PROCEDURE Trap (cond : INTEGER; trapno : UBYTE);
+PROCEDURE Trap (cond, trapno : INTEGER);
 	VAR L : INTEGER;
 BEGIN
-	(*
-	ASSERT (trapno < 16);
-	L := pc; CondBranch (cond, 0); Branch (0); Fix_link (L); L := pc - 1;
-	SetRmOperand_regI (reg_B, 0); EmitRegRm (MOV, trapno, 4); Fix_link (L)
-	*)
+	IF ~ (cond IN {ccAlways, ccNever}) THEN
+		L := pc; CondBranch (cond, 0); Branch (0); Fix_link (L); L := pc - 1;
+		MoveRI (reg_A, 4, Scanner.charNum); EmitBare (INT3); Fix_link (L)
+	ELSIF cond = ccAlways THEN
+		MoveRI (reg_A, 4, Scanner.charNum); EmitBare (INT3)
+	END
 END Trap;
 
 (* -------------------------------------------------------------------------- *)
@@ -1135,6 +1137,9 @@ BEGIN
 		SetRmOperand (x); EmitRegRm (MOVd, x.r, 8); x.a := 0
 	ELSIF x.mode = mode_reg THEN
 		x.mode := mode_regI; x.a := 0
+	END;
+	IF Base.CompilerFlag.nil_check THEN
+		EmitRR (TEST, x.r, 8, x.r); Trap (ccZ, nil_trap)
 	END;
 	x.param := FALSE; x.readonly := FALSE; x.type := x.type.base
 END Deref;
@@ -1861,17 +1866,28 @@ BEGIN
 	END
 END Module_exit;
 
+PROCEDURE Placeholder_proc*;
+BEGIN
+	Reset_code_buffer; Reset_reg_stack; curRegs := {};
+	ProcState.usedRegs := {}; ProcState.memstack := 0; ProcState.adr := ip;
+	
+	ProcState.prolog_size := 0;
+	Branch (0); Write_to_file (1, 1)
+END Placeholder_proc;
+
 PROCEDURE Enter* (proc : Base.Object; locblksize : INTEGER);
 	VAR k : INTEGER;
 BEGIN
-	Reset_code_buffer; pc := 1; ProcState.adr := ip; Reset_reg_stack;
-	ProcState.usedRegs := {}; curRegs := {}; ProcState.memstack := 0;
+	Reset_code_buffer; Reset_reg_stack; curRegs := {};
+	ProcState.usedRegs := {}; ProcState.memstack := 0; ProcState.adr := ip;
+	
 	IF proc # NIL THEN
-		ProcState.locblksize := locblksize;
-		ProcState.parlist := proc.dsc;
-		IF proc.val # ip THEN (* Need fixup *)
-			Sys.Write_4bytes (fixupFile, SHORT (proc.val));
-			Sys.Write_4bytes (fixupFile, ip);
+		ProcState.locblksize := locblksize; ProcState.parlist := proc.dsc;
+		IF proc.val # ip THEN (* This procedure have nested procedures *)
+			IF proc.lev = 0 THEN (* Need fixup *)
+				Sys.Write_4bytes (fixupFile, SHORT(proc.val) + 1);
+				Sys.Write_4bytes (fixupFile, ip - 5)
+			END;
 			proc.val := ip
 		END
 	ELSE
@@ -1957,8 +1973,8 @@ END Check_varsize;
 PROCEDURE Init* (modname : Base.String);
 BEGIN
 	ip := 0; varbase := 0; staticsize := 128; modid := modname;
-	Sys.Rewrite (out, tempOutputName);
-	Sys.Seek (out, 400H)
+	Sys.Rewrite (out, tempOutputName); Sys.Seek (out, 400H);
+	Sys.Rewrite (fixupFile, tempFixupName)
 END Init;
 
 PROCEDURE Align (VAR off : INTEGER; alignment : INTEGER);
@@ -2250,6 +2266,24 @@ BEGIN
 	);
 END Write_PEHeader;
 
+PROCEDURE Perform_fixup;
+	VAR i, fixloc, fixval : INTEGER; n : LONGINT;
+BEGIN
+	n := Sys.FilePos (fixupFile); Sys.Close (fixupFile);
+	IF n # 0 THEN
+		fixloc := 0; fixval := 0; i := 0;
+		Sys.Open (fixupFile, tempFixupName);
+		REPEAT
+			Sys.Read_4bytes (fixupFile, fixloc);
+			Sys.Read_4bytes (fixupFile, fixval);
+			fixloc := fixloc + Linker.code_fadr;
+			Sys.Seek (out, fixloc); Sys.Read_4bytes (out, i);
+			Sys.Seek (out, fixloc); Sys.Write_4bytes (out, i + fixval)
+		UNTIL Sys.FilePos (fixupFile) = n;
+		Sys.Close (fixupFile)
+	END
+END Perform_fixup;
+
 PROCEDURE Finish*;
 	VAR i, n, padding, filesize : INTEGER; k : LONGINT;
 		str : Base.LongString;
@@ -2284,7 +2318,7 @@ BEGIN
 		Linker.edata_fadr := Linker.reloc_fadr + 200H;
 		
 		Write_idata_section; Write_data_section; Write_reloc_section;
-		Write_edata_section; Write_PEHeader;
+		Write_edata_section; Write_PEHeader; Perform_fixup;
 		Sys.Close (out);
 
 		(* Show statistics *)
@@ -2305,10 +2339,11 @@ BEGIN
 		str := ''; Base.Append_str (str, modid); Base.Append_str (str, '.sym');
 		Sys.Delete_file (str); Sys.Rename_file (tempSymName, str)
 	ELSE
-		Sys.Close (out);
+		Sys.Close (out); Sys.Close (fixupFile);
 		Sys.Console_WriteLn; Sys.Console_WriteString ('No output generated.');
-		Sys.Delete_file (tempOutputName)
-	END
+		Sys.Console_WriteLn; Sys.Delete_file (tempOutputName)
+	END;
+	Sys.Delete_file (tempFixupName)
 END Finish;
 
 BEGIN

@@ -94,7 +94,7 @@ VAR
 	strpos : INTEGER;
 	
 	CompilerFlag* : RECORD
-		array_check*, overflow_check*, type_check* : BOOLEAN;
+		array_check*, overflow_check*, type_check*, nil_check* : BOOLEAN;
 		alignment*, main*, console* : BOOLEAN
 	END;
 	
@@ -768,6 +768,7 @@ BEGIN
 	CompilerFlag.array_check := TRUE;
 	CompilerFlag.overflow_check := TRUE;
 	CompilerFlag.type_check := TRUE;
+	CompilerFlag.nil_check := TRUE;
 	CompilerFlag.alignment := TRUE;
 	CompilerFlag.main := FALSE;
 	CompilerFlag.console := FALSE
