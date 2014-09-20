@@ -461,7 +461,7 @@ BEGIN
 	x.c := 0;
 	
 	IF x.lev # -2 THEN (* Not imported object *)
-	ELSE
+	ELSIF x.mode # Base.class_const THEN
 		IF x.mode = Base.class_var THEN x.mode := Base.class_ref END;
 		IF x.a # 0 THEN (* Already inited *)
 		ELSE
@@ -800,7 +800,7 @@ BEGIN
 		(* Delay code generation *)
 		s[0] := {}; s[1] := {};
 		SYSTEM.PUT (SYSTEM.ADR(s[0]), x.a);
-		IF y.a > 31 THEN INCL (s[0], y.a) ELSE INCL (s[1], y.a - 32) END;
+		IF y.a < 32 THEN INCL (s[0], y.a) ELSE INCL (s[1], y.a - 32) END;
 		SYSTEM.GET (SYSTEM.ADR(s[0]), x.a)
 	ELSIF x.mode = mode_imm THEN
 		r := Alloc_reg(); EmitRR (XOR, r, 4, r);
@@ -886,7 +886,8 @@ BEGIN
 			IF x.type.form = Base.type_integer THEN EmitR (NEG, x.r, 8);
 				IF Base.CompilerFlag.overflow_check THEN
 					Trap (ccO, overflow_trap)
-				END
+				END;
+				x.type := Base.int_type
 			ELSIF x.type = Base.set_type THEN EmitR (NOT, x.r, 8)
 			END
 		END
@@ -1086,15 +1087,16 @@ BEGIN
 		END
 	ELSE
 		IF x.type.form = Base.type_integer THEN
+			IF y.type.size > x.type.size THEN x.type := y.type END;
 			IF op = Scanner.plus THEN IntegerOp (ADDd, ADDi, x, y)
 			ELSIF op = Scanner.minus THEN Subtract (x, y)
 			ELSIF op = Scanner.times THEN IntegerOp (IMUL, IMULi, x, y)
 			ELSIF op = Scanner.div THEN Divide (Scanner.div, x, y)
 			ELSIF op = Scanner.mod THEN Divide (Scanner.mod, x, y)
 			END;
-			IF (op = Scanner.plus) OR (op = Scanner.minus)
-			OR (op = Scanner.times) & Base.CompilerFlag.overflow_check THEN
-				Trap (ccO, overflow_trap)
+			IF Base.CompilerFlag.overflow_check & ((op = Scanner.plus)
+				OR (op = Scanner.minus) OR (op = Scanner.times))
+			THEN Trap (ccO, overflow_trap)
 			END
 		ELSIF x.type = Base.set_type THEN
 			IF op = Scanner.plus THEN BitwiseOp (ORd, x, y)
@@ -1462,22 +1464,23 @@ BEGIN
 		x.mode := mode_reg
 	END
 END Call;
+
+PROCEDURE Push_param (VAR x : Base.Item; stackadr : INTEGER);
+BEGIN
+	SetRmOperand_regI (reg_SP, stackadr);
+	EmitRegRm (MOV, x.r, 8);
+	Free_reg
+END Push_param;
 	
 PROCEDURE Value_param* (VAR x : Base.Item; VAR pinfo : ProcInfo);
 BEGIN
-	load (x);
-	IF pinfo.paradr >= 32 THEN
-		SetRmOperand_regI (reg_SP, pinfo.paradr); EmitRegRm (MOV, x.r, 8)
-	END;
+	load (x); IF pinfo.paradr >= 32 THEN Push_param (x, pinfo.paradr) END;
 	INC (pinfo.paradr, 8)
 END Value_param;
 	
 PROCEDURE Ref_param* (VAR x : Base.Item; VAR pinfo : ProcInfo);
 BEGIN
-	Load_adr (x);
-	IF pinfo.paradr >= 32 THEN
-		SetRmOperand_regI (reg_SP, pinfo.paradr); EmitRegRm (MOV, x.r, 8)
-	END;
+	Load_adr (x); IF pinfo.paradr >= 32 THEN Push_param (x, pinfo.paradr) END;
 	INC (pinfo.paradr, 8)
 END Ref_param;
 	

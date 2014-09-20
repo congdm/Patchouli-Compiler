@@ -28,19 +28,36 @@ BEGIN
 		SYSTEM.ADR(nWritten), 0)
 END WriteString;
 
-PROCEDURE WriteInt* (n : INTEGER);
-	CONST minInt = -7FFFFFFFFFFFFFFFH - 1;
-	VAR str : ARRAY 21 OF CHAR; i, res, nWritten : INTEGER;
+PROCEDURE IntToString* (x : INTEGER; VAR str : ARRAY OF CHAR);
+	CONST MIN_INT = -7FFFFFFFFFFFFFFFH - 1;
+	VAR negative : BOOLEAN; s : ARRAY 32 OF CHAR; i, j : INTEGER;
 BEGIN
-	IF n # minInt THEN
-		IF n < 0 THEN n := -n; Write ('-') END; i := LEN(str) - 1;
-		REPEAT str[i] := CHR(n MOD 10 + ORD('0')); i := i - 1; n := n DIV 10
-		UNTIL n = 0;
-		i := SYSTEM.ADR(str) + (i + 1) * SYSTEM.SIZE(CHAR);
-		res := Win.WriteConsoleW (stdout, i, LEN(str) - 1 - i,
-			SYSTEM.ADR(nWritten), 0)
-	ELSE str := '-9223372036854775808'; WriteString (str)
+	IF x # MIN_INT THEN 
+		IF x < 0 THEN negative := TRUE; x := -x
+		ELSE negative := FALSE
+		END;
+		
+		i := 0;
+		REPEAT
+			s[i] := CHR(x MOD 10 + ORD('0'));
+			INC (i); x := x DIV 10
+		UNTIL x = 0;
+		
+		IF negative THEN str[0] := '-'; j := 0;
+			WHILE j < i DO str[j + 1] := s[i - 1 - j]; j := j + 1 END;
+			str[i + 1] := 0X
+		ELSE j := 0;
+			WHILE j < i DO str[j] := s[i - 1 - j]; j := j + 1 END;
+			str [i] := 0X
+		END
+	ELSE str[0] := 0X; Strings.Append ('-9223372036854775808', str)
 	END
+END IntToString;
+
+PROCEDURE WriteInt* (n : INTEGER);
+	VAR str : ARRAY 32 OF CHAR;
+BEGIN
+	IntToString (n, str); WriteString (str)
 END WriteInt;
 
 PROCEDURE Read* (VAR ch : CHAR);

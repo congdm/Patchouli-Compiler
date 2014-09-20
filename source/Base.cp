@@ -83,7 +83,7 @@ VAR
 	
 	(* predefined type *)
 	int_type*, bool_type*, set_type*, char_type*, byte_type*, real_type* : Type;
-	longreal_type*, nil_type* : Type;
+	longreal_type*, nil_type*, word_type*, dword_type* : Type;
 	guardRecord_type*, guardPointer_type*, guardArray_type* : Type;
 	
 	refno, expno* : INTEGER;
@@ -478,6 +478,8 @@ BEGIN
 		ELSIF ref = -10 THEN typ := guardRecord_type
 		ELSIF ref = -11 THEN typ := guardPointer_type
 		ELSIF ref = -12 THEN typ := guardArray_type
+		ELSIF ref = -13 THEN typ := word_type
+		ELSIF ref = -14 THEN typ := dword_type
 		ELSE ASSERT(FALSE)
 		END
 	ELSIF ref = -1 THEN
@@ -585,8 +587,10 @@ BEGIN
 			New_obj (obj, name, class_type);
 			Detect_typeI (obj.type);
 			IF obj.type.form = type_record THEN
-				expno := expno + 1; obj.val2 := expno; error := 0;
-				Check_undef_list (obj, error); ASSERT (error = 0)
+				expno := expno + 1; obj.val2 := expno;
+				IF undef_ptr_list # NIL THEN error := 0;
+					Check_undef_list (obj, error); ASSERT (error = 0)
+				END
 			END
 		ELSIF n = class_const THEN
 			Sys.Read_string (symfile, name);
@@ -610,6 +614,9 @@ END Import_symbols_file;
 PROCEDURE Import_SYSTEM (modul : Object);
 BEGIN
 	cur_lev := -2; Open_scope (modul.name);
+	
+	Enter (class_type, 0, 'WORD', word_type);
+	Enter (class_type, 0, 'DWORD', dword_type);
 	
 	Enter (class_sproc, 100, 'GET', NIL);
 	Enter (class_sproc, 101, 'PUT', NIL);
@@ -840,5 +847,8 @@ BEGIN
 	New_predefined_typ (guardPointer_type, type_pointer, Word_size, -11);
 	guardPointer_type.base := guardRecord_type; guardPointer_type.num_ptr := 1;
 	New_predefined_typ (guardArray_type, type_array, Word_size, -12);
-	guardArray_type.base := int_type; guardPointer_type.len := 1
+	guardArray_type.base := int_type; guardPointer_type.len := 1;
+	
+	New_predefined_typ (word_type, type_integer, 2, -13);
+	New_predefined_typ (dword_type, type_integer, 4, -14)
 END Base.

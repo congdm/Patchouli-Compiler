@@ -7,3 +7,4 @@
 ..\source\AyaCompile Test3.mod
 ..\source\AyaCompile Test4.mod
 ..\source\AyaCompile Test5.mod
+..\source\AyaCompile Test6.mod
