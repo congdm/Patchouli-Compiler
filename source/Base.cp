@@ -51,12 +51,12 @@ TYPE
 		fields*, obj* : Object;
 		base*, next* : Type;
 		size*, len*, alignment* : INTEGER;
-		num_ptr*, ref*, tdAdr* : INTEGER
+		num_ptr*, ref*, tdAdr*, mod* : INTEGER
 	END;
 
 	Object* = POINTER TO RECORD
 		param*, readonly*, export* : BOOLEAN;
-		name*, realname* : String;
+		name* : String;
 		class*, lev*, parblksize* : INTEGER;
 		type* : Type;
 		next*, dsc* : Object;
@@ -75,6 +75,11 @@ TYPE
 		exported : BOOLEAN; typ : Type; basename : String;
 		next : UndefPtrList
 	END;
+	
+	Module = RECORD
+		imported : BOOLEAN; name : String;
+		lev : INTEGER; objects : Object; types : Type
+	END;
 
 VAR
 	top_scope*, universe*, guard* : Object;
@@ -86,8 +91,9 @@ VAR
 	longreal_type*, nil_type*, word_type*, dword_type* : Type;
 	guardRecord_type*, guardPointer_type*, guardArray_type* : Type;
 	
-	refno, expno* : INTEGER;
+	refno, expno*, modno, modlev, rexmodno : INTEGER;
 	symfile : Sys.FileHandle;
+	importModules, reExportModules : ARRAY 256 OF Module;
 	importTypes : ARRAY 1024 OF Type;
 	
 	stringdata : ARRAY 65536 OF CHAR;
@@ -576,9 +582,9 @@ END Import_proc;
 PROCEDURE Import_symbols_file* (filename : ARRAY OF CHAR);
 	VAR n, error : INTEGER; obj : Object; name : String;
 BEGIN
-	refno := 0;	expno := 0; n := 0;
+	refno := 0;	expno := 0; n := 0; rexmodno := 0;
 	Sys.Open (symfile, filename);
-	
+	Sys.Read_4bytes (symfile, n); (* Skip module level *)
 	Sys.Read_byte (symfile, n);
 	WHILE n # class_head DO
 		IF n = class_proc THEN Import_proc
@@ -605,15 +611,19 @@ BEGIN
 		ELSIF n = class_string THEN
 			(* Implement later *)
 			ASSERT(FALSE)
+		ELSIF n = class_module THEN
+			Sys.Read_string (symfile, reExportModules [rexmodno].name);
+			Sys.Read_4bytes (symfile, reExportModules [rexmodno].lev);
+			INC (rexmodno)
 		END;
 		Sys.Read_byte (symfile, n)
 	END;
 	Sys.Close (symfile); ASSERT (undef_ptr_list = NIL)
 END Import_symbols_file;
 
-PROCEDURE Import_SYSTEM (modul : Object);
+PROCEDURE Import_SYSTEM (modid : INTEGER);
 BEGIN
-	cur_lev := -2; Open_scope (modul.name);
+	cur_lev := -2; Open_scope ('SYSTEM');
 	
 	Enter (class_type, 0, 'WORD', word_type);
 	Enter (class_type, 0, 'DWORD', dword_type);
@@ -629,25 +639,62 @@ BEGIN
 	Enter (class_sproc, 302, 'BIT', bool_type);
 	Enter (class_sproc, 303, 'VAL', int_type);
 	
-	modul.dsc := top_scope.next; Close_scope; cur_lev := 0
+	importModules [modid].objects := top_scope.next;
+	Close_scope; cur_lev := 0
 END Import_SYSTEM;
 
-PROCEDURE Import_module* (modul : Object);
-	VAR filename : LongString;
+PROCEDURE Import_modules* (modul : Object);
+	VAR filename : LongString; i, min : INTEGER; finish : BOOLEAN;
 BEGIN
-	IF modul.realname # 'SYSTEM' THEN
-		filename := ''; Append_str (filename, modul.realname);
-		Append_str (filename, '.sym');
-		
-		cur_lev := -2;
-		Open_scope (modul.name);
-		Import_symbols_file (filename);
-		modul.dsc := top_scope.next;
-		Close_scope;
-		cur_lev := 0
-	ELSE Import_SYSTEM (modul)
+	(* Find the lowest level module to import first *)
+	finish := FALSE;
+	REPEAT i := 0; min := -1;
+		WHILE i < modno DO
+			IF (importModules [i].not_imported) & ((min = -1)
+				OR (importModules [i].lev < importModules [min].lev))
+			THEN min := i
+			END;
+			INC (i)
+		END;
+		IF min # -1 THEN
+			IF importModules [min].name # 'SYSTEM' THEN
+				filename := ''; Append_str (filename, modul.realname);
+				Append_str (filename, '.sym');		
+				cur_lev := -2; Open_scope (modul.name);
+				Import_symbols_file (filename);
+				importModules [min].objects := top_scope.next;
+				Close_scope; cur_lev := 0
+			ELSE Import_SYSTEM (i)
+			END
+		ELSE finish := TRUE
+		END
+	UNTIL finish
+END Import_modules;
+
+PROCEDURE Find_module_symfile* (
+	modul : Object; sym_name : String; VAR error : INTEGER
+);
+	VAR filename : LongString; obj : Object; file : Sys.FileHandle;
+BEGIN
+	error := 0;
+	IF modno < LEN(importModules) THEN
+		importModules [modno].name := sym_name;
+		importModules [modno].not_imported := TRUE;
+		IF sym_name # 'SYSTEM' THEN
+			filename := ''; Append_str (filename, sym_name);
+			Append_str (filename, '.sym');
+			IF Sys.File_existed (filename) THEN
+				Sys.Open (file, filename);
+				Sys.Read_4bytes (file, importModules [modno].lev);
+				Sys.Close (file);
+				modul.val := modno; INC (modno)
+			ELSE error := 1
+			END
+		ELSE importModules [modno].lev := -1; modul.val := modno; INC (modno)
+		END
+	ELSE error := 2
 	END
-END Import_module;
+END Find_module_symfile;
 
 (* -------------------------------------------------------------------------- *)
 
@@ -673,7 +720,7 @@ END Export_param;
 PROCEDURE Export_type (typ : Type);
 	VAR field : Object;
 BEGIN
-	refno := refno + 1; typ.ref := refno; 
+	refno := refno + 1; typ.ref := refno;
 	Sys.Write_byte (symfile, typ.form);
 	
 	IF typ.form = type_record THEN
@@ -707,6 +754,10 @@ BEGIN
 		Detect_type (typ.base); field := typ.fields;
 		WHILE field # guard DO Export_param (field); field := field.next END;
 		Sys.Write_byte (symfile, class_type)
+	END;
+	
+	IF ~ typ.import THEN Sys.Write_4bytes (symfile, -1)
+	ELSE Sys.Write_4bytes (symfile, typ.mod)
 	END
 END Export_type;
 	
@@ -716,11 +767,7 @@ BEGIN
 	expno := expno + 1;
 	Sys.Write_byte (symfile, class_proc);
 	Sys.Write_string (symfile, proc.name);
-	Sys.Write_4bytes (symfile, proc.parblksize);
-	Detect_type (proc.type);
-	par := proc.dsc;
-	WHILE par # guard DO Export_param (par); par := par.next END;
-	Sys.Write_byte (symfile, class_proc)
+	Detect_type (proc.type)
 END Export_proc;
 	
 PROCEDURE Write_symbols_file*;
@@ -728,6 +775,9 @@ PROCEDURE Write_symbols_file*;
 BEGIN
 	refno := 0;	expno := 0;
 	Sys.Rewrite (symfile, 'sym.temp_');
+	
+	Sys.Write_4bytes (symfile, modlev);
+	
 	obj := universe.next;
 	WHILE obj # guard DO
 		IF obj.export THEN
@@ -755,6 +805,10 @@ BEGIN
 					Sys.Write_string (symfile, obj.name)
 				END
 			END
+		ELSIF obj.class = class_module THEN
+			Sys.Write_byte (symfile, class_module);
+			Sys.Write_string (symfile, importModules [obj.val].name);
+			Sys.Write_4bytes (symfile, importModules [obj.val].lev)
 		END;
 		obj := obj.next
 	END;
@@ -783,6 +837,7 @@ END Reset_compiler_flag;
 	
 PROCEDURE Init* (modid : String);
 BEGIN
+	modlev := 0; modno := 0;
 	NEW (universe);
 	universe.class := class_head;
 	universe.name := modid;

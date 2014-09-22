@@ -296,9 +296,6 @@ PROCEDURE ident (VAR obj : Base.Object; class : INTEGER);
 BEGIN
 	IF sym = Scanner.ident THEN
 		Base.New_obj (obj, Scanner.id, class);
-		IF obj # Base.guard THEN (* Ok *)
-		ELSE Scanner.Mark ('Duplicate identifer definition')
-		END;
 		Scanner.Get (sym)
 	ELSE Scanner.Mark ('Identifier expected'); obj := Base.guard
 	END
@@ -659,13 +656,10 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 		Check (Scanner.equal, 'No = in type declaration');
 		defobj := obj; StrucType (obj.type);
 		
-		IF obj.type.form = Base.type_record THEN obj.type.obj := obj;
-			IF Base.undef_ptr_list # NIL THEN error := 0;
-				Base.Check_undef_list (obj, error);
-				IF error = 0 THEN (* nothing *) ELSIF error = 1 THEN
-					Scanner.Mark ('This record type is not exported')
-				ELSE ASSERT(FALSE)
-				END
+		IF obj.type.form = Base.type_record THEN
+			obj.type.obj := obj;
+			IF Base.undef_ptr_list # NIL THEN
+				SymTable.Check_undef_list (obj)
 			END
 		END
 	END TypeDeclaration;
@@ -770,9 +764,7 @@ BEGIN (* DeclarationSequence *)
 		WHILE sym = Scanner.ident DO TypeDeclaration;
 			Check (Scanner.semicolon, 'No ; after type declaration')
 		END;
-		IF Base.undef_ptr_list # NIL THEN Base.Cleanup_undef_list;
-			Scanner.Mark ('There are pointer types with undefined base type')
-		END
+		IF Base.undef_ptr_list # NIL THEN Base.Cleanup_undef_list END
 	END;
 	IF sym = Scanner.var THEN
 		Scanner.Get (sym);
@@ -1514,25 +1506,30 @@ END StatementSequence;
 PROCEDURE ImportList;
 
 	PROCEDURE import;
-		VAR modul : Base.Object;
+		VAR modul : Base.Object; sym_name : Base.String; error : BOOLEAN;
 	BEGIN
 		ident (modul, Base.class_module);
 		IF sym = Scanner.becomes THEN
 			Scanner.Get (sym);
 			IF sym = Scanner.ident THEN
-				modul.realname := Scanner.id; Scanner.Get (sym)
-			ELSE Scanner.Mark ('Expect an identifier');
-				modul.realname := modul.name
+				sym_name := Scanner.id; Scanner.Get (sym)
+			ELSE Scanner.Mark ('Expect an identifier'); sym_name := modul.name
 			END
-		ELSE modul.realname := modul.name
+		ELSE sym_name := modul.name
 		END;
-		Base.Import_module (modul)
+		Base.Find_module_symfile (modul, sym_name, error);
+		IF error = 0 THEN (* ok *)
+		ELSIF error = 1 THEN Scanner.Mark ('Symbol file not found')
+		ELSIF error = 2 THEN
+			Scanner.Mark ('Compiler limit: Too many imported modules')
+		END
 	END import;
 
 BEGIN (* ImportList *)
 	Scanner.Get (sym); import;
 	WHILE sym = Scanner.comma DO Scanner.Get (sym); import END;
-	Check (Scanner.semicolon, 'No ending semicolon')
+	Check (Scanner.semicolon, 'No ending semicolon');
+	Base.Import_modules
 END ImportList;
 
 PROCEDURE Module*;

@@ -68,6 +68,11 @@ BEGIN
 	IO.File.Delete (MKSTR (filename))
 END Delete_file;
 
+PROCEDURE File_existed* (filename : ARRAY OF CHAR) : BOOLEAN;
+BEGIN
+	RETURN IO.File.Exists (MKSTR (filename))
+END File_existed;
+
 (* -------------------------------------------------------------------------- *)
 
 PROCEDURE Read_ansi_char* (VAR file : FileHandle; VAR c : CHAR) : BOOLEAN;

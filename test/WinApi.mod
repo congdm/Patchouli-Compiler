@@ -9,8 +9,12 @@ CONST
 	STD_ERROR_HANDLE* = -12;
 	
 	(* Window message *)
+	WM_NULL* = 0;
+	WM_CREATE* = 1;
 	WM_DESTROY* = 2;
 	WM_CLOSE* = 16;
+	WM_KEYDOWN* = 256;
+	WM_KEYUP* = 257;
 	
 	(* Window style *)
 	WS_OVERLAPPED* = {};
