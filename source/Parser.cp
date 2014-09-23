@@ -1,7 +1,7 @@
 MODULE Parser;
 
 IMPORT
-	Sys, Base, Scanner, Generator := Generator3, Console;
+	Sys, Base, SymTable, Scanner, Generator := Generator3, Console;
 	
 CONST
 	classes_Variable = Base.classes_Variable;
@@ -276,14 +276,13 @@ PROCEDURE ^ StatementSequence;
 
 PROCEDURE qualident (VAR obj : Base.Object);
 	CONST err1 = 'Identifier expected';
-	VAR modul : Base.Object;
 BEGIN
 	IF sym = Scanner.ident THEN
-		Base.Find_obj (obj, Scanner.id); Scanner.Get (sym);
+		SymTable.Find_obj (obj, Scanner.id); Scanner.Get (sym);
 		IF obj.class = Base.class_module THEN
 			Check (Scanner.period, 'Expect . after module identifiers');
 			IF sym = Scanner.ident THEN
-				modul := obj; Base.Find_in_module (obj, Scanner.id, modul);
+				SymTable.Find_import_object (obj, Scanner.id, obj);
 				Scanner.Get (sym)
 			ELSE Scanner.Mark (err1); obj := Base.guard
 			END
@@ -295,7 +294,7 @@ END qualident;
 PROCEDURE ident (VAR obj : Base.Object; class : INTEGER);
 BEGIN
 	IF sym = Scanner.ident THEN
-		Base.New_obj (obj, Scanner.id, class);
+		SymTable.New_obj (obj, Scanner.id, class);
 		Scanner.Get (sym)
 	ELSE Scanner.Mark ('Identifier expected'); obj := Base.guard
 	END
@@ -324,9 +323,8 @@ END IdentList;
 
 PROCEDURE Check_export (obj : Base.Object);
 BEGIN
-	IF ~ hasExport OR obj.export OR obj.type.predefined THEN (* Ok *)
-	ELSIF obj.type.form IN Base.types_HasExt THEN
-		Scanner.Mark ('This type is not exported')
+	IF ~ hasExport OR obj.export OR (obj.type.mod # -1) THEN (* Ok *)
+	ELSE Scanner.Mark ('This type is not exported')
 	END
 END Check_export;
 	
@@ -357,8 +355,7 @@ PROCEDURE FormalParameters (VAR parblksize : INTEGER; VAR rtype : Base.Type);
 	VAR obj : Base.Object;
 
 	PROCEDURE FPSection (VAR parblksize : INTEGER);
-		VAR
-			first, obj : Base.Object; tp : Base.Type;
+		VAR first, obj : Base.Object; tp : Base.Type;
 			cls, par_size : INTEGER; read_only, open_array : BOOLEAN;
 	BEGIN
 		IF sym # Scanner.var THEN cls := Base.class_var
@@ -372,7 +369,8 @@ PROCEDURE FormalParameters (VAR parblksize : INTEGER; VAR rtype : Base.Type);
 		END;
 		Check (Scanner.colon, 'No colon after identifier list');
 		
-		par_size := Base.Word_size; read_only := FALSE; open_array := FALSE;
+		par_size := Base.Word_size;
+		read_only := FALSE; open_array := FALSE;
 		FormalType (tp);
 		IF tp.form IN Base.types_Scalar THEN (* Do nothing *)
 		ELSE
@@ -390,7 +388,6 @@ PROCEDURE FormalParameters (VAR parblksize : INTEGER; VAR rtype : Base.Type);
 			first.class := cls;
 			first.val := parblksize + 16;
 			first.type := tp;
-			first.lev := Base.cur_lev;
 			first.param := TRUE;
 			first.readonly := read_only;
 			IF open_array THEN first.val2 := SHORT(first.val) + 8 END;
@@ -455,11 +452,8 @@ BEGIN (* ArrayType *)
 	
 	typ.size := typ.len * typ.base.size;
 	typ.num_ptr := typ.len * typ.base.num_ptr;
-	IF (typ.size <= Base.Word_size) & (typ.size IN {1, 2, 4, 8}) THEN
-		typ.alignment := typ.size
-	ELSE typ.alignment := typ.base.alignment;
-		Base.Adjust_alignment (typ.size, typ.alignment)
-	END;
+	typ.alignment := typ.base.alignment;
+	Base.Adjust_alignment (typ.size, typ.alignment);
 	Generator.Check_varsize (typ.size, FALSE)
 END ArrayType;
 
@@ -467,46 +461,43 @@ PROCEDURE RecordType (VAR typ : Base.Type);
 	VAR obj : Base.Object;
 
 	PROCEDURE FieldListSequence (typ : Base.Type);
-
+		
 		PROCEDURE FieldList (typ : Base.Type);
-			VAR first : Base.Object; tp : Base.Type;
-				offset : INTEGER;
+			VAR first : Base.Object; tp : Base.Type; offset : INTEGER;
 		BEGIN
-			hasExport := FALSE;
-			IdentList (first, Base.class_field);
-			Check (Scanner.colon, 'No colon after identifier list');
-			type (tp);
-			
-			IF tp.alignment > typ.alignment THEN typ.alignment := tp.alignment
-			END;
-			offset := typ.size; Base.Adjust_alignment (offset, tp.alignment);
-			
-			WHILE first # Base.guard DO
-				first.val := offset;
-				first.type := tp;
-				first.lev := Base.cur_lev;
-				first := first.next;
+			IF sym = Scanner.ident THEN
+				hasExport := FALSE; IdentList (first, Base.class_field);
+				Check (Scanner.colon, 'No colon after identifier list');
+				type (tp);
 				
-				INC (offset, tp.size);
-				IF tp.num_ptr > 0 THEN INC (typ.num_ptr, tp.num_ptr) END
-			END;
-			typ.size := offset
+				IF tp.alignment > typ.alignment THEN
+					typ.alignment := tp.alignment
+				END;
+				offset := typ.size;
+				Base.Adjust_alignment (offset, tp.alignment);
+				
+				WHILE first # Base.guard DO
+					first.val := offset;
+					first.type := tp;
+					first := first.next;
+					
+					INC (offset, tp.size);
+					IF tp.num_ptr > 0 THEN INC (typ.num_ptr, tp.num_ptr) END
+				END;
+				typ.size := offset
+			ELSE Scanner.Mark ('Superflous semicolon')
+			END
 		END FieldList;
-	
+		
 	BEGIN (* FieldListSequence *)
 		FieldList (typ);
 		WHILE sym = Scanner.semicolon DO
-			Scanner.Get (sym);
-			IF sym = Scanner.ident THEN FieldList (typ)
-			ELSE Scanner.Mark ('Superflous semicolon')
-			END
+			Scanner.Get (sym); FieldList (typ)
 		END
 	END FieldListSequence;
 		
 	PROCEDURE BaseType (typ : Base.Type);
-		VAR
-			obj : Base.Object;
-			tp : Base.Type;
+		VAR obj : Base.Object; tp : Base.Type;
 	BEGIN
 		qualident (obj);
 		
@@ -540,20 +531,17 @@ BEGIN (* RecordType *)
 		Check (Scanner.rparen, 'No closing )')
 	END;
 		
-	Base.Open_scope ('');
+	SymTable.Open_scope ('');
 	IF sym = Scanner.ident THEN
 		FieldListSequence (typ);
-		IF (typ.size <= Base.Word_size) & (typ.size IN {1, 2, 4, 8}) THEN
-			typ.alignment := typ.size
-		END;
 		Base.Adjust_alignment (typ.size, typ.alignment)
 	END;
 	Generator.Check_varsize (typ.size, FALSE);
 	Generator.Alloc_typedesc (typ);
 	
 	Check (Scanner.end, 'No END for record definition');
-	typ.fields := Base.top_scope.next;
-	Base.Close_scope
+	typ.fields := SymTable.top_scope.next;
+	SymTable.Close_scope
 END RecordType;
 
 PROCEDURE PointerType (VAR typ : Base.Type);
@@ -569,7 +557,7 @@ BEGIN
 	ELSE
 		qualident (obj);
 		IF obj = Base.guard THEN
-			Base.Register_undef_type (typ, obj.name, hasExport)
+			SymTable.Register_undef_type (typ, obj.name, hasExport)
 		ELSIF (obj.class = Base.class_type)
 		& (obj.type.form = Base.type_record) THEN
 			typ.base := obj.type; Check_export (obj)
@@ -584,11 +572,11 @@ BEGIN
 	Base.New_typ (typ, Base.type_procedure);
 	typ.size := Base.Word_size; typ.alignment := Base.Word_size;
 	
-	Base.Open_scope ('');
+	SymTable.Open_scope ('');
 	Scanner.Get (sym);
 	IF sym = Scanner.lparen THEN FormalParameters (typ.len, typ.base) END;
-	typ.fields := Base.top_scope.next;
-	Base.Close_scope
+	typ.fields := SymTable.top_scope.next;
+	SymTable.Close_scope
 END ProcedureType;
 
 PROCEDURE StrucType (VAR typ : Base.Type);
@@ -610,12 +598,12 @@ BEGIN
 		qualident (obj);
 		IF obj = Base.guard THEN Scanner.Mark ('Undefined type')
 		ELSIF obj.class # Base.class_type THEN Scanner.Mark (err2)
-		ELSIF (obj # defobj) OR (obj.type.form # Base.type_pointer) THEN
+		ELSIF (obj # defobj) OR (obj.type.form = Base.type_pointer) THEN
 			typ := obj.type; Check_export (obj)
 		ELSE Scanner.Mark ('Circular definition')
 		END
 	ELSIF (sym = Scanner.array) OR (sym = Scanner.record)
-	OR (sym = Scanner.pointer) OR (sym = Scanner.procedure) THEN
+		OR (sym = Scanner.pointer) OR (sym = Scanner.procedure) THEN
 		StrucType (typ)
 	ELSE Scanner.Mark ('Expect a type or type definition')
 	END
@@ -655,12 +643,10 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 		hasExport := FALSE; identdef (obj, Base.class_type);
 		Check (Scanner.equal, 'No = in type declaration');
 		defobj := obj; StrucType (obj.type);
-		
-		IF obj.type.form = Base.type_record THEN
-			obj.type.obj := obj;
-			IF Base.undef_ptr_list # NIL THEN
-				SymTable.Check_undef_list (obj)
-			END
+		obj.type.obj := obj;
+		IF (obj.type.form = Base.type_record)
+			& (SymTable.undef_ptr_list # NIL) THEN
+			SymTable.Check_undef_list (obj)
 		END
 	END TypeDeclaration;
 	
@@ -676,7 +662,6 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 			INC (varsize, tp.size);
 			first.val := -varsize;
 			first.type := tp;
-			first.lev := Base.cur_lev;
 			first := first.next
 		END
 	END VariableDeclaration;
@@ -690,7 +675,7 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 			PROCEDURE Copy_param_list (proc : Base.Object);
 				VAR src, first, dst : Base.Object;
 			BEGIN
-				first := NIL; src := Base.top_scope.next;
+				first := NIL; src := SymTable.top_scope.next;
 				WHILE src # Base.guard DO
 					IF first = NIL THEN NEW (first); dst := first
 					ELSE NEW (dst.next); dst := dst.next
@@ -707,7 +692,9 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 			Scanner.Get (sym); identdef (proc, Base.class_proc);
 			Base.New_typ (typ, Base.type_procedure);
 			typ.size := Base.Word_size; typ.alignment := Base.Word_size;
-			Base.Open_scope (proc.name); Base.Inc_level (1);
+			
+			SymTable.Open_scope (proc.name);
+			SymTable.Inc_level (1);
 			IF sym = Scanner.lparen THEN FormalParameters (typ.len, typ.base)
 			ELSE typ.len := 0
 			END;
@@ -736,7 +723,10 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 			END;
 			
 			Check (Scanner.end, 'No END for procedure body');
-			Generator.Return; Base.Inc_level (-1); Base.Close_scope
+			Generator.Return;
+			
+			SymTable.Inc_level (-1);
+			SymTable.Close_scope
 		END ProcedureBody;
 			
 	BEGIN (* ProcedureDeclaration *)
@@ -755,28 +745,32 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 BEGIN (* DeclarationSequence *)
 	IF sym = Scanner.const THEN
 		Scanner.Get (sym);
-		WHILE sym = Scanner.ident DO ConstDeclaration;
+		WHILE sym = Scanner.ident DO
+			ConstDeclaration;
 			Check (Scanner.semicolon, 'No ; after const declaration')
 		END
 	END;
 	IF sym = Scanner.type THEN
 		Scanner.Get (sym);
-		WHILE sym = Scanner.ident DO TypeDeclaration;
+		WHILE sym = Scanner.ident DO
+			TypeDeclaration;
 			Check (Scanner.semicolon, 'No ; after type declaration')
 		END;
-		IF Base.undef_ptr_list # NIL THEN Base.Cleanup_undef_list END
+		IF SymTable.undef_ptr_list # NIL THEN SymTable.Cleanup_undef_list END
 	END;
 	IF sym = Scanner.var THEN
 		Scanner.Get (sym);
-		WHILE sym = Scanner.ident DO VariableDeclaration (varsize);
+		WHILE sym = Scanner.ident DO
+			VariableDeclaration (varsize);
 			Check (Scanner.semicolon, 'No ; after variable declaration')
 		END;
-		Generator.Check_varsize (varsize, Base.cur_lev = 0)
+		Generator.Check_varsize (varsize, SymTable.cur_lev = 0)
 	END;
-	IF (sym = Scanner.procedure) & (Base.cur_lev = 1) THEN
+	IF (sym = Scanner.procedure) & (SymTable.cur_lev = 1) THEN
 		Generator.Placeholder_proc
 	END;
-	WHILE sym = Scanner.procedure DO ProcedureDeclaration;
+	WHILE sym = Scanner.procedure DO
+		ProcedureDeclaration;
 		Check (Scanner.semicolon, 'No ; after procedure declaration')
 	END
 END DeclarationSequence;
@@ -898,6 +892,7 @@ PROCEDURE StandProc (VAR x : Base.Item);
 	END SProc_NEW;
 	
 	PROCEDURE SProc_ASSERT;
+		VAR x : Base.Item;
 	BEGIN
 		expression (x); Check_bool (x); Generator.Assert (x)
 	END SProc_ASSERT;
@@ -1143,7 +1138,7 @@ PROCEDURE selector (VAR x : Base.Item);
 		IF x.type.form = Base.type_record THEN
 			IF sym = Scanner.ident THEN
 				tp := x.type;
-				REPEAT Base.Find_field (obj, Scanner.id, tp); tp := tp.base
+				REPEAT SymTable.Find_field (obj, Scanner.id, tp); tp := tp.base
 				UNTIL (obj # Base.guard) OR (tp = NIL);
 				IF obj # Base.guard THEN Generator.Field (x, obj)
 				ELSE Scanner.Mark ('Record field not found')
@@ -1271,7 +1266,8 @@ BEGIN
 			ELSE Scanner.Mark ('Found ( but designator is not a procedure')
 			END
 		END
-	ELSIF sym = Scanner.string THEN Generator.Make_string (x); Scanner.Get (sym)
+	ELSIF sym = Scanner.string THEN
+		Generator.Make_string (x, Scanner.str); Scanner.Get (sym)
 	ELSIF sym = Scanner.nil THEN
 		Generator.Make_const (x, Base.nil_type, 0); Scanner.Get (sym)
 	ELSIF sym = Scanner.true THEN
@@ -1517,19 +1513,14 @@ PROCEDURE ImportList;
 			END
 		ELSE sym_name := modul.name
 		END;
-		Base.Find_module_symfile (modul, sym_name, error);
-		IF error = 0 THEN (* ok *)
-		ELSIF error = 1 THEN Scanner.Mark ('Symbol file not found')
-		ELSIF error = 2 THEN
-			Scanner.Mark ('Compiler limit: Too many imported modules')
-		END
+		SymTable.Find_module_symfile (modul, sym_name)
 	END import;
 
 BEGIN (* ImportList *)
 	Scanner.Get (sym); import;
 	WHILE sym = Scanner.comma DO Scanner.Get (sym); import END;
 	Check (Scanner.semicolon, 'No ending semicolon');
-	Base.Import_modules
+	SymTable.Import_modules
 END ImportList;
 
 PROCEDURE Module*;
@@ -1545,7 +1536,8 @@ BEGIN
 	Check (Scanner.semicolon, 'No ; after module name');
 	
 	IF modid # '@' THEN
-		Base.Init (modid);
+		Base.Init;
+		SymTable.Init (modid);
 		Generator.Init (modid);
 		
 		IF sym = Scanner.import THEN

@@ -1,7 +1,7 @@
 MODULE Generator3;
 
 IMPORT
-	SYSTEM, Sys, Base, Scanner;
+	SYSTEM, Sys, Base, Scanner, SymTable;
 
 CONST
 	MIN_INT8 = -128;
@@ -432,7 +432,7 @@ BEGIN
 	x.readonly := FALSE;
 	x.param := FALSE;
 	x.mode := Base.class_const;
-	x.lev := Base.cur_lev;
+	x.lev := SymTable.cur_lev;
 	x.type := typ;
 	x.a := val;
 	x.b := 0;
@@ -461,28 +461,22 @@ BEGIN
 	x.c := 0;
 	
 	IF x.lev # -2 THEN (* Not imported object *)
-	ELSIF x.mode # Base.class_const THEN
+	ELSIF x.mode IN {Base.class_var, Base.class_proc} THEN
 		IF x.mode = Base.class_var THEN x.mode := Base.class_ref END;
 		IF x.a # 0 THEN (* Already inited *)
-		ELSE
-			Alloc_static_data (8, 8); x.a := -staticsize; obj.val := x.a;
-			IF (x.mode = Base.class_type)
-			& (x.type.form = Base.type_record) THEN
-				x.type.tdAdr := SHORT (x.a);
-				x.type.import := TRUE
-			END
+		ELSE Alloc_static_data (8, 8); x.a := -staticsize; obj.val := x.a
 		END
 	END
 END Make_item;
 	
-PROCEDURE Make_string* (VAR x : Base.Item);
+PROCEDURE Make_string* (VAR x : Base.Item; str : Base.LongString);
 	VAR strlen, i : INTEGER;
 BEGIN
 	x.readonly := TRUE; x.param := FALSE;
 	x.mode := Base.class_var; x.lev := -1;
-	x.b := ORD (Scanner.str[0]);
+	x.b := ORD (str[0]);
 	
-	strlen := Base.Str_len (Scanner.str) + 1;
+	strlen := Base.Str_len (str) + 1;
 	Base.New_typ (x.type, Base.type_string);
 	x.type.len := strlen;
 	x.type.size := strlen * Base.Char_size;
@@ -491,7 +485,7 @@ BEGIN
 	Alloc_static_data (strlen * Base.Char_size, Base.Char_size);
 	x.type.tdAdr := -staticsize; x.a := -staticsize;
 	
-	i := Base.Alloc_string (Scanner.str, strlen);
+	i := Base.Alloc_string (str, strlen);
 	IF i >= 0 THEN x.type.ref := i;
 	ELSE Scanner.Mark ('Compiler buffer for string is overflowed!');
 		x.type.ref := 0
@@ -512,9 +506,13 @@ END Alloc_typedesc;
 
 PROCEDURE Get_typedesc (VAR x : Base.Item; type : Base.Type);
 BEGIN
-	ASSERT (type.tdAdr # 0);
-	IF ~ type.import THEN x.mode := Base.class_var; x.lev := -1
-	ELSE x.mode := Base.class_ref; x.lev := -2; x.c := 0
+	IF type.mod = -1 THEN
+		ASSERT (type.tdAdr # 0);
+		x.mode := Base.class_var; x.lev := -1
+	ELSIF type.tdAdr = 0 THEN
+		SymTable.Add_usedType (type, type.mod);
+		Alloc_static_data (8, 8); type.tdAdr := -staticsize;
+		x.mode := Base.class_ref; x.lev := -2; x.c := 0
 	END;
 	x.type := Base.int_type; x.a := type.tdAdr
 END Get_typedesc;
@@ -1524,7 +1522,7 @@ PROCEDURE SProc_NEW* (VAR x : Base.Item);
 	VAR proc, par, td : Base.Item; pinfo : ProcInfo;
 BEGIN
 	proc.mode := Base.class_proc; proc.type := Base.int_type;
-	proc.lev := -2; proc.a := -24; (* HeapAlloc *)
+	proc.lev := -2; proc.a := Base.HeapAlloc; (* HeapAlloc *)
 	pinfo.parblksize := 24; pinfo.rtype := Base.int_type;
 	Prepare_to_call (proc, pinfo);
 	
@@ -1784,9 +1782,9 @@ BEGIN (* Write_to_file *)
 END Write_to_file;
 
 PROCEDURE Module_init;
-	VAR i, framesize, L, r : INTEGER; n1, n2, n3, n4 : LONGINT;
-		str : Base.LongString; tp : Base.Type; td : Base.Item;
-		modul, obj : Base.Object; exit : BOOLEAN;
+	VAR modid, i, L, r : INTEGER;
+		str : Base.LongString; exit : BOOLEAN;
+		obj : Base.Object; x, td : Base.Item; tp : Base.Type;
 BEGIN
 	IF ~ Base.CompilerFlag.main THEN
 		EmitRI (CMPi, reg_D, 4, 1); L := pc; CondBranch (ccZ, 0);
@@ -1794,53 +1792,47 @@ BEGIN
 	END;
 	
 	EmitRI (SUBi, reg_SP, 8, 40);
-	SetRmOperand_staticvar (-32); EmitRm (CALL, 4); (* GetProcessHeap *)
-	EmitRI (ADDi, reg_SP, 8, 32);
-	SetRmOperand_staticvar (-64); EmitRegRm (MOV, reg_A, 8); (* Heap Handle of Process *)
+	SetRmOperand_staticvar (Base.GetProcessHeap);
+	EmitRm (CALL, 4);
+	SetRmOperand_staticvar (-64); (* Heap Handle of Process *)
+	EmitRegRm (MOV, reg_A, 8);
 	
-	(* Import other modules, if there are any *)
-	modul := Base.universe.next;
-	WHILE (modul # Base.guard)
-	& ((modul.class # Base.class_module) OR (modul.realname = 'SYSTEM')) DO
-		modul := modul.next
-	END;
-	IF modul # Base.guard THEN
-		framesize := (Base.max_ident_len + 5) * 2;
-		framesize := (-framesize) MOD 16 + framesize + 32;
-		EmitRI (SUBi, reg_SP, 8, framesize);
-		REPEAT
-			str := ''; Base.Append_str (str, modul.realname);
+	(* Import modules, if there are any *)
+	modid := 0;
+	WHILE modid < SymTable.hiddenmodno DO
+		obj := SymTable.importModules [modid].objects;
+		tp := SymTable.importModules [modid].usedTypes;
+		IF (obj # NIL) OR (tp # NIL) THEN
+			str := '';
+			Base.Append_str (str, SymTable.importModules [modid].name);
 			Base.Append_str (str, '.dll');
-			i := 0; n1 := 1; n2 := 1; n3 := 1; n4 := 1;
-			WHILE (n1 # 0) & (n2 # 0) & (n3 # 0) & (n4 # 0) DO
-				n1 := ORD(str[i]);
-				n2 := ORD(str[i + 1]); n2 := ASH(n2, 16);
-				n3 := ORD(str[i + 2]); n3 := ASH(n3, 32);
-				n4 := ORD(str[i + 3]); n4 := ASH(n4, 48);
-				MoveRI (reg_A, 8, n1 + n2 + n3 + n4);
-				SetRmOperand_regI (reg_SP, 32 + i * 2);
-				EmitRegRm (MOV, reg_A, 8);
-				i := i + 4
-			END;
-			SetRmOperand_regI (reg_SP, 32); EmitRegRm (LEA, reg_C, 8);
-			SetRmOperand_staticvar (-48); EmitRm (CALL, 4); (* LoadLibraryW *)
+			Make_string (x, str);
+			SetRmOperand (x); EmitRegRm (LEA, reg_C, 8);
+			SetRmOperand_staticvar (Base.LoadLibraryW); EmitRm (CALL, 4);
 			EmitRR (MOVd, reg_SI, 8, reg_A);
-			obj := modul.dsc;
+		END;
+		IF obj # NIL THEN
 			WHILE obj # Base.guard DO
 				IF (obj.val # 0) & (obj.val2 # 0) THEN
 					EmitRR (MOVd, reg_C, 8, reg_SI);
 					MoveRI (reg_D, 4, obj.val2);
-					SetRmOperand_staticvar (-40); (* GetProcAddress *)
+					SetRmOperand_staticvar (Base.GetProcAddress);
 					EmitRm (CALL, 4);
 					SetRmOperand_staticvar (SHORT (obj.val));
 					EmitRegRm (MOV, reg_A, 8)
 				END;
 				obj := obj.next
-			END;
-			modul := modul.next;
-			IF modul.realname = 'SYSTEM' THEN modul := modul.next END
-		UNTIL modul.class # Base.class_module;
-		EmitRI (ADDi, reg_SP, 8, framesize)
+			END
+		END;
+		WHILE tp # NIL DO
+			EmitRR (MOVd, reg_C, 8, reg_SI);
+			MoveRI (reg_D, 4, tp.expno);
+			SetRmOperand_staticvar (Base.GetProcAddress); EmitRm (CALL, 4);
+			SetRmOperand_staticvar (tp.tdAdr);
+			EmitRegRm (MOV, reg_A, 8);
+			tp := tp.next
+		END;
+		modid := modid + 1
 	END;
 	
 	(* Fill value into type descriptors *)
@@ -1864,8 +1856,11 @@ BEGIN
 	IF Base.CompilerFlag.main THEN
 		EmitRI (SUBi, reg_SP, 8, 32);
 		EmitRR (XOR, reg_C, 4, reg_C);
-		SetRmOperand_staticvar (-56); EmitRm (CALL, 4) (* ExitProcess *)
-	ELSE MoveRI (reg_A, 4, 1); EmitRI (ADDi, reg_SP, 8, 8); EmitBare (RET)
+		SetRmOperand_staticvar (Base.ExitProcess); EmitRm (CALL, 4)
+	ELSE
+		MoveRI (reg_A, 4, 1);
+		EmitRI (ADDi, reg_SP, 8, 40);
+		EmitBare (RET)
 	END
 END Module_exit;
 
@@ -2097,9 +2092,8 @@ END Write_data_section;
 
 PROCEDURE Write_edata_section;
 	CONST dirsize = 40;
-	VAR obj : Base.Object;
-		name : Base.LongString;
-		namesize, tablesize, expno, rva : INTEGER;
+	VAR obj : Base.Object; name : Base.LongString;
+		namesize, tablesize, i, rva : INTEGER;
 BEGIN
 	name := ''; Base.Append_str (name, modid);
 	IF Base.CompilerFlag.main THEN Base.Append_str (name, '.exe')
@@ -2107,39 +2101,30 @@ BEGIN
 	END;
 	namesize := Base.Str_len (name) + 1;
 	
-	tablesize := Base.expno * 4; expno := 0;
+	tablesize := SymTable.expno * 4;
 
 	(* Export directory *)
 	Sys.Seek (out, Linker.edata_fadr + 12);
 	Sys.Write_4bytes (out, Linker.edata_rva + dirsize + tablesize);
 	Sys.Write_4bytes (out, 1);
-	Sys.Write_4bytes (out, Base.expno);
+	Sys.Write_4bytes (out, SymTable.expno);
 	Sys.Write_4bytes (out, 0);
 	Sys.Write_4bytes (out, Linker.edata_rva + dirsize);
 	
 	(* Export address table *)
 	Sys.Seek (out, Linker.edata_fadr + dirsize);
-	obj := Base.universe.next;
-	WHILE obj # Base.guard DO
-		IF obj.export THEN
-			IF (obj.class = Base.class_type)
-			& (obj.type.form = Base.type_record) THEN
-				rva := Linker.data_rva + Linker.data_size;
-				rva := rva + staticbase + SHORT(obj.val);
-				Sys.Write_4bytes (out, rva); expno := expno + 1
-			ELSIF obj.class = Base.class_var THEN
-				rva := Linker.data_rva + Linker.data_size;
-				rva := rva + varbase + SHORT(obj.val);
-				Sys.Write_4bytes (out, rva); expno := expno + 1
-			ELSIF obj.class = Base.class_proc THEN
-				Sys.Write_4bytes (out, Linker.code_rva + SHORT(obj.val));
-				expno := expno + 1
-			END
+	FOR i := 1 TO SymTable.expno DO
+		rva := SymTable.exportAdrList [i].adr;
+		IF SymTable.exportAdrList [i].class = Base.class_type THEN
+			rva := rva + Linker.data_rva + Linker.data_size + staticbase
+		ELSIF SymTable.exportAdrList [i].class = Base.class_var THEN
+			rva := rva + Linker.data_rva + Linker.data_size + varbase
+		ELSIF SymTable.exportAdrList [i].class = Base.class_proc THEN
+			rva := rva + Linker.code_rva
 		END;
-		obj := obj.next
+		Sys.Write_4bytes (out, rva)
 	END;
-	ASSERT (expno = Base.expno);
-	
+		
 	(* Name string *)
 	Sys.Write_ansi_str (out, name);
 	
@@ -2292,7 +2277,7 @@ PROCEDURE Finish*;
 		str : Base.LongString;
 BEGIN
 	IF ~ Scanner.haveError THEN
-		Base.Write_symbols_file;
+		SymTable.Write_symbols_file;
 
 		IF Base.CompilerFlag.main THEN Linker.imagebase := 400000H
 		ELSE Linker.imagebase := 10000000H
