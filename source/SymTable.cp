@@ -400,7 +400,7 @@ BEGIN
 		IF min < visiblemodno THEN minlev := importModules [min].lev END;
 		WHILE i < visiblemodno DO
 			IF importModules [i].not_imported
-				& (importModules [i].lev < minlev) THEN
+				& (importModules [i].lev <= minlev) THEN
 				min := i; minlev := importModules [i].lev
 			END;
 			INC (i)
@@ -439,10 +439,11 @@ BEGIN
 			END;
 			Sys.Close (file);
 			modul.val := visiblemodno; INC (visiblemodno)
-		ELSE Scanner.Mark ('Symbol file not found')
+		ELSE Scanner.Mark ('Symbol file not found'); modul.name := '#'
 		END
-	ELSE Scanner.Mark ('Compiler limit: Too many imported modules')
-	END
+	ELSE Scanner.Mark ('Compiler limit: Too many imported modules');
+		modul.name := '#'
+	END;
 END Find_module_symfile;
 
 (* -------------------------------------------------------------------------- *)
