@@ -22,6 +22,7 @@ CONST
 	type_trap = 2;
 	assert_trap = 3;
 	nil_trap = 4;
+	modkey_trap = 5;
 	
 	mode_reg = Base.mode_reg;
 	mode_imm = Base.class_const;
@@ -628,15 +629,20 @@ END Free_item;
 (* -------------------------------------------------------------------------- *)
 (* Trap *)
 
-(* Need to be replaced *)
 PROCEDURE Trap (cond, trapno : INTEGER);
 	VAR L : INTEGER;
 BEGIN
 	IF ~ (cond IN {ccAlways, ccNever}) THEN
-		L := pc; CondBranch (cond, 0); Branch (0); Fix_link (L); L := pc - 1;
-		MoveRI (reg_A, 4, Scanner.charNum); EmitBare (INT3); Fix_link (L)
+		L := pc; CondBranch (cond, 0); Branch (0); Fix_link (L);
+		L := pc - 1;
+		MoveRI (reg_A, 1, trapno);
+		MoveRI (reg_C, 4, Scanner.charNum);
+		EmitBare (INT3);
+		Fix_link (L)
 	ELSIF cond = ccAlways THEN
-		MoveRI (reg_A, 4, Scanner.charNum); EmitBare (INT3)
+		MoveRI (reg_A, 1, trapno);
+		MoveRI (reg_C, 4, Scanner.charNum);
+		EmitBare (INT3)
 	END
 END Trap;
 
@@ -1782,8 +1788,8 @@ BEGIN (* Write_to_file *)
 END Write_to_file;
 
 PROCEDURE Module_init;
-	VAR modid, i, L, r : INTEGER;
-		str : Base.LongString; exit : BOOLEAN;
+	VAR modid, i, L, r : INTEGER; int64 : LONGINT;
+		str : Base.LongString; exit : BOOLEAN; key : SymTable.ModuleKey;
 		obj : Base.Object; x, td : Base.Item; tp : Base.Type;
 BEGIN
 	IF ~ Base.CompilerFlag.main THEN
@@ -1810,6 +1816,15 @@ BEGIN
 			SetRmOperand (x); EmitRegRm (LEA, reg_C, 8);
 			SetRmOperand_staticvar (Base.LoadLibraryW); EmitRm (CALL, 4);
 			EmitRR (MOVd, reg_SI, 8, reg_A);
+			
+			(* Check module key *)
+			key := SymTable.importModules [modid].key; int64 := 0;
+			SYSTEM.GET (SYSTEM.ADR (key[0]), int64);
+			MoveRI (reg_A, 8, int64); SetRmOperand_regI (reg_SI, 400H - 16);
+			EmitRegRm (CMPd, reg_A, 8); Trap (ccNZ, modkey_trap);
+			SYSTEM.GET (SYSTEM.ADR (key[8]), int64);
+			MoveRI (reg_A, 8, int64); SetRmOperand_regI (reg_SI, 400H - 8);
+			EmitRegRm (CMPd, reg_A, 8); Trap (ccNZ, modkey_trap)
 		END;
 		IF obj # NIL THEN
 			WHILE obj # Base.guard DO
@@ -2278,6 +2293,8 @@ PROCEDURE Finish*;
 BEGIN
 	IF ~ Scanner.haveError THEN
 		SymTable.Write_symbols_file;
+		Sys.Seek (out, 400H - 16);
+		FOR i := 0 TO 15 DO Sys.Write_byte (out, SymTable.modkey [i]) END;
 
 		IF Base.CompilerFlag.main THEN Linker.imagebase := 400000H
 		ELSE Linker.imagebase := 10000000H

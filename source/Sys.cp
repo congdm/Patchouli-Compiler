@@ -3,6 +3,7 @@ MODULE Sys;
 IMPORT
 	System := "[mscorlib]System",
 	Reflect := "[mscorlib]System.Reflection",
+	Crypt := "[mscorlib]System.Security.Cryptography",
 	IO := "[mscorlib]System.IO",
 	Console;
 	
@@ -72,6 +73,15 @@ PROCEDURE File_existed* (filename : ARRAY OF CHAR) : BOOLEAN;
 BEGIN
 	RETURN IO.File.Exists (MKSTR (filename))
 END File_existed;
+
+PROCEDURE Calculate_MD5_hash* (VAR file : FileHandle; VAR buf : ARRAY OF UBYTE);
+	VAR result : POINTER TO ARRAY OF UBYTE; md5hasher : Crypt.MD5;
+		i : INTEGER;
+BEGIN
+	md5hasher := Crypt.MD5.Create();
+	result := md5hasher.ComputeHash (file.f);
+	FOR i := 0 TO 15 DO buf[i] := result[i] END
+END Calculate_MD5_hash;
 
 (* -------------------------------------------------------------------------- *)
 

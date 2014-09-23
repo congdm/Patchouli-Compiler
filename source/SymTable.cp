@@ -3,7 +3,9 @@ MODULE SymTable;
 IMPORT
 	Sys, Base, Scanner;
 
-TYPE	
+TYPE
+	ModuleKey* = ARRAY 16 OF UBYTE;
+
 	UndefPtrList* = POINTER TO RECORD
 		exported : BOOLEAN; typ : Base.Type; basename : Base.String;
 		next : UndefPtrList
@@ -13,7 +15,8 @@ TYPE
 		not_imported : BOOLEAN;
 		name* : Base.String; lev : INTEGER;
 		objects* : Base.Object;
-		usedTypes* : Base.Type
+		usedTypes* : Base.Type;
+		key* : ModuleKey
 	END;
 	
 VAR
@@ -27,8 +30,10 @@ VAR
 	importModules* : ARRAY 256 OF Module;
 	reimportModules : ARRAY 256 OF INTEGER;
 	reimportModuleNames : ARRAY 256 OF Base.String;
+	reimportModuleKeys : ARRAY 256 OF ModuleKey;
 	importTypes : ARRAY 1024 OF Base.Type;
 	
+	modkey* : ModuleKey;
 	exportAdrList* : ARRAY 4096 OF RECORD
 		class*, adr* : INTEGER
 	END;
@@ -245,12 +250,15 @@ BEGIN
 			m := hiddenmodno; reimportModules [mod] := hiddenmodno;
 			hiddenmodno := hiddenmodno + 1;
 			importModules [m].name := reimportModuleNames [mod];
+			importModules [m].key := reimportModuleKeys [mod]
 		END;
 		ref := refno; _Import_type (typ, TRUE, m);
 		Sys.Read_string (symfile, typename);
 		IF (typename # '') & (m < visiblemodno) THEN
-			Find_in_module (obj, typename, m); ASSERT (obj # Base.guard);
-			importTypes [ref] := obj.type; typ := obj.type
+			Find_in_module (obj, typename, m);
+			IF (obj # Base.guard) & (obj.class = Base.class_type) THEN
+				importTypes [ref] := obj.type; typ := obj.type
+			END
 		END
 	END
 END Detect_typeI;
@@ -322,22 +330,46 @@ BEGIN
 		Close_scope
 	END
 END Import_type;
+
+PROCEDURE Read_module_key (VAR key : ModuleKey);
+	VAR i, n : INTEGER;
+BEGIN
+	n := 0;
+	FOR i := 0 TO 15 DO Sys.Read_byte (symfile, n); key[i] := USHORT (n) END
+END Read_module_key;
+
+PROCEDURE Different_key (key1, key2 : ModuleKey) : BOOLEAN;
+	VAR i : INTEGER; result : BOOLEAN;
+BEGIN
+	i := 0; WHILE (i < 16) & (key1[i] = key2[i]) DO i := i + 1 END;
+	RETURN i < 16
+END Different_key;
 	
 PROCEDURE Import_symbols_file* (filename : ARRAY OF CHAR);
-	VAR class, n, reimpmodno : INTEGER;
+	VAR class, n, reimpmodno : INTEGER; key : ModuleKey;
 		obj : Base.Object; name : Base.String;
+		errormsg : ARRAY 1024 OF CHAR;
 BEGIN
 	refno := 0;	expno := 0; class := 0; reimpmodno := 0;
 	Sys.Open (symfile, filename);
+	Sys.Seek (symfile, 16); (* Skip module key *)
 	Base.ReadInt (symfile, class); (* Skip module level *)
 	
 	Base.ReadInt (symfile, class);
 	WHILE class # Base.class_head DO
 		IF class = Base.class_module THEN
 			Sys.Read_string (symfile, name);
-			reimportModules [reimpmodno] := Module_ID_of (name);
-			IF reimportModules [reimpmodno] = -1 THEN
-				reimportModuleNames [reimpmodno] := name
+			Read_module_key (key);
+			n := Module_ID_of (name); reimportModules [reimpmodno] := n;
+			IF n = -1 THEN
+				reimportModuleNames [reimpmodno] := name;
+				reimportModuleKeys [reimpmodno] := key
+			ELSIF Different_key (key, importModules [n].key) THEN
+				errormsg := 'Module '; Base.Append_str (errormsg, name);
+				Base.Append_str (errormsg, ' is imported from module ');
+				Base.Append_str (errormsg, importModules [impMod].name);
+				Base.Append_str (errormsg, ' with a different key');
+				Scanner.Mark (errormsg)
 			END;
 			reimpmodno := reimpmodno + 1
 		ELSIF class = Base.class_const THEN
@@ -421,8 +453,7 @@ BEGIN
 END Import_modules;
 
 PROCEDURE Find_module_symfile* (modul : Base.Object; sym_name : Base.String);
-	VAR filename : Base.LongString;
-		obj : Base.Object; file : Sys.FileHandle;
+	VAR filename : Base.LongString; obj : Base.Object;
 BEGIN
 	IF sym_name = 'SYSTEM' THEN Import_SYSTEM (modul)
 	ELSIF visiblemodno < LEN(importModules) THEN
@@ -432,12 +463,13 @@ BEGIN
 		filename := ''; Base.Append_str (filename, sym_name);
 		Base.Append_str (filename, '.sym');
 		IF Sys.File_existed (filename) THEN
-			Sys.Open (file, filename);
-			Base.ReadInt (file, importModules [visiblemodno].lev);
+			Sys.Open (symfile, filename);
+			Read_module_key (importModules [visiblemodno].key);
+			Base.ReadInt (symfile, importModules [visiblemodno].lev);
 			IF importModules [visiblemodno].lev >= modlev THEN
 				modlev := importModules [visiblemodno].lev + 1
 			END;
-			Sys.Close (file);
+			Sys.Close (symfile);
 			modul.val := visiblemodno; INC (visiblemodno)
 		ELSE Scanner.Mark ('Symbol file not found'); modul.name := '#'
 		END
@@ -525,16 +557,24 @@ BEGIN
 	END
 END Export_type;
 
+PROCEDURE Write_module_key (key : ModuleKey);
+	VAR i : INTEGER;
+BEGIN
+	FOR i := 0 TO 15 DO Sys.Write_byte (symfile, key[i]) END
+END Write_module_key;
+
 PROCEDURE Write_symbols_file*;
-	VAR obj : Base.Object; i : INTEGER;
+	VAR obj : Base.Object; i, k : INTEGER;
 BEGIN
 	refno := 0;	expno := 0;
 	Sys.Rewrite (symfile, 'sym.temp_');
+	Sys.Seek (symfile, 16);
 	Base.WriteInt (symfile, modlev);
 	
 	FOR i := 0 TO hiddenmodno - 1 DO
 		Base.WriteInt (symfile, Base.class_module);
-		Sys.Write_string (symfile, importModules [i].name)
+		Sys.Write_string (symfile, importModules [i].name);
+		Write_module_key (importModules [i].key)
 	END;
 	
 	obj := universe.next;
@@ -578,6 +618,10 @@ BEGIN
 		obj := obj.next
 	END;
 	Base.WriteInt (symfile, Base.class_head);
+	Sys.Seek (symfile, 0);
+	Sys.Calculate_MD5_hash (symfile, modkey);
+	Sys.Seek (symfile, 0);
+	Write_module_key (modkey);
 	Sys.Close (symfile)
 END Write_symbols_file;
 
