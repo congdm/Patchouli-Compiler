@@ -26,6 +26,7 @@ VAR
 	
 	modlev, visiblemodno*, hiddenmodno* : INTEGER;
 	refno, expno*, impMod : INTEGER;
+	importSystem* : BOOLEAN;
 	
 	importModules* : ARRAY 256 OF Module;
 	reimportModules : ARRAY 256 OF INTEGER;
@@ -402,6 +403,7 @@ END Import_symbols_file;
 
 PROCEDURE Import_SYSTEM (modul : Base.Object);
 BEGIN
+	importSystem := TRUE;
 	cur_lev := -2; Open_scope ('');
 	
 	Enter (Base.class_type, 0, 'WORD', Base.word_type);
@@ -639,7 +641,9 @@ END Add_usedType;
 	
 PROCEDURE Init* (modname : Base.String);
 BEGIN
-	modlev := 0; visiblemodno := 0; NEW (universe);
+	modlev := 0; visiblemodno := 0;
+	importSystem := FALSE;
+	NEW (universe);
 	universe.class := Base.class_head;
 	universe.name := modname;
 	universe.next := Base.guard;

@@ -66,12 +66,12 @@ VAR
 	
 	srcfile : Sys.FileHandle;
 	ch : CHAR;
-	charNum*, prevCharNum : INTEGER;
+	charNum*, prevErrorPos : INTEGER;
 	eofFlag : BOOLEAN;
 
 PROCEDURE Init* (VAR file : Sys.FileHandle);
 BEGIN
-	srcfile := file; ch := 0X; charNum := 0; prevCharNum := 0;
+	srcfile := file; ch := 0X; charNum := 0; prevErrorPos := -1;
 	haveError := FALSE; eofFlag := FALSE
 END Init;
 
@@ -84,9 +84,11 @@ END Read_char;
 	
 PROCEDURE Mark* (s : ARRAY OF CHAR);
 BEGIN
-	Sys.Console_WriteInt (charNum);
-	Sys.Console_WriteString (': '); Sys.Console_WriteString (s);
-	Sys.Console_WriteLn; haveError := TRUE
+	IF charNum # prevErrorPos THEN
+		Sys.Console_WriteInt (charNum);
+		Sys.Console_WriteString (': '); Sys.Console_WriteString (s);
+		Sys.Console_WriteLn; haveError := TRUE; prevErrorPos := charNum
+	END
 END Mark;
 
 PROCEDURE Get_word (VAR sym : INTEGER);

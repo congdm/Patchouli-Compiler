@@ -90,6 +90,7 @@ VAR
 	bool_type*, set_type*, char_type*, nil_type* : Type;
 	real_type*, longreal_type* : Type;
 	guardRecord_type*, guardPointer_type*, guardArray_type* : Type;
+	byteArray_type* : Type;
 	
 	predefinedTypes* : ARRAY 32 OF Type;
 	preTypeNo* : INTEGER;
@@ -400,8 +401,12 @@ BEGIN
 	
 	New_predefined_typ (guardArray_type, type_array, Word_size);
 	guardArray_type.base := int_type;
-	guardPointer_type.len := 1;
+	guardArray_type.len := 1;
 	
 	New_predefined_typ (word_type, type_integer, 2);
-	New_predefined_typ (dword_type, type_integer, 4)	
+	New_predefined_typ (dword_type, type_integer, 4);
+
+	New_predefined_typ (byteArray_type, type_array, 1);
+	byteArray_type.base := byte_type;
+	byteArray_type.len := 1
 END Base.

@@ -789,6 +789,11 @@ BEGIN
 			IF (xtype.form IN {Base.type_array, Base.type_string})
 			& Base.Compatible_array (xtype, ftype) THEN
 				Generator.Open_array_param (x, pinfo, ftype)
+			ELSIF (ftype.base = Base.byte_type) & SymTable.importSystem THEN
+				Base.byteArray_type.len := x.type.size;
+				Base.byteArray_type.size := x.type.size;
+				x.type := Base.byteArray_type;
+				Generator.Open_array_param (x, pinfo, ftype)
 			ELSE Scanner.Mark (err1); Generator.Free_item (x)
 			END
 		ELSIF ~ par.readonly THEN
