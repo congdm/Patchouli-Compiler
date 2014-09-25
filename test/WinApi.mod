@@ -29,76 +29,125 @@ CONST
 	                      + WS_THICKFRAME + WS_MINIMIZEBOX + WS_MAXIMIZEBOX;
 	WS_TILEDWINDOW* = WS_OVERLAPPEDWINDOW;
 	
+	(* Virtual-Key Codes *)
+	VK_SHIFT* = 10H;
+	VK_CONTROL* = 11H;
+	VK_LEFT* = 25H;
+	VK_UP* = 26H;
+	VK_RIGHT* = 27H;
+	VK_DOWN* = 28H;
+	
 TYPE
 	AsciiStr = ARRAY 64 OF BYTE;
+	
+	Handle* = ARRAY 1 OF INTEGER;
+	Bool* = ARRAY 1 OF SYSTEM.DWORD;
+	Address* = ARRAY 1 OF INTEGER;
+	
+	WindowProc* = PROCEDURE (
+		hWnd : Handle; uMsg, wParam, lParam : INTEGER
+	) : INTEGER;
 	
 	Point* = RECORD
 		x*, y* : SYSTEM.DWORD
 	END;
 	
 	Msg* = RECORD
-		hwnd* : INTEGER;
+		hwnd* : Handle;
 		message* : SYSTEM.DWORD;
 		wParam*, lParam* : INTEGER;
 		time* : SYSTEM.DWORD;
 		pt* : Point
 	END;
 	
-	WindowProcType* = PROCEDURE (
-		hWnd, uMsg, wParam, lParam : INTEGER
-	) : INTEGER;
-	
-	Wndclass* = RECORD
+	Wndclassw* = RECORD
 		style* : SYSTEM.DWORD;
-		lpfnWndProc* : WindowProcType;
+		lpfnWndProc* : WindowProc;
 		cbClsExtra*, cbWndExtra* : SYSTEM.DWORD;
-		hInstance*, hIcon*, hCursor*, hbrBackground* : INTEGER;
-		lpszMenuName*, lpszClassName* : INTEGER
+		hInstance*, hIcon*, hCursor*, hbrBackground* : Handle;
+		lpszMenuName*, lpszClassName* : Address
+	END;
+	
+	Rect* = RECORD
+		left*, right*, top*, bottom* : SYSTEM.DWORD
+	END;
+	
+	Paintstruct* = RECORD
+		hdc* : Handle;
+		fErase* : Bool;
+		rcPaint* : Rect;
+		fRestore*, fIncUpdate* : Bool;
+		rgbReserved* : ARRAY 32 OF BYTE
+	END;
+	
+	Console_readconsole_control* = RECORD
+		nLength*, nInitialChars* : SYSTEM.DWORD;
+		dwCtrlWakeupMask*, dwControlKeyState* : SYSTEM.DWORD
 	END;
 	
 VAR
 	(* Console functions *)
-	AllocConsole* : PROCEDURE () : INTEGER;
-	GetStdHandle* : PROCEDURE (nStdHandle : INTEGER) : INTEGER;
+	AllocConsole* : PROCEDURE () : Bool;
+	GetStdHandle* : PROCEDURE (nStdHandle : SYSTEM.DWORD) : Handle;
+	
 	WriteConsoleW* : PROCEDURE (
-		hConsoleOutput, lpBuffer, nNumberOfCharsToWrite,
-		lpNumberOfCharsWritten, lpReserved : INTEGER
-	) : INTEGER;
+		hConsoleOutput : Handle;
+		lpBuffer : Address;
+		nNumberOfCharsToWrite : SYSTEM.DWORD;
+		lpNumberOfCharsWritten, lpReserved : Address
+	) : Bool;
+	
 	ReadConsoleW* : PROCEDURE (
-		hConsoleInput, lpBuffer, nNumberOfCharsToRead, lpNumberOfCharsRead, 
-		pInputConsole : INTEGER
-	) : INTEGER;
-	SetConsoleCP* : PROCEDURE (wCodePageID : INTEGER) : INTEGER;
-	SetConsoleOutputCP* : PROCEDURE (wCodePageID : INTEGER) : INTEGER;
+		hConsoleInput : Handle;
+		lpBuffer : Address;
+		nNumberOfCharsToRead : SYSTEM.DWORD;
+		lpNumberOfCharsRead, pInputConsole : Address
+	) : Bool;
+	
+	SetConsoleCP* : PROCEDURE (wCodePageID : SYSTEM.DWORD) : Bool;
+	SetConsoleOutputCP* : PROCEDURE (wCodePageID : SYSTEM.DWORD) : Bool;
 	
 	(* DLL functions *)
-	GetModuleHandleW* : PROCEDURE (lpModuleName : INTEGER) : INTEGER;
+	GetModuleHandleW* : PROCEDURE (lpModuleName : Address) : Handle;
 	
 	(* Window Class functions *)
-	RegisterClassW* : PROCEDURE (lpWndClass : INTEGER) : INTEGER;
+	RegisterClassW* : PROCEDURE (lpWndClass : Address) : SYSTEM.WORD;
 	
 	(* Window functions *)
 	CreateWindowExW* : PROCEDURE (
-		dwExStyle, lpClassName, lpWindowName, dwStyle,
-		x, y, nWidth, nHeight,
-		hWndParent, hMenu, hInstance, lpParam : INTEGER
-	) : INTEGER;
-	ShowWindow* : PROCEDURE (hWnd, nCmdShow : INTEGER) : INTEGER;
-	DestroyWindow* : PROCEDURE (hWnd : INTEGER) : INTEGER;
+		dwExStyle : SYSTEM.DWORD;
+		lpClassName, lpWindowName : Address;
+		dwStyle, x, y, nWidth, nHeight : SYSTEM.DWORD;
+		hWndParent, hMenu, hInstance : Handle;
+		lpParam : Address
+	) : Handle;
+	
+	ShowWindow* : PROCEDURE (hWnd : Handle; nCmdShow : SYSTEM.DWORD) : Bool;
+	DestroyWindow* : PROCEDURE (hWnd : Handle) : Bool;
 	
 	(* Window Procedure functions *)
-	DefWindowProcW* : WindowProcType;
+	DefWindowProcW* : WindowProc;
 	
 	(* Message functions *)
 	GetMessageW* : PROCEDURE (
-		lpMsg, hWnd, uMsgFilterMin, uMsgFilterMax : INTEGER
-	) : INTEGER;
-	TranslateMessage* : PROCEDURE (lpMsg : INTEGER) : INTEGER;
-	DispatchMessageW* : PROCEDURE (lpMsg : INTEGER) : INTEGER;
-	PostQuitMessage* : PROCEDURE (nExitCode : INTEGER);
+		lpMsg : Address;
+		hWnd : Handle;
+		uMsgFilterMin, uMsgFilterMax : SYSTEM.DWORD
+	) : Bool;
+	
+	TranslateMessage* : PROCEDURE (lpMsg : Address) : Bool;
+	DispatchMessageW* : PROCEDURE (lpMsg : Address) : Bool;
+	PostQuitMessage* : PROCEDURE (nExitCode : SYSTEM.DWORD);
 	
 	(* Dialog Box functions *)
-	MessageBoxW* : PROCEDURE (hwnd, lpText, lpCaption, uType : INTEGER);
+	MessageBoxW* : PROCEDURE (
+		hwnd : Handle;
+		lpText, lpCaption : Address;
+		uType : SYSTEM.DWORD
+	) : SYSTEM.DWORD;
+	
+	(* Painting and Drawing functions *)
+	BeginPaint* : PROCEDURE (hwnd : Handle; lpPaint : Address) : Handle;
 	
 PROCEDURE Make_AsciiStr* (VAR out : ARRAY OF BYTE; in : ARRAY OF CHAR);
 	VAR n, i : INTEGER;
@@ -107,9 +156,20 @@ BEGIN
 	i := 0; WHILE i < n DO out[i] := ORD(in[i]); i := i + 1 END
 END Make_AsciiStr;
 
+PROCEDURE Adr* (v : ARRAY OF BYTE) : Address;
+	VAR res : Address;
+BEGIN
+	res[0] := SYSTEM.ADR (v)
+	RETURN res
+END Adr;
+
+PROCEDURE IsTrue* (bool : Bool) : BOOLEAN;
+BEGIN
+	RETURN bool[0] # 0
+END IsTrue;
+
 PROCEDURE Init;
-	VAR user32, kernel32 : INTEGER;
-		str : AsciiStr; 
+	VAR user32, kernel32 : INTEGER; str : AsciiStr; 
 BEGIN
 	SYSTEM.LoadLibraryW (kernel32, 'KERNEL32.DLL');
 	SYSTEM.LoadLibraryW (user32, 'USER32.DLL');

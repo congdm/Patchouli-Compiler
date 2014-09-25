@@ -4,28 +4,31 @@ IMPORT
 	SYSTEM, Win := WinApi, Strings;
 	
 VAR
-	stdin, stdout : INTEGER;
+	stdin, stdout : Win.Handle;
+	nilAdr : Win.Address;
 
 PROCEDURE Write* (ch : CHAR);
-	VAR nWritten, res : INTEGER;
+	VAR nWritten : SYSTEM.DWORD; r : Win.Bool;
 BEGIN
-	res := Win.WriteConsoleW (stdout, SYSTEM.ADR(ch), 1,
-		SYSTEM.ADR(nWritten), 0)
+	r := Win.WriteConsoleW (stdout, Win.Adr(ch), 1, Win.Adr(nWritten), nilAdr);
+	ASSERT (Win.IsTrue(r));
+	ASSERT (nWritten = 1)
 END Write;
 
 PROCEDURE WriteLn*;
-	VAR str : ARRAY 2 OF CHAR; nWritten, res : INTEGER;
+	VAR str : ARRAY 2 OF CHAR; nWritten : SYSTEM.DWORD; r : Win.Bool;
 BEGIN
 	str[0] := CHR(13); str[1] := CHR(10);
-	res := Win.WriteConsoleW (stdout, SYSTEM.ADR(str), 2,
-		SYSTEM.ADR(nWritten), 0)
+	r := Win.WriteConsoleW (stdout, Win.Adr(str), 2, Win.Adr(nWritten), nilAdr);
+	ASSERT (Win.IsTrue(r));
+	ASSERT (nWritten = 2)
 END WriteLn;
 
 PROCEDURE WriteString* (str : ARRAY OF CHAR);
-	VAR nWritten, res : INTEGER;
+	VAR nWritten : SYSTEM.DWORD; r : Win.Bool;
 BEGIN
-	res := Win.WriteConsoleW (stdout, SYSTEM.ADR(str), Strings.Length(str),
-		SYSTEM.ADR(nWritten), 0)
+	r := Win.WriteConsoleW (stdout, Win.Adr(str), Strings.Length(str),
+		Win.Adr(nWritten), nilAdr)
 END WriteString;
 
 PROCEDURE IntToString* (x : INTEGER; VAR str : ARRAY OF CHAR);
@@ -61,14 +64,17 @@ BEGIN
 END WriteInt;
 
 PROCEDURE Read* (VAR ch : CHAR);
-	VAR nRead, res : INTEGER;
+	VAR nRead : SYSTEM.DWORD; r : Win.Bool;
 BEGIN
-	res := Win.ReadConsoleW (stdin, SYSTEM.ADR(ch), 1, SYSTEM.ADR(nRead), 0)
+	r := Win.ReadConsoleW (stdin, Win.Adr(ch), 1, Win.Adr(nRead), nilAdr);
+	ASSERT (Win.IsTrue(r));
+	ASSERT (nRead = 1)
 END Read;
 
 PROCEDURE Init;
-	VAR res : INTEGER;
+	VAR res : Win.Bool;
 BEGIN
+	nilAdr[0] := 0;
 	res := Win.AllocConsole();
 	stdin := Win.GetStdHandle (Win.STD_INPUT_HANDLE);
 	stdout := Win.GetStdHandle (Win.STD_OUTPUT_HANDLE)

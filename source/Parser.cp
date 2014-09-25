@@ -346,7 +346,7 @@ BEGIN
 		qualident (obj);
 		IF (obj # Base.guard) & (obj.class = Base.class_type) THEN
 			typ := obj.type; Check_export (obj)
-		ELSE Scanner.Mark ('Type not found')
+		ELSE Scanner.Mark ('Type not found'); typ := Base.int_type
 		END
 	END
 END FormalType;
@@ -374,7 +374,8 @@ PROCEDURE FormalParameters (VAR parblksize : INTEGER; VAR rtype : Base.Type);
 		FormalType (tp);
 		IF tp.form IN Base.types_Scalar THEN (* Do nothing *)
 		ELSE
-			IF cls = Base.class_var THEN
+			IF (cls = Base.class_var) & ((tp.size > 8)
+				OR ~ (tp.size IN {1, 2, 4, 8}) OR ~ SymTable.importSystem) THEN
 				cls := Base.class_ref; read_only := TRUE
 			ELSIF tp.form = Base.type_record THEN
 				par_size := Base.Word_size * 2
@@ -416,12 +417,17 @@ BEGIN (* FormalParameters *)
 	
 	IF sym = Scanner.colon THEN
 		Scanner.Get (sym); qualident (obj);
-		IF (obj # Base.guard) & (obj.class = Base.class_type)
-		& (obj.type.form IN Base.types_Scalar) THEN
-			rtype := obj.type; Check_export (obj)
-		ELSE
-			Scanner.Mark ('Type not found or invalid result type');
-			rtype := Base.int_type
+		IF (obj # Base.guard) & (obj.class = Base.class_type) THEN
+			IF obj.type.form IN Base.types_Scalar THEN
+				rtype := obj.type; Check_export (obj)
+			ELSIF SymTable.importSystem & (obj.type.size <= 8)
+				& (obj.type.size IN {1, 2, 4, 8}) THEN
+				rtype := obj.type; Check_export (obj)
+			ELSE
+				Scanner.Mark ('Invalid function result type');
+				rtype := Base.int_type
+			END
+		ELSE Scanner.Mark ('Type not found'); rtype := Base.int_type
 		END
 	END
 END FormalParameters;
@@ -874,7 +880,9 @@ PROCEDURE StandProc (VAR x : Base.Item);
 			IF op = Scanner.plus THEN Generator.SProc_INC (x, 1)
 			ELSE Generator.SProc_INC (x, -1)
 			END
-		ELSE y := x; Generator.load (y); Scanner.Get (sym); expression (z);
+		ELSE
+			Generator.load2 (x, y);
+			Scanner.Get (sym); expression (z);
 			Generator.Op2 (op, y, z); Generator.Store (x, y)
 		END
 	END SProc_INC;
@@ -884,8 +892,8 @@ PROCEDURE StandProc (VAR x : Base.Item);
 	BEGIN
 		expression (x); Check_var (x, FALSE); Check_set (x);
 		Check (Scanner.comma, errTooLittleParam);
-		y := x; Generator.load (y); Generator.Make_const (z, Base.set_type, 0);
-		Scanner.Get (sym); expression (t); Check_set_element (t);
+		Generator.load2 (x, y); Generator.Make_const (z, Base.set_type, 0);
+		expression (t); Check_set_element (t);
 		Generator.Set2 (z, t); Generator.Op2 (op, y, z); Generator.Store (x, y)
 	END SProc_INCL;
 	

@@ -501,7 +501,7 @@ PROCEDURE Alloc_typedesc* (type : Base.Type);
 BEGIN
 	tdsize := 8 + 8 * (Base.max_extension - 1) + 4 * (type.num_ptr + 1);
 	Base.Adjust_alignment (tdsize, 8);
-	Alloc_static_data (staticsize, tdsize);
+	Alloc_static_data (tdsize, 8);
 	type.tdAdr := -staticsize
 END Alloc_typedesc;
 
@@ -696,10 +696,10 @@ PROCEDURE load* (VAR x : Base.Item);
 	VAR rsize, L : INTEGER;
 BEGIN
 	ASSERT (x.mode IN Base.classes_Value);
-	ASSERT (x.type.size IN {1, 2, 4, 8});
+	rsize := x.type.size;
+	ASSERT ((rsize > 0) & (rsize <= 8) & (rsize IN {1, 2, 4, 8}));
 	IF x.mode # mode_reg THEN
 		IF x.mode # mode_cond THEN
-			rsize := x.type.size;
 			IF x.mode # mode_regI THEN x.r := Alloc_reg() END;
 			Load_to_reg (x.r, rsize, x)
 		ELSE
@@ -722,6 +722,20 @@ BEGIN
 		x.mode := mode_reg
 	END
 END load;
+
+PROCEDURE load2* (VAR x, y : Base.Item);
+	VAR r, rsize : INTEGER;
+BEGIN
+	y := x;
+	IF y.mode IN mode_mem THEN
+		IF y.mode # mode_regI THEN load (y)
+		ELSE y.r := Alloc_reg(); rsize := y.type.size;
+			ASSERT ((rsize > 0) & (rsize <= 8) & (rsize IN {1, 2, 4, 8}));
+			Load_to_reg (y.r, rsize, x)
+		END
+	ELSE ASSERT(FALSE)
+	END
+END load2;
 
 PROCEDURE Load_adr_to_reg (reg : INTEGER; x : Base.Item);
 BEGIN
@@ -755,7 +769,8 @@ END Load_cond;
 PROCEDURE Store* (VAR x, y : Base.Item);
 	VAR rsize, count : INTEGER;
 BEGIN
-	IF x.type.form IN Base.types_Scalar THEN
+	IF (x.type.form IN Base.types_Scalar)
+		OR (x.type.size <= 8) & (x.type.size IN {1, 2, 4, 8}) THEN
 		load (y); IF x.mode = Base.class_ref THEN Ref_to_regI (x) END;
 		SetRmOperand (x); EmitRegRm (MOV, y.r, x.type.size);
 		IF x.mode = mode_regI THEN Free_reg END;

@@ -6,8 +6,11 @@ IMPORT
 
 PROCEDURE Main;
 	CONST mess = 'Oberon for Win64'; title = 'Hello, World!';
+	VAR intResult : INTEGER; nilHandle : WinApi.Handle;
 BEGIN
-	WinApi.MessageBoxW (0, SYSTEM.ADR(mess), SYSTEM.ADR(title), 0)
+	nilHandle[0] := 0;
+	intResult :=
+		WinApi.MessageBoxW (nilHandle, WinApi.Adr(mess), WinApi.Adr(title), 0)
 END Main;
 	
 BEGIN
