@@ -381,7 +381,8 @@ BEGIN
 		ELSIF class = Base.class_type THEN
 			Sys.Read_string (symfile, name);
 			New_obj (obj, name, Base.class_type);
-			Detect_typeI (obj.type)
+			Detect_typeI (obj.type);
+			obj.type.obj := obj
 		ELSIF class = Base.class_var THEN
 			Sys.Read_string (symfile, name);
 			New_obj (obj, name, class);
@@ -429,17 +430,17 @@ PROCEDURE Import_modules*;
 		i, min, minlev : INTEGER; finish : BOOLEAN;
 BEGIN
 	(* Find the lowest level module to import first *)
-	finish := FALSE; hiddenmodno := visiblemodno;
-	REPEAT i := 0; min := 0; minlev := 0;
-		IF min < visiblemodno THEN minlev := importModules [min].lev END;
+	finish := FALSE; hiddenmodno := visiblemodno; minlev := 0;
+	REPEAT i := 0; min := -1;
 		WHILE i < visiblemodno DO
 			IF importModules [i].not_imported
-				& (importModules [i].lev <= minlev) THEN
+				& ((min = -1) OR (importModules [i].lev <= minlev)) THEN
 				min := i; minlev := importModules [i].lev
 			END;
 			INC (i)
 		END;
-		IF (min < visiblemodno) & importModules [min].not_imported THEN
+		IF (min # -1) & (min < visiblemodno)
+			& importModules [min].not_imported THEN
 			impMod := min; filename := '';
 			Base.Append_str (filename, importModules [min].name);
 			Base.Append_str (filename, '.sym');
