@@ -60,9 +60,8 @@ VAR
 	id* : Base.String;
 	str* : Base.LongString;
 	
-	max_int : ARRAY 22 OF CHAR;
-	max_int_len : INTEGER;
-	power_of_10 : ARRAY 28 OF REAL;
+	numArray : ARRAY 19 OF INTEGER;
+	numLen : INTEGER; overflow : BOOLEAN;
 	
 	srcfile : Sys.FileHandle;
 	ch : CHAR;
@@ -179,201 +178,93 @@ BEGIN
 	ELSE (* Do nothing *)
 	END;
 END Get_word;
-	
-PROCEDURE Get_hex_number (hex_int : LONGINT; hex_overflow : BOOLEAN);
-	CONST err_no_suffix = 'Hexadecimal number without suffix';
-	VAR x : INTEGER;
-BEGIN
-	WHILE (ch >= 'A') & (ch <= 'F') OR (ch >= '0') & (ch <= '9') DO
-		IF ~ hex_overflow THEN
-			x := ORD (ch) - ORD ('0');
-			IF x > 9 THEN DEC (x, 7) END;
-			IF hex_int <= MAX_INT DIV 16 THEN
-				hex_int := hex_int * 16;
-				IF hex_int <= MAX_INT - x THEN INC (hex_int, x)
-				ELSE hex_overflow := TRUE
-				END
-			ELSE hex_overflow := TRUE
-			END
-		END;
-		Read_char
+
+PROCEDURE Hex;
+	VAR x, i : INTEGER;
+BEGIN val := 0; i := 0;
+	IF numLen > 16 THEN Mark (errLargeNumber); numLen := 16 END;
+	WHILE i < numLen DO x := numArray [i];
+		IF x > 9 THEN x := x - (ORD ('A') - ORD ('0')) END;
+		val := ASH (val, 4) + x; INC (i)
 	END;
-	val := hex_int;
-	IF ch = 'H' THEN Read_char;
-		IF ~ hex_overflow THEN (* Ok *) ELSE Mark (errLargeNumber) END;
-		typeOfVal := Base.int_type
-	ELSIF ch = 'X' THEN Read_char;
-		IF ~ hex_overflow & (val <= Base.MAX_CHAR) THEN (* Ok *)
-		ELSE Mark (errLargeChar)
-		END;
-		typeOfVal := Base.char_type
-	ELSE Mark (err_no_suffix);
-		IF ~ hex_overflow THEN (* Ok *) ELSE Mark (errLargeNumber) END;
-		typeOfVal := Base.int_type
-	END
-END Get_hex_number;
-	
-PROCEDURE Finish_real_number
-(real : LONGINT; scale, exponent : INTEGER; real_overflow : BOOLEAN);
-	VAR tail : LONGINT;
-		
-	PROCEDURE Adjust_scale (real : LONGINT; scale : INTEGER);
-		VAR t : INTEGER; single : SHORTREAL; double : REAL;
-	BEGIN
-		SYSTEM.GET (SYSTEM.ADR(real), double);
-		IF scale > 0 THEN
-			WHILE scale > LEN(power_of_10) - 1 DO
-				double := double * power_of_10[LEN(power_of_10) - 1];
-				DEC (scale, LEN(power_of_10) - 1)
-			END;
-			double := double * power_of_10[scale]
-		ELSIF scale < 0 THEN
-			WHILE -scale > LEN(power_of_10) - 1 DO
-				double := double / power_of_10[LEN(power_of_10) - 1];
-				INC (scale, LEN(power_of_10) - 1)
-			END;
-			double := double / power_of_10[-scale]
-		END;
-		single := SHORT (double);
-		SYSTEM.GET (SYSTEM.ADR(single), t);
-		val := t
-	END Adjust_scale;
-	
-BEGIN
-	IF real_overflow THEN val := SINGLE_POSITIVE_INFINITY
-	ELSE
-		tail := 0;
-		WHILE real > DOUBLE_MANTISSA DO
-			tail := tail DIV 2 + (real MOD 2) * TWO_POWER_52;
-			real := real DIV 2; INC (exponent)
-		END;
-		IF tail < TWO_POWER_30 THEN (* Do nothing *)
-		ELSIF ODD(real) OR (tail > TWO_POWER_52) THEN
-			INC (real);
-			IF real > DOUBLE_MANTISSA THEN real := real DIV 2; INC (exponent)
-			END
-		END;
-		WHILE real * 2 <= DOUBLE_MANTISSA DO
-			real := real * 2; DEC (exponent)
-		END;
-		
-		DEC (real, TWO_POWER_52);
-		INC (real, (exponent + 52) * TWO_POWER_52);
-		
-		Adjust_scale (real, scale)
-	END;
-	typeOfVal := Base.real_type
-END Finish_real_number;
-	
-PROCEDURE Get_fraction
-(real : LONGINT; scale : INTEGER; real_overflow : BOOLEAN);
-	CONST LIMIT = 1000000000000000000;
-	VAR fraction, k : LONGINT;
-		exponent : INTEGER;
-		real_underflow : BOOLEAN;
-BEGIN
-	fraction := 0; real_underflow := FALSE;
-	IF real = 0 THEN
-		WHILE ch = '0' DO Read_char;
-			IF scale < MIN_SCALE THEN real_underflow := TRUE
-			ELSE DEC (scale)
-			END
+	IF ch = 'H' THEN Read_char; typeOfVal := Base.int_type
+	ELSIF ch = 'X' THEN Read_char; typeOfVal := Base.char_type;
+		IF (val > Base.MAX_CHAR) OR (val < 0) THEN
+			Mark (errLargeChar); val := val MOD (Base.MAX_CHAR + 1)
 		END
-	END;
-	k := LIMIT DIV 10;
-	WHILE (ch >= '0') & (ch <= '9') DO
-		INC (fraction, (ORD(ch) - ORD('0')) * k);
-		k := k DIV 10;
-		Read_char
-	END;
-	
-	IF real_underflow THEN val := 0
-	ELSE
-		exponent := 1023;
-		IF scale <= 0 THEN
-			WHILE (fraction > 0) & (real <= MAX_MANTISSA) DO
-				fraction := fraction * 2;
-				IF fraction >= LIMIT THEN
-					fraction := fraction - LIMIT;
-					real := real * 2 + 1;
-				ELSE real := real * 2
-				END;
-				DEC (exponent);
-			END;
-			fraction := fraction * 2;
-			IF fraction < LIMIT THEN (* Do nothing *)
-			ELSIF ODD(real) OR (fraction > LIMIT) THEN INC (real)
-			END
-		END;
-		Finish_real_number (real, scale, exponent, real_overflow)
+	ELSE Mark ('Hexadecimal number without suffix')
 	END
-END Get_fraction;
-	
-PROCEDURE Get_number2*;
-	VAR decimal_int, hex_int, real, limit, old_filepos : LONGINT;
-		x, scale : INTEGER;
-		is_decimal, decimal_overflow, hex_overflow, real_overflow : BOOLEAN;
-BEGIN
-	decimal_int := 0; hex_int := 0; real := 0; scale := 0;
-	decimal_overflow := FALSE; hex_overflow := FALSE; real_overflow := FALSE;
-	WHILE ch = '0' DO Read_char END;
+END Hex;
+
+PROCEDURE DecimalInt;
+	VAR i, x : INTEGER;
+BEGIN val := 0; i := 0;
+	WHILE i < numLen - 1 DO val := val * 10 + numArray [i]; INC (i) END;
+	x := numArray [i]; typeOfVal := Base.int_type;
+	IF (numLen # LEN (numArray)) OR (val <= (MAX_INT - x) DIV 10) THEN
+		val := val * 10 + x
+	ELSE overflow := TRUE
+	END; IF overflow THEN Mark (errLargeNumber) END
+END DecimalInt;
+
+PROCEDURE Number;
+BEGIN numLen := 0; overflow := FALSE;
 	WHILE (ch >= '0') & (ch <= '9') DO
-		x := ORD (ch) - ORD ('0');
-		IF ~ decimal_overflow THEN
-			IF decimal_int <= MAX_INT DIV 10 THEN
-				decimal_int := decimal_int * 10;
-				IF decimal_int <= MAX_INT - x THEN INC (decimal_int, x)
-				ELSE decimal_overflow := TRUE
-				END
-			ELSE decimal_overflow := TRUE
-			END
-		END;
-		IF ~ hex_overflow THEN
-			IF hex_int <= MAX_INT DIV 16 THEN
-				hex_int := hex_int * 16;
-				IF hex_int <= MAX_INT - x THEN INC (hex_int, x)
-				ELSE hex_overflow := TRUE
-				END
-			ELSE hex_overflow := TRUE
-			END
-		END;
-		IF ~ real_overflow THEN
-			IF real > MAX_MANTISSA THEN
-				IF scale = 0 THEN
-					IF (x > 5) OR (x = 5) & ODD (real) THEN INC (real) END
-				END;
-				IF scale < MAX_SCALE THEN INC (scale)
-				ELSE real_overflow := TRUE
-				END
-			ELSE real := real * 10 + x
-			END
-		END;
-		Read_char
+		IF numLen < LEN (numArray) THEN
+			numArray [numLen] := ORD (ch) - ORD ('0'); INC (numLen)
+		ELSE overflow := TRUE
+		END; Read_char
+	END
+END Number;
+
+PROCEDURE Ten (e : LONGINT) : REAL;
+	VAR x, t : REAL;
+BEGIN x := 1.0; t := 10.0;
+    WHILE e > 0 DO
+		IF ODD(e) THEN x := t * x END;
+		t := t * t; e := e DIV 2
 	END;
-	
-	is_decimal := FALSE;
-	IF ch = 'H' THEN
-		val := hex_int; typeOfVal := Base.int_type; Read_char;
-		IF ~ hex_overflow THEN (* Ok *) ELSE Mark (errLargeNumber) END
-	ELSIF ch = 'X' THEN
-		val := hex_int; typeOfVal := Base.char_type; Read_char;
-		IF ~ hex_overflow & (val <= Base.MAX_CHAR) THEN (* Ok *)
-		ELSE Mark (errLargeChar)
-		END
-	ELSIF (ch >= 'A') & (ch <= 'F') THEN Get_hex_number (hex_int, hex_overflow)
-	ELSIF ch = '.' THEN
+	RETURN x
+END Ten;
+
+PROCEDURE Get_number;
+	CONST maxExp = 1023; minExp = -1022;
+	VAR	d, f : ARRAY 19 OF INTEGER; e, old_filepos : LONGINT;
+		real : REAL; sreal : SHORTREAL; k : INTEGER; negE : BOOLEAN;
+BEGIN Number;
+	IF (ch >= 'A') & (ch <= 'F') THEN
+		REPEAT
+			IF numLen < LEN (numArray) THEN
+				numArray [numLen] := ORD (ch) - ORD ('0'); INC (numLen)
+			END; Read_char
+		UNTIL (ch < '0') OR (ch > 'F') OR (ch > '9') & (ch < 'A'); Hex
+	ELSIF ch = '.' THEN DecimalInt;
 		old_filepos := Sys.FilePos (srcfile); Read_char;
-		IF ch # '.' THEN Get_fraction (real, scale, real_overflow)
-		ELSE Sys.Seek (srcfile, old_filepos); is_decimal := TRUE
+		IF ch # '.' THEN real := val; e := 0;
+			WHILE (ch >= '0') & (ch <= '9') DO
+				real := real * 10.0 + (ORD (ch) - ORD ('0'));
+				DEC (e); Read_char
+			END;
+			IF (ch = 'E') OR (ch = 'D') THEN Read_char;
+				IF ch = '-' THEN negE := TRUE; Read_char
+				ELSE negE := FALSE; IF ch = '+' THEN Read_char END
+				END; Number; DecimalInt;
+				IF negE THEN e := e - val ELSE e := e + val END;
+			END;
+			IF e < 0 THEN
+				IF e >= minExp THEN real := real / Ten(-e) ELSE real := 0.0 END
+			ELSIF e > 0 THEN
+				IF e <= maxExp THEN real := Ten(e) * real
+				ELSE real := 0.0; Mark (errLargeNumber)
+				END
+			END; sreal := SHORT (real); SYSTEM.GET (SYSTEM.ADR (sreal), k);
+			typeOfVal := Base.real_type; val := k
+		ELSE Sys.Seek (srcfile, old_filepos)
 		END
-	ELSE is_decimal := TRUE	
-	END;
-	
-	IF is_decimal THEN
-		val := decimal_int; typeOfVal := Base.int_type;
-		IF ~ decimal_overflow THEN (* Ok *) ELSE Mark (errLargeNumber) END
+	ELSIF (ch = 'H') OR (ch = 'X') THEN Hex
+	ELSE DecimalInt
 	END
-END Get_number2;
+END Get_number;
 	
 PROCEDURE Get_string;
 	CONST err_toolong = 'String length is too long (compiler limit)';
@@ -426,21 +317,21 @@ BEGIN
 		CASE ch OF
 			'_', 'A'..'Z', 'a'..'z': Get_word (sym) |
 			
-			'0'..'9': sym := number; Get_number2;
-			IF typeOfVal = Base.char_type THEN
-				sym := string; str[0] := CHR (val MOD Base.MAX_CHAR);
-				str[1] := 0X
-			END |
+			'0'..'9': Get_number;
+				IF typeOfVal # Base.char_type THEN sym := number
+				ELSE sym := string; str [0] := CHR (val); str [1] := 0X
+				END
+			|
 			
 			"'", '"': sym := string; Get_string |
-			'*': sym := times; Read_char; |
-			'/': sym := slash; Read_char; |
-			'+': sym := plus; Read_char; |
-			'-': sym := minus; Read_char; |
-			'=': sym := equal; Read_char; |
-			'#': sym := not_equal; Read_char; |
-			'&': sym := and; Read_char; |
-			'~': sym := not; Read_char; |
+			'*': sym := times; Read_char |
+			'/': sym := slash; Read_char |
+			'+': sym := plus; Read_char |
+			'-': sym := minus; Read_char |
+			'=': sym := equal; Read_char |
+			'#': sym := not_equal; Read_char |
+			'&': sym := and; Read_char |
+			'~': sym := not; Read_char |
 			
 			'<':
 			Read_char;
@@ -489,17 +380,4 @@ BEGIN
 	END
 END Get;
 
-PROCEDURE Init_module;
-	VAR i : INTEGER;
-BEGIN
-	Sys.Int_to_string (Base.MAX_INT, max_int);
-	max_int_len := Base.Str_len (max_int);
-	power_of_10[0] := 1.0;
-	FOR i := 1 TO LEN(power_of_10) - 1 DO
-		power_of_10[i] := power_of_10[i - 1] * 10.0
-	END
-END Init_module;
-	
-BEGIN
-	Init_module
 END Scanner.
