@@ -657,7 +657,7 @@ BEGIN
 	Enter (Base.class_type, 0, 'SET', Base.set_type);
 	Enter (Base.class_type, 0, 'BYTE', Base.byte_type);
 	Enter (Base.class_type, 0, 'CHAR', Base.char_type);
-(*	Enter (Base.class_type, 0, 'REAL', Base.real_type); *)
+	Enter (Base.class_type, 0, 'REAL', Base.real_type);
 (*	Enter (Base.class_type, 0, 'LONGREAL', Base.longreal_type); *)
 	
 	Enter (Base.class_sproc, 0, 'INC', NIL);

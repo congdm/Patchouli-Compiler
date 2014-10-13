@@ -26,7 +26,7 @@ CONST
 	
 	classes_Variable* = {class_var, class_ref, mode_regI};
 	classes_Value* = classes_Variable
-		+ {class_const, mode_reg, mode_cond, class_proc};
+		+ {class_const, mode_reg, mode_cond, class_proc, mode_xreg};
 	cls_Variable* = classes_Variable; cls_HasValue* = classes_Value;
 
 	(* Type form *)
