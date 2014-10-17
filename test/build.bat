@@ -8,3 +8,4 @@
 ..\source\AyaCompile Test4.mod
 ..\source\AyaCompile Test5.mod
 ..\source\AyaCompile Test6.mod
+..\source\AyaCompile Test7.mod

@@ -53,6 +53,7 @@ CONST
 	SHR1 = 5D0H; SHRcl = 5D2H; SAR1 = 7D0H; SARcl = 7D2H;
 	NOT = 2F6H; NEG = 3F6H; IDIVa = 7F7H; _INC = 0FEH; _DEC = 1FEH;
 	CALL = 2FFH; JMP = 4FFH; PUSH = 6FFH;
+	LDMXCSR = 2AE0FH; STMXCSR = 3AE0FH;
 	
 	(* Opcodes used with EmitRmImm *)
 	ADDi = 80H; ORi = 180H; ANDi = 480H; SUBi = 580H; XORi = 680H; CMPi = 780H;
@@ -69,7 +70,13 @@ CONST
 	(* Opcodes used with EmitXmmRm *)
 	VMOVDQ = 6E0F66H; VMOVDQd = 7E0F66H; VMOVSS = 100FF3H; VMOVSSd = 110FF3H;
 	VADDSS = 580FF3H; VMULSS = 590FF3H; VSUBSS = 5C0FF3H; VDIVSS = 5E0FF3H;
+	VADDPS = 580F00H; VMULPS = 590F00H; VSUBPS = 5C0F00H; VDIVPS = 5E0F00H;
+	VANDPS = 540F00H; VANDNPS = 550F00H; VORPS = 560F00H; VXORPS = 570F00H;
 	VMOVAPS = 280F00H; VMOVAPSd = 290F00H;
+	VCOMISS = 2F0F00H;
+	
+	(* Opcodes used with EmitSeeRegRm *)
+	VCVTSS2SI = 2D0FF3H; VCVTSI2SS = 2A0FF3H;
 	
 TYPE
 	InstructionInfo = RECORD
@@ -85,7 +92,7 @@ TYPE
 	
 	ProcInfo* = RECORD
 		oldi, oldrs, oldxreg : INTEGER; oldcurRegs, oldcurXregs : SET;
-		parblksize*, memstack, paradr : INTEGER;
+		parblksize*, memstack, paradr, soff : INTEGER;
 		rtype* : Base.Type
 	END;
 	
@@ -249,14 +256,14 @@ END EmitRegRm;
 
 PROCEDURE EmitRm (op, rsize : INTEGER);
 	CONST w_bit = 1;
-	VAR op3bits : INTEGER;
+	VAR op3bits, org : INTEGER;
 BEGIN
 	Emit_16bit_prefix (rsize); Emit_REX_prefix (0, rsize);
-	Handle_multibytes_opcode (op);
+	org := op; Handle_multibytes_opcode (op);
 	
 	op3bits := op DIV 256; op := op MOD 256;
-	IF (rsize > 1) & (BITS(op) * BITS(w_bit) = {}) THEN
-		op := op + w_bit
+	IF (rsize > 1) & (BITS(op) * BITS(w_bit) = {})
+		& (org # LDMXCSR) & (org # STMXCSR) THEN op := op + w_bit
 	END;
 	Put_byte (op); Emit_ModRM (op3bits);
 	
@@ -276,7 +283,7 @@ BEGIN
 		ELSIF (imm >= MIN_INT8) & (imm <= MAX_INT8) & (op = 80H) THEN
 			op := op + s_bit; rsize := 1
 		END;
-		IF BITS(op) * BITS(w_bit) = {} THEN op := op + w_bit END
+		IF (BITS(op) * BITS(w_bit) = {}) & (op # 0BAH) THEN op := op + w_bit END
 	END;
 	Put_byte (op); Emit_ModRM (op3bits);
 	
@@ -296,8 +303,8 @@ END EmitBare;
 PROCEDURE EmitXmmRm (op, xreg, rsize : INTEGER);
 	VAR prefix : INTEGER;
 BEGIN
-	prefix := op MOD 256;
-	IF prefix # 0 THEN Put_byte (prefix); op := op DIV 256 END;
+	prefix := op MOD 256; op := op DIV 256;
+	IF prefix # 0 THEN Put_byte (prefix) END;
 	Emit_REX_prefix (xreg, rsize); Handle_multibytes_opcode (op);
 	Put_byte (op MOD 256); Emit_ModRM (xreg); Next_inst
 END EmitXmmRm;
@@ -577,13 +584,25 @@ PROCEDURE ccCodeOf (op : INTEGER) : INTEGER;
 BEGIN
 	IF op = Scanner.equal THEN op := ccZ
 	ELSIF op = Scanner.not_equal THEN op := ccNZ
+	ELSIF op = Scanner.less THEN op := ccB
+	ELSIF op = Scanner.greater THEN op := ccA
+	ELSIF op = Scanner.less_equal THEN op := ccBE
+	ELSE op := ccAE
+	END;
+	RETURN op
+END ccCodeOf;
+
+PROCEDURE ccCodeOf_int (op : INTEGER) : INTEGER;
+BEGIN
+	IF op = Scanner.equal THEN op := ccZ
+	ELSIF op = Scanner.not_equal THEN op := ccNZ
 	ELSIF op = Scanner.less THEN op := ccL
 	ELSIF op = Scanner.greater THEN op := ccG
 	ELSIF op = Scanner.less_equal THEN op := ccLE
 	ELSE op := ccGE
 	END;
 	RETURN op
-END ccCodeOf;
+END ccCodeOf_int;
 
 PROCEDURE Set_cond (VAR x : Base.Item; n : INTEGER);
 BEGIN
@@ -724,24 +743,28 @@ BEGIN
 	END
 END Load_to_reg;
 
+PROCEDURE fpload (VAR x : Base.Item);
+	VAR r : INTEGER;
+BEGIN
+	IF x.mode # mode_xreg THEN
+		IF x.mode = Base.class_ref THEN Ref_to_regI (x) END; Alloc_xreg;
+		IF x.mode # mode_imm THEN
+			SetRmOperand (x); EmitXmmRm (VMOVSS, xmm_stack - 1, 4);
+			IF x.mode = mode_regI THEN Free_reg END
+		ELSIF x.a = 0 THEN SetRmOperand_reg (xmm_stack - 1);
+			EmitXmmRm (VXORPS, xmm_stack - 1, 4)
+		ELSE r := Alloc_reg(); Load_to_reg (r, 4, x);
+			SetRmOperand_reg (r); EmitXmmRm (VMOVDQ, xmm_stack - 1, 4);
+			Free_reg
+		END;
+		x.r := xmm_stack - 1; x.mode := mode_xreg
+	END
+END fpload;
+
 (* Typed (safe) load and modify Item *)
 PROCEDURE load* (VAR x : Base.Item);
 	VAR rsize, L : INTEGER;
-	
-	PROCEDURE fpload (VAR x : Base.Item);
-	BEGIN
-		IF x.mode = mode_imm THEN load (x)
-		ELSIF x.mode = Base.class_ref THEN Ref_to_regI (x)
-		END;
-		IF x.mode # mode_xreg THEN
-			Alloc_xreg; SetRmOperand (x);
-			EmitXmmRm (VMOVDQ, xmm_stack - 1, 4);
-			IF x.mode IN {mode_regI, mode_reg} THEN Free_reg END;
-			x.r := xmm_stack - 1; x.mode := mode_xreg
-		END
-	END fpload;
-	
-BEGIN (* load *)
+BEGIN
 	ASSERT (x.mode IN Base.classes_Value); rsize := x.type.size;
 	ASSERT ((rsize > 0) & (rsize <= 8) & (rsize IN {1, 2, 4, 8}));
 	IF x.type # Base.real_type THEN
@@ -775,7 +798,7 @@ END load;
 PROCEDURE load2* (VAR x, y : Base.Item);
 	VAR r, rsize : INTEGER;
 BEGIN
-	y := x;
+	ASSERT (x.type # Base.real_type); y := x;
 	IF y.mode IN mode_mem THEN
 		IF y.mode # mode_regI THEN load (y)
 		ELSE y.r := Alloc_reg(); rsize := y.type.size;
@@ -826,7 +849,7 @@ BEGIN
 		ELSE EmitXmmRm (VMOVSSd, y.r, x.type.size)
 		END;
 		IF x.mode = mode_regI THEN Free_reg END;
-		Free_reg
+		IF y.mode = mode_reg THEN Free_reg ELSE Free_xreg END
 	ELSIF x.type.form IN {Base.type_array, Base.type_record} THEN
 		count := x.type.size;
 		IF (y.type.form = Base.type_string) & (y.type.size < count) THEN
@@ -964,9 +987,11 @@ BEGIN
 				x.type := Base.int_type
 			ELSIF x.type = Base.set_type THEN EmitR (NOT, x.r, 8)
 			ELSIF x.type = Base.real_type THEN
-				r := Alloc_reg(); SetRmOperand_reg (r);
-				EmitXmmRm (VMOVDQd, x.r, 4); EmitRI (BTCi, r, 4, 31);
-				SetRmOperand_reg (r); EmitXmmRm (VMOVDQ, x.r, 4); Free_reg
+				Alloc_xreg; SetRmOperand_reg (xmm_stack - 1);
+				EmitXmmRm (VXORPS, xmm_stack - 1, 4);
+				SetRmOperand_reg (x.r); EmitXmmRm (VSUBSS, xmm_stack - 1, 4);
+				SetRmOperand_reg (xmm_stack - 1); EmitXmmRm (VMOVSS, x.r, 4);
+				Free_xreg
 			END
 		END
 	ELSIF op = Scanner.and THEN
@@ -1396,6 +1421,20 @@ BEGIN
 	ProcState.usedRegs := ProcState.usedRegs + {reg_DI, reg_SI}
 END SProc_COPY;
 
+PROCEDURE SProc_PACK (VAR x, y : Base.Item);
+	VAR z : Base.Item;
+BEGIN x.type := Base.dword_type; load2 (x, z); load (y);
+	EmitRI (SHLi, y.r, 4, 23); EmitRR (ADDd, z.r, 4, y.r);
+	Free_reg; Store (x, z)
+END SProc_PACK;
+
+PROCEDURE SProc_UNPK (VAR x, y : Base.Item);
+	VAR z, e : Base.Item; exp : INTEGER;
+BEGIN x.type := Base.dword_type; load2 (x, z);
+	e.r := Alloc_reg(); e.mode := mode_reg; e.type := Base.dword_type;
+	EmitRR (MOVd, e.r, 4, z.r); EmitRI (SARi, e.r, 4, 23)
+END SProc_UNPK;
+
 PROCEDURE SFunc_ADR* (VAR x : Base.Item);
 BEGIN
 	Load_adr (x)
@@ -1405,7 +1444,8 @@ PROCEDURE SFunc_ODD* (VAR x : Base.Item);
 BEGIN
 	IF x.mode = mode_imm THEN x.a := x.a MOD 2
 	ELSE EmitRI (ANDi, x.r, 8, 1)
-	END
+	END;
+	Set_cond (x, ccNZ)
 END SFunc_ODD;
 
 PROCEDURE SFunc_LEN* (VAR x : Base.Item);
@@ -1486,6 +1526,32 @@ BEGIN
 	END
 END SFunc_ABS;
 
+PROCEDURE SFunc_FLOOR* (VAR x : Base.Item);
+	VAR r : INTEGER;
+BEGIN
+	ASSERT (x.mode IN Base.classes_Value);
+	ASSERT (x.type = Base.real_type);
+	EmitRI (SUBi, reg_SP, 8, 8);
+	SetRmOperand_regI (reg_SP, 0); EmitRm (STMXCSR, 4);
+	SetRmOperand_regI (reg_SP, 0); EmitRmImm (BTSi, 4, 13);
+	SetRmOperand_regI (reg_SP, 0); EmitRm (LDMXCSR, 4);
+	load (x); SetRmOperand_reg (x.r); r := Alloc_reg();
+	EmitXmmRm (VCVTSS2SI, r, 8); Free_xreg; x.type := Base.int_type;
+	x.mode := mode_reg; x.r := r;
+	SetRmOperand_regI (reg_SP, 0); EmitRmImm (BTRi, 4, 13);
+	SetRmOperand_regI (reg_SP, 0); EmitRm (LDMXCSR, 4);
+	EmitRI (ADDi, reg_SP, 8, 8)
+END SFunc_FLOOR;
+
+PROCEDURE SFunc_FLT* (VAR x : Base.Item);
+BEGIN
+	ASSERT (x.mode IN Base.classes_Value);
+	ASSERT (x.type.form = Base.type_integer);
+	load (x); Alloc_xreg; SetRmOperand_reg (x.r);
+	EmitXmmRm (VCVTSI2SS, xmm_stack - 1, 8);
+	Free_reg; x.mode := mode_xreg; x.r := xmm_stack - 1
+END SFunc_FLT;
+
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 (* Procedure calling *)
@@ -1559,10 +1625,6 @@ END Restore_reg_stacks;
 	
 PROCEDURE Prepare_to_call* (VAR x : Base.Item; VAR pinfo : ProcInfo);
 BEGIN
-	IF x.mode = Base.class_proc THEN (* Do nothing *)
-	ELSE load (x); PushR (x.r); Free_reg
-	END;
-	
 	Save_reg_stacks (pinfo);
 	
 	IF pinfo.parblksize < 32 THEN pinfo.parblksize := 32 END;
@@ -1572,22 +1634,24 @@ BEGIN
 	END;
 	EmitRI (SUBi, reg_SP, 8, pinfo.parblksize);
 	
+	IF x.mode = Base.class_proc THEN pinfo.soff := 0
+	ELSE load (x); PushR (x.r); Free_reg; pinfo.soff := 8
+	END;
 	pinfo.paradr := 0
 END Prepare_to_call;
 	
 PROCEDURE Call* (VAR x : Base.Item; VAR pinfo : ProcInfo);
-	VAR n : INTEGER;
 BEGIN
-	IF x.mode = Base.class_proc THEN n := 0;
+	IF x.mode = Base.class_proc THEN
 		IF x.lev >= 0 THEN CallNear (SHORT(x.a));
 		ELSE SetRmOperand (x); EmitRm (CALL, 4)
 		END
-	ELSE SetRmOperand_regI (reg_SP, pinfo.parblksize); EmitRm (CALL, 4); n := 8
+	ELSE PopR (reg_A); SetRmOperand_reg (reg_A); EmitRm (CALL, 4)
 	END;
 	
 	(* Release the stack area used for parameters and proc address *)
-	EmitRI (ADDi, reg_SP, 8, pinfo.parblksize + n);
-	DEC (pinfo.memstack, pinfo.parblksize + n);
+	EmitRI (ADDi, reg_SP, 8, pinfo.parblksize);
+	DEC (pinfo.memstack, pinfo.parblksize);
 	
 	Restore_reg_stacks (pinfo);
 	
@@ -1608,20 +1672,16 @@ BEGIN
 		END
 	END
 END Call;
-
-PROCEDURE Push_param (VAR x : Base.Item; stackadr : INTEGER);
-BEGIN
-	SetRmOperand_regI (reg_SP, stackadr);
-	IF x.mode = Base.mode_reg THEN EmitRegRm (MOV, x.r, 8); Free_reg
-	ELSE EmitXmmRm (VMOVDQd, x.r, 8); Free_xreg
-	END
-END Push_param;
 	
 PROCEDURE Value_param* (VAR x : Base.Item; VAR pinfo : ProcInfo);
 	VAR i : INTEGER;
 BEGIN
 	i := pinfo.paradr DIV 8 + 1; load (x);
-	IF pinfo.paradr >= 32 THEN Push_param (x, pinfo.paradr)
+	IF pinfo.paradr >= 32 THEN
+		SetRmOperand_regI (reg_SP, pinfo.soff + pinfo.paradr);
+		IF x.mode = Base.mode_reg THEN EmitRegRm (MOV, x.r, 8); Free_reg
+		ELSE EmitXmmRm (VMOVDQd, x.r, 8); Free_xreg
+		END
 	ELSIF reg_stacks [crs].i # i THEN reg_stacks [crs].i := i
 	ELSIF xmm_stack # i THEN xmm_stack := i
 	END; INC (pinfo.paradr, 8)
@@ -1631,7 +1691,9 @@ PROCEDURE Ref_param* (VAR x : Base.Item; VAR pinfo : ProcInfo);
 	VAR i : INTEGER;
 BEGIN
 	i := pinfo.paradr DIV 8 + 1; Load_adr (x);
-	IF pinfo.paradr >= 32 THEN Push_param (x, pinfo.paradr)
+	IF pinfo.paradr >= 32 THEN
+		SetRmOperand_regI (reg_SP, pinfo.soff + pinfo.paradr);
+		EmitRegRm (MOV, x.r, 8); Free_reg
 	ELSIF xmm_stack # i THEN xmm_stack := i
 	END; INC (pinfo.paradr, 8)
 END Ref_param;
@@ -1750,7 +1812,7 @@ END Fixup;
 (* Relation expression *)
 
 PROCEDURE Scalar_comparison (op : INTEGER; VAR x, y : Base.Item);
-	VAR rsize : INTEGER;
+	VAR rsize : INTEGER; cond : INTEGER;
 		
 	PROCEDURE Invert_op (VAR op : INTEGER);
 	BEGIN
@@ -1776,7 +1838,10 @@ BEGIN
 		ELSE load (x); EmitRR (CMPd, x.r, rsize, y.r); Free_reg
 		END
 	END;
-	Free_reg
+	IF x.type.form = Base.type_integer THEN cond := ccCodeOf_int (op)
+	ELSE cond := ccCodeOf (op)
+	END;
+	Set_cond (x, cond); Free_reg
 END Scalar_comparison;
 	
 PROCEDURE String_comparison (op : INTEGER; VAR x, y : Base.Item);
@@ -1820,26 +1885,57 @@ BEGIN
 		Free_reg; Free_reg
 	END
 END String_comparison;
+
+PROCEDURE Real_comparison (op : INTEGER; VAR x, y : Base.Item);
+BEGIN
+	ASSERT (x.type = Base.real_type);
+	ASSERT (y.type = Base.real_type);
+	load (x); load (y); SetRmOperand_reg (y.r);
+	EmitXmmRm (VCOMISS, x.r, 4); Set_cond (x, ccCodeOf(op));
+	Free_xreg; Free_xreg
+END Real_comparison;
 	
 PROCEDURE Comparison* (op : INTEGER; VAR x, y : Base.Item);
+	VAR r1, r2 : SHORTREAL;
 BEGIN
 	IF (x.mode = mode_imm) & (y.mode = mode_imm) THEN
-		IF op = Scanner.equal THEN
-			IF x.a = y.a THEN x.a := 1 ELSE x.a := 0 END
-		ELSIF op = Scanner.not_equal THEN
-			IF x.a # y.a THEN x.a := 1 ELSE x.a := 0 END
-		ELSIF op = Scanner.greater THEN
-			IF x.a > y.a THEN x.a := 1 ELSE x.a := 0 END
-		ELSIF op = Scanner.greater_equal THEN
-			IF x.a >= y.a THEN x.a := 1 ELSE x.a := 0 END
-		ELSIF op = Scanner.less THEN
-			IF x.a < y.a THEN x.a := 1 ELSE x.a := 0 END
-		ELSIF op = Scanner.less_equal THEN
-			IF x.a <= y.a THEN x.a := 1 ELSE x.a := 0 END
+		IF x.type.form # Base.type_real THEN
+			IF op = Scanner.equal THEN
+				IF x.a = y.a THEN x.a := 1 ELSE x.a := 0 END
+			ELSIF op = Scanner.not_equal THEN
+				IF x.a # y.a THEN x.a := 1 ELSE x.a := 0 END
+			ELSIF op = Scanner.greater THEN
+				IF x.a > y.a THEN x.a := 1 ELSE x.a := 0 END
+			ELSIF op = Scanner.greater_equal THEN
+				IF x.a >= y.a THEN x.a := 1 ELSE x.a := 0 END
+			ELSIF op = Scanner.less THEN
+				IF x.a < y.a THEN x.a := 1 ELSE x.a := 0 END
+			ELSIF op = Scanner.less_equal THEN
+				IF x.a <= y.a THEN x.a := 1 ELSE x.a := 0 END
+			END
+		ELSIF x.type = Base.real_type THEN
+			r1 := SHORT (0.0); SYSTEM.GET (SYSTEM.ADR (x.a), r1);
+			r2 := SHORT (0.0); SYSTEM.GET (SYSTEM.ADR (y.a), r2);
+			IF op = Scanner.equal THEN
+				IF r1 = r2 THEN x.a := 1 ELSE x.a := 0 END
+			ELSIF op = Scanner.not_equal THEN
+				IF r1 # r2 THEN x.a := 1 ELSE x.a := 0 END
+			ELSIF op = Scanner.greater THEN
+				IF r1 > r2 THEN x.a := 1 ELSE x.a := 0 END
+			ELSIF op = Scanner.greater_equal THEN
+				IF r1 >= r2 THEN x.a := 1 ELSE x.a := 0 END
+			ELSIF op = Scanner.less THEN
+				IF r1 < r2 THEN x.a := 1 ELSE x.a := 0 END
+			ELSIF op = Scanner.less_equal THEN
+				IF r1 <= r2 THEN x.a := 1 ELSE x.a := 0 END
+			END
 		END
-	ELSIF (x.mode = Base.class_proc) OR (x.type.form IN Base.types_Scalar) THEN
-		Scalar_comparison (op, x, y); Set_cond (x, ccCodeOf(op))
-	ELSE String_comparison (op, x, y); Set_cond (x, ccCodeOf(op))
+	ELSIF x.type.form IN Base.types_Scalar - {Base.type_real} THEN
+		Scalar_comparison (op, x, y)
+	ELSIF x.type.form = Base.type_real THEN
+		Real_comparison (op, x, y)
+	ELSE
+		String_comparison (op, x, y)
 	END;
 	x.type := Base.bool_type
 END Comparison;
@@ -2039,7 +2135,7 @@ END Placeholder_proc;
 PROCEDURE Enter* (proc : Base.Object; locblksize : INTEGER);
 	VAR k : INTEGER;
 BEGIN
-	Reset_code_buffer; Reset_reg_stack; curRegs := {};
+	Reset_code_buffer; Reset_reg_stack; curRegs := {}; curXregs := {};
 	ProcState.usedRegs := {}; ProcState.memstack := 0; ProcState.adr := ip;
 	
 	IF proc # NIL THEN

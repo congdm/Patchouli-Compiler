@@ -677,8 +677,8 @@ BEGIN
 	Enter (Base.class_sproc, 203, 'LSL', Base.int_type);
 	Enter (Base.class_sproc, 204, 'ASR', Base.int_type);
 	Enter (Base.class_sproc, 205, 'ROR', Base.int_type);
-(*	Enter (Base.class_sproc, 206, 'FLOOR', Base.int_type); *)
-(*	Enter (Base.class_sproc, 207, 'FLT', Base.int_type); *)
+	Enter (Base.class_sproc, 206, 'FLOOR', Base.int_type);
+	Enter (Base.class_sproc, 207, 'FLT', Base.real_type);
 	Enter (Base.class_sproc, 208, 'ORD', Base.int_type);
 	Enter (Base.class_sproc, 209, 'CHR', Base.char_type)
 END Init;

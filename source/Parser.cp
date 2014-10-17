@@ -53,6 +53,14 @@ BEGIN
 	END
 END Check_int;
 
+PROCEDURE Check_real (VAR x : Base.Item);
+BEGIN
+	Check_val (x);
+	IF x.type.form = Base.type_real THEN (* Ok *)
+	ELSE Scanner.Mark ('Not a real value'); x.type := Base.real_type
+	END
+END Check_real;
+
 PROCEDURE Check_bool (VAR x : Base.Item);
 BEGIN
 	Check_val (x);
@@ -1053,6 +1061,16 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 		expression (y); Check_int (y);
 		Generator.SFunc_SHIFT (shf, x, y)
 	END SFunc_SHIFT;
+	
+	PROCEDURE SFunc_FLOOR (VAR x : Base.Item);
+	BEGIN
+		expression (x); Check_real (x); Generator.SFunc_FLOOR (x)
+	END SFunc_FLOOR;
+	
+	PROCEDURE SFunc_FLT (VAR x : Base.Item);
+	BEGIN
+		expression (x); Check_int (x); Generator.SFunc_FLT (x)
+	END SFunc_FLT;
 		
 	PROCEDURE SFunc_ORD (VAR x : Base.Item);
 		CONST valid_types = {Base.type_char, Base.type_set, Base.type_boolean};
@@ -1123,8 +1141,8 @@ BEGIN (* StandFunc *)
 			201: SFunc_ODD (x) |
 			202: SFunc_LEN (x) |
 			203 .. 205: SFunc_SHIFT (funcno - 203, x) |
-		(*	206: SFunc_FLOOR (x) |
-			207: SFunc_FLT (x) | *)
+			206: SFunc_FLOOR (x) |
+			207: SFunc_FLT (x) |
 			208: SFunc_ORD (x) |
 			209: SFunc_CHR (x) |
 			300: SFunc_ADR (x) |

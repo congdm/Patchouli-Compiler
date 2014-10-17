@@ -63,6 +63,50 @@ BEGIN
 	IntToString (n, str); WriteString (str)
 END WriteInt;
 
+(* Simple but not accurate *)
+PROCEDURE RealToString (x : REAL; VAR str : ARRAY OF CHAR);
+	VAR i, n, exp, exp10, frac, zeroNum : INTEGER;
+		neg : BOOLEAN; ch : ARRAY 2 OF CHAR; str2 : ARRAY 32 OF CHAR;
+BEGIN str[0] := 0X;
+	exp := SYSTEM.VAL (SYSTEM.DWORD, x) DIV 800000H MOD 256 - 127;
+	IF (exp >= -126) & (exp <= 127) THEN
+		neg := x < 0.0; IF neg THEN x := -x; Strings.Append ('-', str) END;
+		exp10 := 0; ch[1] := 0X;
+		IF exp > 0 THEN
+			WHILE x > 10.0 DO x := x / 10.0; INC (exp10) END
+		ELSIF exp < 0 THEN
+			WHILE x < 1.0 DO x := x * 10.0; DEC (exp10) END
+		END;
+		n := FLOOR (x); x := (x - FLT (n)) * 10.0; ch[0] := CHR (ORD ('0') + n);
+		Strings.Append (ch, str); Strings.Append ('.', str);
+		frac := 0; i := 0; zeroNum := 0;
+		WHILE (i < 6) & (x # 0.0) DO
+			INC (i); n := FLOOR (x); x := (x - FLT (n)) * 10.0;
+			IF (n # 0) OR (frac # 0) THEN frac := frac * 10 + n
+			ELSE INC (zeroNum)
+			END
+		END;
+		IF x # 0.0 THEN n := FLOOR (x); x := x - FLT (n);
+			IF (x > 0.5) OR (x = 0.5) & ODD (n) THEN INC (n) END;
+			IF n # 0 THEN frac := frac * 10 + n END
+		END;
+		WHILE (frac MOD 10) = 0 DO frac := frac DIV 10 END;
+		WHILE zeroNum > 0 DO Strings.Append ('0', str); DEC (zeroNum) END;
+		IF frac # 0 THEN IntToString (frac, str2);
+			Strings.Append (str2, str)
+		END;
+		IF exp10 # 0 THEN Strings.Append ('e', str); IntToString (exp10, str2);
+			Strings.Append (str2, str)
+		END
+	END
+END RealToString;
+
+PROCEDURE WriteReal* (r : REAL);
+	VAR str : ARRAY 32 OF CHAR;
+BEGIN
+	RealToString (r, str); WriteString (str)
+END WriteReal;
+
 PROCEDURE Read* (VAR ch : CHAR);
 	VAR nRead : SYSTEM.DWORD; r : Win.Bool;
 BEGIN
