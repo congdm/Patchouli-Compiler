@@ -507,14 +507,15 @@ BEGIN
 	x.type.size := strlen * Base.Char_size;
 	x.type.base := Base.char_type;
 	x.type.charVal := ORD(str[0]);
+	x.type.alignment := Base.Char_size;
 	
 	Alloc_static_data (strlen * Base.Char_size, Base.Char_size);
 	x.type.tdAdr := -staticsize; x.a := -staticsize;
 	
 	i := Base.Alloc_string (str, strlen);
-	IF i >= 0 THEN x.type.ref := i;
+	IF i >= 0 THEN x.type.strPos := i;
 	ELSE Scanner.Mark ('Compiler buffer for string is overflowed!');
-		x.type.ref := 0
+		x.type.strPos := 0
 	END;
 	
 	IF staticlist # NIL THEN x.type.next := staticlist END;
@@ -1849,6 +1850,7 @@ END Scalar_comparison;
 PROCEDURE String_comparison (op : INTEGER; VAR x, y : Base.Item);
 	VAR xform, yform, xsize, ysize, i : INTEGER;
 		charsize, L, r, rc : INTEGER; xstr, ystr : Base.LongString;
+		hasToGenerateCode : BOOLEAN;
 BEGIN
 	ASSERT (x.type.len > 0); ASSERT (y.type.len > 0);
 	(* Open array case not implemented yet *)
@@ -1856,19 +1858,24 @@ BEGIN
 	xform := x.type.form; yform := y.type.form;
 	xsize := x.type.size; ysize := y.type.size;
 	charsize := Base.char_type.size;
-
+	hasToGenerateCode := FALSE;
+	
 	IF {xform, yform} = {Base.type_string} THEN
 		IF xsize # ysize THEN x.a := 0
-		ELSE
-			Base.Get_string (xstr, x.type.ref);
-			Base.Get_string (ystr, y.type.ref);
+		ELSIF (x.lev # -2) & (y.lev # -2) THEN
+			(* x and y are not imported strings *)
+			Base.Get_string (xstr, x.type.strPos);
+			Base.Get_string (ystr, y.type.strPos);
 			IF xstr = ystr THEN x.a := 1 ELSE x.a := 0 END
-		END;
-		x.mode := mode_imm;
+		ELSE hasToGenerateCode := TRUE
+		END
 	ELSIF (xform = Base.type_string) & (xsize - charsize > ysize)
-			OR (yform = Base.type_string) & (ysize - charsize > xsize) THEN
-		x.mode := mode_imm; x.a := 0
-	ELSE
+		OR (yform = Base.type_string) & (ysize - charsize > xsize) THEN
+		x.a := 0
+	ELSE hasToGenerateCode := TRUE
+	END;
+	
+	IF hasToGenerateCode THEN
 		Load_adr (x); Load_adr (y);
 		EmitRR (MOVd, reg_DI, 8, x.r); EmitRR (MOVd, reg_SI, 8, y.r);
 		r := x.r; rc := y.r; IF xsize > ysize THEN xsize := ysize END;
@@ -1885,6 +1892,7 @@ BEGIN
 		Set_cond (x, ccZ);
 		
 		Free_reg; Free_reg
+	ELSE x.mode := mode_imm
 	END
 END String_comparison;
 
@@ -2358,7 +2366,7 @@ BEGIN
 	WHILE elm # NIL DO
 		IF elm.form = Base.type_string THEN
 			Sys.Seek (out, basefadr + elm.tdAdr);
-			Base.Get_string (str, elm.ref); i := 0;
+			Base.Get_string (str, elm.strPos); i := 0;
 			WHILE i < elm.len DO
 				n := ORD (str[i]); Sys.Write_2bytes (out, n); i := i + 1
 			END

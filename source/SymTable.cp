@@ -329,6 +329,12 @@ BEGIN
 		ASSERT (class = Base.class_type);
 		typ.fields := top_scope.next;
 		Close_scope
+	ELSIF form = Base.type_string THEN
+		Base.ReadInt (symfile, typ.len);
+		Base.ReadInt (symfile, typ.charVal);
+		typ.base := Base.char_type;
+		typ.size := typ.len * Base.char_type.size;
+		typ.alignment := Base.char_type.alignment
 	END
 END Import_type;
 
@@ -393,8 +399,6 @@ BEGIN
 			New_obj (obj, name, class);
 			Import_type (obj.type, FALSE, impMod);
 			expno := expno + 1; obj.val2 := expno
-		ELSIF class = Base.class_string THEN
-			(* Implement later *) ASSERT(FALSE)
 		ELSE ASSERT(FALSE)
 		END;
 		Base.ReadInt (symfile, class)
@@ -558,7 +562,8 @@ BEGIN
 		END;
 		Base.WriteInt (symfile, Base.class_type)
 	ELSIF typ.form = Base.type_string THEN
-		Base.WriteInt (symfile, typ.len)
+		Base.WriteInt (symfile, typ.len);
+		Base.WriteInt (symfile, typ.charVal)
 	END
 END Export_type;
 

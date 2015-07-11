@@ -55,7 +55,7 @@ TYPE
 	
 	Type* = POINTER TO RECORD
 		ref*, mod*, tdAdr*, expno* : INTEGER;
-		charVal* : INTEGER;
+		charVal*, strPos* : INTEGER;
 		
 		form* : INTEGER;
 		base* : Type;
