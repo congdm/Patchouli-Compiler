@@ -134,7 +134,7 @@ BEGIN
 		IF {xform, yform} = {Base.type_integer} THEN (* Ok *)
 		ELSIF (xform = Base.type_char) & (yform = Base.type_string)
 		& (y.type.len <= 2) THEN
-			Generator.Make_const (y, Base.char_type, y.b)
+			Generator.Make_const (y, Base.char_type, y.type.charVal)
 		ELSIF (yform = Base.type_string) & (xform = Base.type_array)
 		& (xtype.base = Base.char_type) THEN
 			IF xtype.len >= y.type.len - 1 THEN (* Ok *)
@@ -240,10 +240,10 @@ BEGIN
 		IF {xform, yform} = {Base.type_integer} THEN (* Ok *)
 		ELSIF (xform = Base.type_char)
 		& (yform = Base.type_string) & (y.type.len <= 2) THEN
-			Generator.Make_const (y, Base.char_type, y.b)
+			Generator.Make_const (y, Base.char_type, y.type.charVal)
 		ELSIF (yform = Base.type_char)
 		& (xform = Base.type_string) & (x.type.len <= 2) THEN
-			Generator.Make_const (x, Base.char_type, x.b)
+			Generator.Make_const (x, Base.char_type, x.type.charVal)
 		ELSIF (xform = Base.type_array)
 			& (x.type.base = Base.char_type)
 			& (yform = Base.type_string)
@@ -641,8 +641,7 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 			obj.class := Base.class_var;
 			obj.lev := x.lev;
 			obj.type := x.type;
-			obj.val := x.a;
-			obj.val2 := x.b
+			obj.val := x.a
 		ELSE
 			Scanner.Mark ('Expect a const expression');
 			obj.class := Base.class_const;
@@ -1079,7 +1078,7 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 		expression (x); Check_val (x);
 		IF x.type.form IN valid_types THEN (* Do nothing *)
 		ELSIF (x.type.form = Base.type_string) & (x.type.len <= 2) THEN
-			x.mode := Base.class_const; x.a := x.b
+			x.mode := Base.class_const; x.a := x.type.charVal
 		ELSE Scanner.Mark ('Not a character, set or boolean value');
 			x.type := Base.int_type
 		END;
@@ -1365,11 +1364,11 @@ PROCEDURE expression (VAR x : Base.Item);
 	PROCEDURE Check_for_string_const (VAR x, y : Base.Item);
 	BEGIN
 		IF (x.mode IN classes_Value) & (x.type = Base.char_type)
-				& (y.type # Base.char_type) THEN
-			Generator.Make_const (y, Base.char_type, y.b)
+			& (y.type # Base.char_type) THEN
+			Generator.Make_const (y, Base.char_type, y.type.charVal)
 		ELSIF (y.mode IN classes_Value) & (y.type = Base.char_type)
-				& (x.type # Base.char_type) THEN
-			Generator.Make_const (x, Base.char_type, x.b)
+			& (x.type # Base.char_type) THEN
+			Generator.Make_const (x, Base.char_type, x.type.charVal)
 		END
 	END Check_for_string_const;
 		

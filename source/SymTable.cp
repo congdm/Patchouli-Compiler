@@ -557,6 +557,8 @@ BEGIN
 			field := field.next
 		END;
 		Base.WriteInt (symfile, Base.class_type)
+	ELSIF typ.form = Base.type_string THEN
+		Base.WriteInt (symfile, typ.len)
 	END
 END Export_type;
 
@@ -593,20 +595,13 @@ BEGIN
 				Sys.Write_string (symfile, obj.name);
 				Detect_type (obj.type)
 			ELSIF obj.class = Base.class_var THEN
-				IF obj.type.form # Base.type_string THEN
-					Base.WriteInt (symfile, obj.class);
-					Sys.Write_string (symfile, obj.name);
-					Detect_type (obj.type);
-					
-					expno := expno + 1;
-					exportAdrList [expno].class := Base.class_var;
-					exportAdrList [expno].adr := SHORT (obj.val)
-				ELSE
-					(* Implement later *)
-					ASSERT(FALSE);
-					Base.WriteInt (symfile, Base.class_string);
-					Sys.Write_string (symfile, obj.name)
-				END
+				Base.WriteInt (symfile, obj.class);
+				Sys.Write_string (symfile, obj.name);
+				Detect_type (obj.type);
+				
+				expno := expno + 1;
+				exportAdrList [expno].class := Base.class_var;
+				exportAdrList [expno].adr := SHORT (obj.val)
 			ELSIF obj.class = Base.class_proc THEN
 				Base.WriteInt (symfile, Base.class_proc);
 				Sys.Write_string (symfile, obj.name);

@@ -495,6 +495,7 @@ END Make_item;
 	
 PROCEDURE Make_string* (VAR x : Base.Item; str : Base.LongString);
 	VAR strlen, i : INTEGER;
+		strtyp : Base.Type;
 BEGIN
 	x.readonly := TRUE; x.param := FALSE;
 	x.mode := Base.class_var; x.lev := -1;
@@ -505,6 +506,7 @@ BEGIN
 	x.type.len := strlen;
 	x.type.size := strlen * Base.Char_size;
 	x.type.base := Base.char_type;
+	x.type.charVal := ORD(str[0]);
 	
 	Alloc_static_data (strlen * Base.Char_size, Base.Char_size);
 	x.type.tdAdr := -staticsize; x.a := -staticsize;
