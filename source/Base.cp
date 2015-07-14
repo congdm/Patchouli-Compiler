@@ -33,9 +33,11 @@ CONST
 	type_integer* = 0; type_boolean* = 1; type_set* = 2; type_char* = 3;
 	type_real* = 4; type_pointer* = 5; type_procedure* = 6;
 	type_array* = 7; type_record* = 8; type_string* = 9; type_nil* = 10;
+	type_address* = 11;
 	
 	types_Simple* = {type_integer, type_boolean, type_set, type_real, type_char};
-	types_Address* = {type_pointer, type_procedure};
+	types_Address* = {type_pointer, type_procedure, type_address};
+	types_Pointer* = {type_pointer, type_address};
 	types_Scalar* = types_Simple + types_Address;
 	types_Numberic* = {type_integer, type_real};
 	types_Character* = {type_char, type_string};

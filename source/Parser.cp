@@ -152,6 +152,10 @@ BEGIN
 			END
 		ELSIF {xform, yform} = {Base.type_procedure} THEN
 			Check_global_proc (y); Check_compatible_proc (xtype, y.type)
+		ELSIF {xform, yform} = {Base.type_address} THEN
+			IF xtype.base = y.type.base THEN (* OK *)
+			ELSE Scanner.Mark ('Incompatible address types')
+			END
 		ELSE Scanner.Mark ('Invalid assignment');
 			xtype := Base.int_type; y.type := xtype
 		END
@@ -261,6 +265,10 @@ BEGIN
 				END
 			ELSIF {xform, yform} = {Base.type_procedure} THEN
 				Check_global_proc (y); Check_compatible_proc (x.type, y.type)
+			ELSIF {xform, yform} = {Base.type_address} THEN
+				IF x.type.base = y.type.base THEN (* Ok *)
+				ELSE Scanner.Mark ('Incompatible address types')
+				END
 			ELSIF (yform IN Base.types_Address) & (xform = Base.type_nil) THEN
 				(* Ok *)
 			ELSE Scanner.Mark (errWrongType); y.type := x.type
@@ -593,18 +601,40 @@ BEGIN
 	SymTable.Close_scope
 END ProcedureType;
 
+PROCEDURE AddressType (VAR typ : Base.Type);
+	VAR obj : Base.Object;
+BEGIN
+	Base.New_typ (typ, Base.type_address);
+	typ.size := Base.Word_size; typ.alignment := Base.Word_size;
+	
+	Scanner.Get (sym); Check (Scanner.of, 'ADDRESS OF expected');
+		
+	IF sym = Scanner.record THEN RecordType (typ.base)
+	ELSE
+		qualident (obj);
+		IF obj = Base.guard THEN
+			SymTable.Register_undef_type (typ, obj.name, hasExport)
+		ELSIF (obj.class = Base.class_type) THEN
+			typ.base := obj.type; Check_export (obj)
+		ELSE Scanner.Mark ('Not a defined type'); typ.base := Base.int_type
+		END
+	END
+END AddressType;
+
 PROCEDURE StrucType (VAR typ : Base.Type);
 BEGIN
 	IF sym = Scanner.array THEN ArrayType (typ)
 	ELSIF sym = Scanner.record THEN RecordType (typ)
 	ELSIF sym = Scanner.pointer THEN PointerType (typ)
 	ELSIF sym = Scanner.procedure THEN ProcedureType (typ)
+	ELSIF sym = Scanner.address THEN AddressType (typ)
 	ELSE Scanner.Mark ('Expect a type definition'); typ := Base.int_type
 	END
 END StrucType;
 	
 PROCEDURE type (VAR typ : Base.Type);
 	CONST err2 = 'This identifier is not a type';
+		ptrTypes = {Base.type_pointer, Base.type_address};
 	VAR obj : Base.Object;
 BEGIN
 	typ := Base.int_type;
@@ -612,13 +642,13 @@ BEGIN
 		qualident (obj);
 		IF obj = Base.guard THEN Scanner.Mark ('Undefined type')
 		ELSIF obj.class # Base.class_type THEN Scanner.Mark (err2)
-		ELSIF (obj # defobj) OR (obj.type.form = Base.type_pointer) THEN
+		ELSIF (obj # defobj) OR (obj.type.form IN ptrTypes) THEN
 			typ := obj.type; Check_export (obj)
 		ELSE Scanner.Mark ('Circular definition')
 		END
 	ELSIF (sym = Scanner.array) OR (sym = Scanner.record)
-		OR (sym = Scanner.pointer) OR (sym = Scanner.procedure) THEN
-		StrucType (typ)
+		OR (sym = Scanner.pointer) OR (sym = Scanner.procedure)
+		OR (sym = Scanner.address) THEN StrucType (typ)
 	ELSE Scanner.Mark ('Expect a type or type definition')
 	END
 END type;
@@ -1163,7 +1193,7 @@ PROCEDURE selector (VAR x : Base.Item);
 	PROCEDURE Field_selector (VAR x : Base.Item);
 		VAR obj : Base.Object; tp : Base.Type;
 	BEGIN
-		IF x.type.form = Base.type_pointer THEN Generator.Deref (x) END;
+		IF x.type.form IN Base.types_Pointer THEN Generator.Deref (x) END;
 		Scanner.Get (sym);
 		IF x.type.form = Base.type_record THEN
 			IF sym = Scanner.ident THEN
@@ -1184,6 +1214,8 @@ PROCEDURE selector (VAR x : Base.Item);
 	PROCEDURE Element_selector (VAR x : Base.Item);
 		VAR y : Base.Item;
 	BEGIN
+		IF x.type.form = Base.type_address THEN Generator.Deref (x)
+		END;
 		IF x.type.form = Base.type_array THEN
 			REPEAT Scanner.Get (sym); expression (y); Check_int (y);
 				IF x.type.form = Base.type_array THEN Generator.Index (x, y)
@@ -1201,7 +1233,7 @@ PROCEDURE selector (VAR x : Base.Item);
 	PROCEDURE Deref_selector (VAR x : Base.Item);
 	BEGIN
 		Scanner.Get (sym);
-		IF x.type.form = Base.type_pointer THEN Generator.Deref (x)
+		IF x.type.form IN Base.types_Pointer THEN Generator.Deref (x)
 		ELSE Scanner.Mark ('Not a pointer but found ^ selector')
 		END
 	END Deref_selector;

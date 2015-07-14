@@ -333,7 +333,7 @@ BEGIN
 		Base.ReadInt (symfile, typ.len);
 		Base.ReadInt (symfile, typ.charVal);
 		typ.base := Base.char_type;
-		typ.size := typ.len * Base.char_type.size;
+		typ.size := typ.len * Base.Char_size;
 		typ.alignment := Base.char_type.alignment
 	END
 END Import_type;

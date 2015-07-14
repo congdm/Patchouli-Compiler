@@ -44,11 +44,11 @@ CONST
 	semicolon* = 72; end* = 73; bar* = 74; else* = 75;
 	elsif* = 76; until* = 77; return* = 78;
 	
-	array* = 79; record* = 80; pointer* = 81;
-	const* = 82; type* = 83; var* = 84; procedure* = 85;
-	begin* = 86; import* = 87; module* = 88;
+	array* = 79; record* = 80; pointer* = 81; address* = 82;
+	const* = 83; type* = 84; var* = 85; procedure* = 86;
+	begin* = 87; import* = 88; module* = 89;
 	
-	eof* = 89;
+	eof* = 90;
 	
 	errLargeNumber = 'This number is too large to handle (compiler limit)';
 	errLargeChar = 'Value outside character range';
@@ -111,7 +111,11 @@ BEGIN
 	
 	sym := ident;
 	CASE id[0] OF
-		'A': IF (i = 5) & (id = 'ARRAY') THEN sym := array END |
+		'A':
+		IF (i = 5) & (id = 'ARRAY') THEN sym := array
+		ELSIF (i = 7) & (id = 'ADDRESS') THEN sym := address
+		END |
+		
 		'B':
 		IF (i = 2) & (id[1] = 'Y') THEN sym := by
 		ELSIF (i = 5) & (id = 'BEGIN') THEN sym := begin
