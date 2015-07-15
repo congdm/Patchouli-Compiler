@@ -148,18 +148,18 @@ BEGIN
 	Emit.i := 0; Emit.oldi := 0; pc := 1; codeinfo [pc].relfixup := FALSE
 END Reset_code_buffer;
 
-PROCEDURE Put_byte (n : INTEGER);
+PROCEDURE Put_byte (n : LONGINT);
 BEGIN
 	code [Emit.i] := USHORT (n MOD 256); INC (Emit.i)
 END Put_byte;
 
-PROCEDURE Put_2bytes (n : INTEGER);
+PROCEDURE Put_2bytes (n : LONGINT);
 BEGIN
 	code [Emit.i] := USHORT (n MOD 256); n := n DIV 256;
 	code [Emit.i + 1] := USHORT (n MOD 256); INC (Emit.i, 2)
 END Put_2bytes;
 
-PROCEDURE Put_4bytes (n : INTEGER);
+PROCEDURE Put_4bytes (n : LONGINT);
 BEGIN
 	code [Emit.i] := USHORT (n MOD 256); n := n DIV 256;
 	code [Emit.i + 1] := USHORT (n MOD 256); n := n DIV 256;
@@ -386,9 +386,9 @@ PROCEDURE MoveRI (rm, rsize : INTEGER; imm : LONGINT);
 BEGIN
 	SetRmOperand_reg (rm); Emit_16bit_prefix (rsize); Emit_REX_prefix (0, rsize);
 	op := 0B0H + rm MOD 8; IF rsize > 1 THEN op := op + w_bit END; Put_byte (op);
-	IF rsize = 1 THEN Put_byte (SHORT(imm))
-	ELSIF rsize = 2 THEN Put_2bytes (SHORT(imm))
-	ELSIF rsize = 4 THEN Put_4bytes (SHORT(imm))
+	IF rsize = 1 THEN Put_byte (imm)
+	ELSIF rsize = 2 THEN Put_2bytes (imm)
+	ELSIF rsize = 4 THEN Put_4bytes (imm)
 	ELSE Put_8bytes (imm)
 	END;
 	Next_inst

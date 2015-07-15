@@ -85,17 +85,6 @@ END Calculate_MD5_hash;
 
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE Read_ansi_char* (VAR file : FileHandle; VAR c : CHAR) : BOOLEAN;
-	VAR
-		i : INTEGER;
-		result : BOOLEAN;
-BEGIN
-	i := file.r.Read ();
-	IF i = -1 THEN result := failed
-	ELSE c := System.Convert.ToChar(i); result := success END;
-	RETURN result
-END Read_ansi_char;
-
 PROCEDURE Read_byte* (VAR file : FileHandle; VAR n : INTEGER);
 BEGIN
 	n := file.f.ReadByte()

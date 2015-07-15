@@ -595,7 +595,6 @@ BEGIN
 			IF obj.class = Base.class_const THEN
 				Base.WriteInt (symfile, Base.class_const);
 				Sys.Write_string (symfile, obj.name);
-				(*Sys.Console_WriteInt (obj.val); Sys.Console_WriteLn;*)
 				Base.WriteInt (symfile, obj.val);
 				Detect_type (obj.type)
 			ELSIF obj.class = Base.class_type THEN

@@ -13,16 +13,16 @@ TYPE
 	END;
 	
 PROCEDURE Get_executable_path* (VAR out : ARRAY OF CHAR; VAR n : INTEGER);
-	VAR
+(*	VAR
 		asm : Reflect.Assembly;
 		s : System.String;
-		i : INTEGER;
+		i : INTEGER; *)
 BEGIN
-	asm := Reflect.Assembly.GetEntryAssembly();
+(*	asm := Reflect.Assembly.GetEntryAssembly();
 	s := asm.get_Location();
 	i := s.LastIndexOf('\');
 	s := s.Remove(i + 1);
-	out := s; n := s.get_Length()
+	out := s; n := s.get_Length() *)
 END Get_executable_path;
 	
 PROCEDURE Show_error* (msg : ARRAY OF CHAR);
@@ -95,26 +95,24 @@ END Calculate_MD5_hash;
 
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE Read_ansi_char* (VAR file : FileHandle; VAR c : CHAR) : BOOLEAN;
-	VAR
-		i : INTEGER;
-		result : BOOLEAN;
-BEGIN
-	i := file.r.Read ();
-	IF i = -1 THEN result := failed
-	ELSE c := System.Convert.ToChar(i); result := success END;
-	RETURN result
-END Read_ansi_char;
-
 PROCEDURE Read_byte* (VAR file : FileHandle; VAR n : INTEGER);
+	VAR res: WinApi.Bool; buf: BYTE; byteRead: WinApi.Dword;
 BEGIN
-	n := file.f.ReadByte()
+	res := WinApi.ReadFile (
+		file.f, SYSTEM.ADR(buf), 1, SYSTEM.ADR2(byteRead), NIL
+	);
+	IF (res = 0) OR (byteRead # 1) THEN n := -1 ELSE n := buf
+	END
 END Read_byte;
 	
 PROCEDURE Read_2bytes* (VAR file : FileHandle; VAR n : INTEGER);
+	VAR res: WinApi.Bool; buf: WinApi.Word; byteRead: WinApi.Dword;
 BEGIN
-	n := file.f.ReadByte();
-	n := n + file.f.ReadByte() * 256
+	res := WinApi.ReadFile (
+		file.f, SYSTEM.ADR(buf), 2, SYSTEM.ADR2(byteRead), NIL
+	);
+	IF (res = 0) OR (byteRead # 2) THEN n := -1 ELSE n := buf
+	END
 END Read_2bytes;
 
 PROCEDURE Read_string* (VAR file : FileHandle; VAR str : ARRAY OF CHAR);
@@ -127,19 +125,23 @@ BEGIN
 END Read_string;
 	
 PROCEDURE Read_4bytes* (VAR file : FileHandle; VAR n : INTEGER);
+	VAR res: WinApi.Bool; buf, byteRead: WinApi.Dword;
 BEGIN
-	n := file.f.ReadByte();
-	n := n + file.f.ReadByte() * 256;
-	n := n + file.f.ReadByte() * 65536;
-	n := n + ASH (file.f.ReadByte(), 24)
+	res := WinApi.ReadFile (
+		file.f, SYSTEM.ADR(buf), 4, SYSTEM.ADR2(byteRead), NIL
+	);
+	IF (res = 0) OR (byteRead # 4) THEN n := -1 ELSE n := buf
+	END
 END Read_4bytes;
 	
 PROCEDURE Read_8bytes* (VAR file : FileHandle; VAR n : LONGINT);
-	VAR lo, hi : INTEGER;
+	VAR res: WinApi.Bool; buf: INTEGER; byteRead: WinApi.Dword;
 BEGIN
-	lo := 0; hi := 0;
-	Read_4bytes (file, lo); Read_4bytes (file, hi);
-	n := hi; n := ASH(n, 32); n := n + lo
+	res := WinApi.ReadFile (
+		file.f, SYSTEM.ADR(buf), 8, SYSTEM.ADR2(byteRead), NIL
+	);
+	IF (res = 0) OR (byteRead # 8) THEN n := -1 ELSE n := buf
+	END
 END Read_8bytes;
 
 (* -------------------------------------------------------------------------- *)

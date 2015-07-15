@@ -64,7 +64,10 @@ TYPE
 	Handle* = INTEGER;
 	Bool* = SYSTEM.DWORD;
 	Dword* = SYSTEM.DWORD;
-	Address* = INTEGER;
+	Word* = SYSTEM.WORD;
+	Lpvoid* = INTEGER;
+	Long_ptr* = INTEGER;
+	Ulong_ptr* = INTEGER;
 	
 	PChar* = ADDRESS OF CHAR;
 	PDword* = ADDRESS OF SYSTEM.DWORD;
@@ -116,10 +119,17 @@ TYPE
 	
 	Security_attributes* = RECORD
 		nLength*: Dword;
-		lpSecurityDescriptor*: Address;
+		lpSecurityDescriptor*: Lpvoid;
 		bInheritHandle*: Bool
 	END;
 	PSecurity_attributes* = ADDRESS OF Security_attributes;
+	
+	Overlapped* = RECORD
+		Internal, InternalHigh: Ulong_ptr;
+		Offset, OffsetHigh: Dword;
+		hEvent: Handle
+	END;
+	POverlapped* = ADDRESS OF Overlapped;
 	
 VAR
 	(* Console functions *)
@@ -128,15 +138,15 @@ VAR
 	
 	WriteConsoleW* : PROCEDURE (
 		hConsoleOutput : Handle;
-		lpBuffer : Address;
+		lpBuffer : Lpvoid;
 		nNumberOfCharsToWrite : Dword;
 		lpNumberOfCharsWritten : PDword;
-		lpReserved : Address
+		lpReserved : Lpvoid
 	) : Bool;
 	
 	ReadConsoleW* : PROCEDURE (
 		hConsoleInput : Handle;
-		lpBuffer : Address;
+		lpBuffer : Lpvoid;
 		nNumberOfCharsToRead : Dword;
 		lpNumberOfCharsRead : PDword;
 		pInputConsole : PConsole_readconsole_control
@@ -161,6 +171,13 @@ VAR
 	
 	MoveFileW*: PROCEDURE (lpExistingFileName, lpNewFileName: PChar) : Bool;
 	DeleteFileW*: PROCEDURE (lpFilename: PChar) : Bool;
+	ReadFile*: PROCEDURE (
+		hFile: Handle;
+		lpBuffer: Lpvoid;
+		nNumberOfBytesToRead: Dword;
+		lpNumberOfBytesRead: PDword;
+		lpOverlapped: POverlapped
+	) : Bool;
 	
 	(* Handle and Object functions *)
 	CloseHandle*: PROCEDURE (hObject: Handle) : Bool;
@@ -174,7 +191,7 @@ VAR
 		lpClassName, lpWindowName : PChar;
 		dwStyle, x, y, nWidth, nHeight : Dword;
 		hWndParent, hMenu, hInstance : Handle;
-		lpParam : Address
+		lpParam : Lpvoid
 	) : Handle;
 	
 	ShowWindow* : PROCEDURE (hWnd : Handle; nCmdShow : Dword) : Bool;
@@ -241,6 +258,8 @@ BEGIN
 	SYSTEM.GetProcAddress (MoveFileW, kernel32, SYSTEM.ADR(str));
 	Make_AsciiStr (str, 'DeleteFileW');
 	SYSTEM.GetProcAddress (DeleteFileW, kernel32, SYSTEM.ADR(str));
+	Make_AsciiStr (str, 'ReadFile');
+	SYSTEM.GetProcAddress (ReadFile, kernel32, SYSTEM.ADR(str));
 	
 	Make_AsciiStr (str, 'CloseHandle');
 	SYSTEM.GetProcAddress (CloseHandle, kernel32, SYSTEM.ADR(str));
