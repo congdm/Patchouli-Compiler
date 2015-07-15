@@ -75,11 +75,17 @@ BEGIN
 END Init;
 
 PROCEDURE Read_char;
+	VAR n : INTEGER;
 BEGIN
-	IF ~ Sys.Read_ansi_char (srcfile, ch) THEN eofFlag := TRUE; ch := 0X
-	ELSE INC (charNum)
+	n := -1; Sys.Read_byte (srcfile, n);
+	IF n = -1 THEN eofFlag := TRUE; ch := 0X ELSE ch := CHR(n); INC (charNum)
 	END
 END Read_char;
+
+PROCEDURE Seek_back (VAR srcfile: Sys.FileHandle; num: INTEGER);
+BEGIN
+	Sys.Seek (srcfile, Sys.FilePos(srcfile) - num); DEC (charNum, num)
+END Seek_back;
 	
 PROCEDURE Mark* (s : ARRAY OF CHAR);
 BEGIN
@@ -203,12 +209,15 @@ END Hex;
 PROCEDURE DecimalInt;
 	VAR i, x : INTEGER;
 BEGIN val := 0; i := 0;
-	WHILE i < numLen - 1 DO val := val * 10 + numArray [i]; INC (i) END;
-	x := numArray [i]; typeOfVal := Base.int_type;
+	WHILE i < numLen - 1 DO val := val * 10 + numArray[i]; INC (i)
+	END;
+	x := numArray[i]; typeOfVal := Base.int_type;
 	IF (numLen # LEN (numArray)) OR (val <= (MAX_INT - x) DIV 10) THEN
 		val := val * 10 + x
 	ELSE overflow := TRUE
-	END; IF overflow THEN Mark (errLargeNumber) END
+	END;
+	IF overflow THEN Mark (errLargeNumber)
+	END
 END DecimalInt;
 
 PROCEDURE Number;
@@ -217,7 +226,8 @@ BEGIN numLen := 0; overflow := FALSE;
 		IF numLen < LEN (numArray) THEN
 			numArray [numLen] := ORD (ch) - ORD ('0'); INC (numLen)
 		ELSE overflow := TRUE
-		END; Read_char
+		END;
+		Read_char
 	END
 END Number;
 
@@ -235,18 +245,20 @@ PROCEDURE Get_number;
 	CONST maxExp = 1023; minExp = -1022;
 	VAR	d, f : ARRAY 19 OF INTEGER; e, old_filepos : LONGINT;
 		real : REAL; sreal : SHORTREAL; k : INTEGER; negE : BOOLEAN;
-BEGIN Number;
+BEGIN
+	Number;
 	IF (ch >= 'A') & (ch <= 'F') THEN
 		REPEAT
 			IF numLen < LEN (numArray) THEN
 				numArray [numLen] := ORD (ch) - ORD ('0'); INC (numLen)
-			END; Read_char
-		UNTIL (ch < '0') OR (ch > 'F') OR (ch > '9') & (ch < 'A'); Hex
-	ELSIF ch = '.' THEN DecimalInt;
-		old_filepos := Sys.FilePos (srcfile); Read_char;
+			END;
+			Read_char
+		UNTIL (ch < '0') OR (ch > 'F') OR (ch > '9') & (ch < 'A'); 
+		Hex
+	ELSIF ch = '.' THEN DecimalInt; Read_char;
 		IF ch # '.' THEN real := val; e := 0;
 			WHILE (ch >= '0') & (ch <= '9') DO
-				real := real * 10.0 + (ORD (ch) - ORD ('0'));
+				real := real * 10.0 + (ORD(ch) - ORD('0'));
 				DEC (e); Read_char
 			END;
 			IF (ch = 'E') OR (ch = 'D') THEN Read_char;
@@ -263,7 +275,7 @@ BEGIN Number;
 				END
 			END; sreal := SHORT (real); SYSTEM.GET (SYSTEM.ADR (sreal), k);
 			typeOfVal := Base.real_type; val := k
-		ELSE Sys.Seek (srcfile, old_filepos)
+		ELSE Seek_back (srcfile, 1)
 		END
 	ELSIF (ch = 'H') OR (ch = 'X') THEN Hex
 	ELSE DecimalInt
@@ -323,7 +335,7 @@ BEGIN
 			
 			'0'..'9': Get_number;
 				IF typeOfVal # Base.char_type THEN sym := number
-				ELSE sym := string; str [0] := CHR (val); str [1] := 0X
+				ELSE sym := string; str[0] := CHR(val); str[1] := 0X
 				END
 			|
 			

@@ -17,6 +17,7 @@ VAR
 	sym : INTEGER;
 	defobj : Base.Object;
 	hasExport : BOOLEAN;
+	addressTypeList : Base.Type;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -606,6 +607,7 @@ PROCEDURE AddressType (VAR typ : Base.Type);
 BEGIN
 	Base.New_typ (typ, Base.type_address);
 	typ.size := Base.Word_size; typ.alignment := Base.Word_size;
+	typ.next := addressTypeList; addressTypeList := typ;
 	
 	Scanner.Get (sym); Check (Scanner.of, 'ADDRESS OF expected');
 		
@@ -621,16 +623,18 @@ BEGIN
 	END
 END AddressType;
 
-PROCEDURE StrucType (VAR typ : Base.Type);
+PROCEDURE Get_address_type_of (basetp : Base.Type) : Base.Type;
+	VAR p : Base.Type;
 BEGIN
-	IF sym = Scanner.array THEN ArrayType (typ)
-	ELSIF sym = Scanner.record THEN RecordType (typ)
-	ELSIF sym = Scanner.pointer THEN PointerType (typ)
-	ELSIF sym = Scanner.procedure THEN ProcedureType (typ)
-	ELSIF sym = Scanner.address THEN AddressType (typ)
-	ELSE Scanner.Mark ('Expect a type definition'); typ := Base.int_type
-	END
-END StrucType;
+	p := addressTypeList;
+	WHILE (p # NIL) & (p.base # basetp) DO p := p.next
+	END;
+	IF p = NIL THEN Base.New_typ (p, Base.type_address);
+		p.size := Base.Word_size; p.alignment := p.size; p.base := basetp;
+		p.next := addressTypeList; addressTypeList := p
+	END;
+	RETURN p
+END Get_address_type_of;
 	
 PROCEDURE type (VAR typ : Base.Type);
 	CONST err2 = 'This identifier is not a type';
@@ -646,9 +650,11 @@ BEGIN
 			typ := obj.type; Check_export (obj)
 		ELSE Scanner.Mark ('Circular definition')
 		END
-	ELSIF (sym = Scanner.array) OR (sym = Scanner.record)
-		OR (sym = Scanner.pointer) OR (sym = Scanner.procedure)
-		OR (sym = Scanner.address) THEN StrucType (typ)
+	ELSIF sym = Scanner.array THEN ArrayType (typ)
+	ELSIF sym = Scanner.record THEN RecordType (typ)
+	ELSIF sym = Scanner.pointer THEN PointerType (typ)
+	ELSIF sym = Scanner.procedure THEN ProcedureType (typ)
+	ELSIF sym = Scanner.address THEN AddressType (typ)
 	ELSE Scanner.Mark ('Expect a type or type definition')
 	END
 END type;
@@ -685,8 +691,9 @@ PROCEDURE DeclarationSequence (VAR varsize : INTEGER);
 	BEGIN
 		hasExport := FALSE; identdef (obj, Base.class_type);
 		Check (Scanner.equal, 'No = in type declaration');
-		defobj := obj; StrucType (obj.type);
-		obj.type.obj := obj;
+		defobj := obj; type (obj.type);
+		IF obj.type.obj = NIL THEN obj.type.obj := obj
+		END;
 		IF (obj.type.form = Base.type_record)
 			& (SymTable.undef_ptr_list # NIL) THEN
 			SymTable.Check_undef_list (obj)
@@ -992,7 +999,7 @@ PROCEDURE StandProc (VAR x : Base.Item);
 		VAR x, y, proc : Base.Item; pinfo : Generator.ProcInfo;
 	BEGIN
 		expression (x); Check_var (x, FALSE);
-		IF x.type = Base.int_type THEN (* Ok *)
+		IF (x.type = Base.int_type) THEN (* Ok *)
 		ELSE Scanner.Mark ('Not an INTEGER variable'); x.type := Base.int_type
 		END;
 
@@ -1016,8 +1023,9 @@ PROCEDURE StandProc (VAR x : Base.Item);
 		VAR x, y, z, proc : Base.Item; pinfo : Generator.ProcInfo;
 	BEGIN
 		expression (x); Check_var (x, FALSE);
-		IF x.type.form = Base.type_procedure THEN (* Ok *)
-		ELSE Scanner.Mark ('Expect a procedure variable'); x.type := Base.int_type
+		IF x.type.form IN {Base.type_procedure, Base.type_address} THEN (* Ok *)
+		ELSE Scanner.Mark ('Expect a procedure or address variable');
+			x.type := Base.int_type
 		END;
 		
 		proc.mode := Base.class_proc; proc.type := Base.int_type;
@@ -1026,8 +1034,16 @@ PROCEDURE StandProc (VAR x : Base.Item);
 		
 		Check (Scanner.comma, errTooLittleParam);
 		expression (y); Check_int (y); Generator.Value_param (y, pinfo);
+		
 		Check (Scanner.comma, errTooLittleParam);
-		expression (z); Check_int (z); Generator.Value_param (z, pinfo);
+		expression (z);
+		IF (z.type.form = Base.type_integer)
+			OR (z.type.form = Base.type_address)
+			& (z.type.base = Base.byte_type) THEN (* Ok *)
+		ELSE Scanner.Mark ('Not an integer or ADDRESS OF BYTE value');
+			z.type := Base.int_type
+		END;
+		Generator.Value_param (z, pinfo);
 		
 		Generator.Call (proc, pinfo); Generator.Store (x, proc)
 	END SProc_GetProcAddress;
@@ -1160,6 +1176,23 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 		Check (Scanner.comma, errTooLittleParam);
 		expression (y); Check_val (y); x := y; x.type := cast_type
 	END SFunc_VAL;
+	
+	PROCEDURE SFunc_ADR2 (VAR x : Base.Item);
+	BEGIN
+		expression (x); Check_var (x, TRUE); Generator.SFunc_ADR (x);
+		x.type := Get_address_type_of (x.type)
+	END SFunc_ADR2;
+	
+	PROCEDURE SFunc_STRADR (VAR x : Base.Item);
+	BEGIN
+		expression (x); Check_var (x, TRUE);
+		IF (x.type = Base.char_type) OR (x.type.form = Base.type_string)
+			OR (x.type.form = Base.type_array) & (x.type.base = Base.char_type)
+			THEN (* Ok *)
+		ELSE Scanner.Mark ('Expect a string or character')
+		END;
+		Generator.SFunc_ADR (x); x.type := Get_address_type_of (Base.char_type)
+	END SFunc_STRADR;
 		
 BEGIN (* StandFunc *)
 	Scanner.Get (sym);
@@ -1177,9 +1210,13 @@ BEGIN (* StandFunc *)
 			300: SFunc_ADR (x) |
 			301: SFunc_SIZE (x) |
 			302: SFunc_BIT (x) |
-			303: SFunc_VAL (x)
+			303: SFunc_VAL (x) |
+			310: SFunc_ADR2 (x) |
+			311: SFunc_STRADR (x) |
 		END;
-		IF (funcno # 303) & (funcno # 200) THEN x.type := rtype END;
+		IF (funcno # 303) & (funcno # 200) & (funcno # 310) & (funcno # 311)
+			THEN x.type := rtype 
+		END;
 		IF sym = Scanner.comma THEN Scanner.Mark (errTooMuchParam); Skip_params
 		END;
 		Check (Scanner.rparen, 'No closing )')

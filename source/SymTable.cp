@@ -424,6 +424,8 @@ BEGIN
 	Enter (Base.class_sproc, 301, 'SIZE', Base.int_type);
 	Enter (Base.class_sproc, 302, 'BIT', Base.bool_type);
 	Enter (Base.class_sproc, 303, 'VAL', Base.int_type);
+	Enter (Base.class_sproc, 310, 'ADR2', Base.int_type);
+	Enter (Base.class_sproc, 311, 'STRADR', Base.int_type);
 	
 	modul.dsc := top_scope.next; modul.val := -1;
 	Close_scope; cur_lev := 0
@@ -593,6 +595,7 @@ BEGIN
 			IF obj.class = Base.class_const THEN
 				Base.WriteInt (symfile, Base.class_const);
 				Sys.Write_string (symfile, obj.name);
+				(*Sys.Console_WriteInt (obj.val); Sys.Console_WriteLn;*)
 				Base.WriteInt (symfile, obj.val);
 				Detect_type (obj.type)
 			ELSIF obj.class = Base.class_type THEN

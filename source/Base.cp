@@ -93,7 +93,7 @@ VAR
 	bool_type*, set_type*, char_type*, nil_type* : Type;
 	real_type*, longreal_type* : Type;
 	guardRecord_type*, guardPointer_type*, guardArray_type* : Type;
-	byteArray_type* : Type;
+	byteArray_type* : Type; anyScalar_type* : Type;
 	
 	predefinedTypes* : ARRAY 32 OF Type;
 	preTypeNo* : INTEGER;
@@ -333,9 +333,9 @@ BEGIN
 END WriteInt;
 
 PROCEDURE ReadInt64* (f : Sys.FileHandle; VAR n : LONGINT);
-	VAR finish : BOOLEAN; b, i, k : INTEGER;
+	VAR finish : BOOLEAN; i, b: INTEGER; k : LONGINT;
 BEGIN
-	n := 0; i := 1; k := 1; b := 0;
+	n := 0; i := 1; k := 1; b := 0; 
 	REPEAT
 		Sys.Read_byte (f, b);
 		IF i < 10 THEN
@@ -394,6 +394,7 @@ BEGIN
 	New_predefined_typ (nil_type, type_nil, Word_size);
 	New_predefined_typ (real_type, type_real, 4);
 	New_predefined_typ (longreal_type, type_real, 8);
+	New_predefined_typ (anyScalar_type, type_integer, 8);
 	
 	New_predefined_typ (guardRecord_type, type_record, Word_size);
 	guardRecord_type.fields := guard;
