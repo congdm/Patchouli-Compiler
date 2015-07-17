@@ -24,8 +24,11 @@ IMPORT
 	SYSTEM;
 TYPE
 	AsciiStr = ARRAY 64 OF BYTE;
+	Handle = INTEGER;
+	Uint = SYSTEM.DWORD;
+	PChar = ADDRESS OF CHAR;
 VAR
-	MessageBoxW* : PROCEDURE (hwnd, lpText, lpCaption, uType : INTEGER);
+	MessageBoxW: PROCEDURE (hwnd: Handle; lpText, lpCaption: PChar; uType: Uint);
 	
 PROCEDURE Make_AsciiStr (VAR out : ARRAY OF BYTE; in : ARRAY OF CHAR);
 	VAR n, i : INTEGER;
@@ -35,8 +38,7 @@ BEGIN
 END Make_AsciiStr;
 
 PROCEDURE Init;
-	VAR user32 : INTEGER;
-		str : AsciiStr; 
+	VAR user32: Handle; str: AsciiStr; 
 BEGIN
 	SYSTEM.LoadLibraryW (user32, 'USER32.DLL');
 	Make_AsciiStr (str, 'MessageBoxW');
@@ -46,7 +48,7 @@ END Init;
 PROCEDURE Main;
 	CONST mess = 'Oberon for Win64'; title = 'Hello, World!';
 BEGIN
-	MessageBoxW (0, SYSTEM.ADR(mess), SYSTEM.ADR(title), 0)
+	MessageBoxW (0, SYSTEM.STRADR(mess), SYSTEM.STRADR(title), 0)
 END Main;
 	
 BEGIN
