@@ -1,34 +1,39 @@
 MODULE Console;
 
 IMPORT
-	SYSTEM, Win := WinApi, Strings;
+	SYS := SYSTEM, Win := WinApi, Strings;
+	
+CONST
+	nilAdr = 0; boolFalse = 0;
 	
 VAR
 	stdin, stdout : Win.Handle;
-	nilAdr : Win.Address;
 
 PROCEDURE Write* (ch : CHAR);
-	VAR nWritten : SYSTEM.DWORD; r : Win.Bool;
+	VAR nWritten : Win.Dword; r : Win.Bool;
 BEGIN
-	r := Win.WriteConsoleW (stdout, Win.Adr(ch), 1, Win.Adr(nWritten), nilAdr);
-	ASSERT (Win.IsTrue(r));
-	ASSERT (nWritten = 1)
+	r := Win.WriteConsoleW(
+		stdout, SYS.ADR(ch), 1, SYS.ADR2(nWritten), nilAdr
+	);
+	ASSERT (r # boolFalse); ASSERT (nWritten = 1)
 END Write;
 
 PROCEDURE WriteLn*;
-	VAR str : ARRAY 2 OF CHAR; nWritten : SYSTEM.DWORD; r : Win.Bool;
+	VAR str : ARRAY 2 OF CHAR; nWritten : Win.Dword; r : Win.Bool;
 BEGIN
 	str[0] := CHR(13); str[1] := CHR(10);
-	r := Win.WriteConsoleW (stdout, Win.Adr(str), 2, Win.Adr(nWritten), nilAdr);
-	ASSERT (Win.IsTrue(r));
-	ASSERT (nWritten = 2)
+	r := Win.WriteConsoleW(
+		stdout, SYS.ADR(str), 2, SYS.ADR2(nWritten), nilAdr
+	);
+	ASSERT (r # boolFalse); ASSERT (nWritten = 2)
 END WriteLn;
 
 PROCEDURE WriteString* (str : ARRAY OF CHAR);
-	VAR nWritten : SYSTEM.DWORD; r : Win.Bool;
+	VAR nWritten : Win.Dword; r : Win.Bool;
 BEGIN
-	r := Win.WriteConsoleW (stdout, Win.Adr(str), Strings.Length(str),
-		Win.Adr(nWritten), nilAdr)
+	r := Win.WriteConsoleW(
+		stdout, SYS.ADR(str), Strings.Length(str), SYS.ADR2(nWritten), nilAdr
+	)
 END WriteString;
 
 PROCEDURE IntToString* (x : INTEGER; VAR str : ARRAY OF CHAR);
@@ -68,7 +73,7 @@ PROCEDURE RealToString (x : REAL; VAR str : ARRAY OF CHAR);
 	VAR i, n, exp, exp10, frac, zeroNum : INTEGER;
 		neg : BOOLEAN; ch : ARRAY 2 OF CHAR; str2 : ARRAY 32 OF CHAR;
 BEGIN str[0] := 0X;
-	exp := SYSTEM.VAL (SYSTEM.DWORD, x) DIV 800000H MOD 256 - 127;
+	exp := SYS.VAL(Win.Dword, x) DIV 800000H MOD 256 - 127;
 	IF (exp >= -126) & (exp <= 127) THEN
 		neg := x < 0.0; IF neg THEN x := -x; Strings.Append ('-', str) END;
 		exp10 := 0; ch[1] := 0X;
@@ -77,17 +82,17 @@ BEGIN str[0] := 0X;
 		ELSIF exp < 0 THEN
 			WHILE x < 1.0 DO x := x * 10.0; DEC (exp10) END
 		END;
-		n := FLOOR (x); x := (x - FLT (n)) * 10.0; ch[0] := CHR (ORD ('0') + n);
+		n := FLOOR (x); x := (x - FLT(n)) * 10.0; ch[0] := CHR(ORD('0') + n);
 		Strings.Append (ch, str); Strings.Append ('.', str);
 		frac := 0; i := 0; zeroNum := 0;
 		WHILE (i < 6) & (x # 0.0) DO
-			INC (i); n := FLOOR (x); x := (x - FLT (n)) * 10.0;
+			INC (i); n := FLOOR(x); x := (x - FLT(n)) * 10.0;
 			IF (n # 0) OR (frac # 0) THEN frac := frac * 10 + n
 			ELSE INC (zeroNum)
 			END
 		END;
-		IF x # 0.0 THEN n := FLOOR (x); x := x - FLT (n);
-			IF (x > 0.5) OR (x = 0.5) & ODD (n) THEN INC (n) END;
+		IF x # 0.0 THEN n := FLOOR(x); x := x - FLT(n);
+			IF (x > 0.5) OR (x = 0.5) & ODD(n) THEN INC (n) END;
 			IF n # 0 THEN frac := frac * 10 + n END
 		END;
 		WHILE (frac MOD 10) = 0 DO frac := frac DIV 10 END;
@@ -108,20 +113,20 @@ BEGIN
 END WriteReal;
 
 PROCEDURE Read* (VAR ch : CHAR);
-	VAR nRead : SYSTEM.DWORD; r : Win.Bool;
+	VAR nRead : Win.Dword; r : Win.Bool;
 BEGIN
-	r := Win.ReadConsoleW (stdin, Win.Adr(ch), 1, Win.Adr(nRead), nilAdr);
-	ASSERT (Win.IsTrue(r));
-	ASSERT (nRead = 1)
+	r := Win.ReadConsoleW(
+		stdin, SYS.ADR(ch), 1, SYS.ADR2(nRead), NIL
+	);
+	ASSERT (r # boolFalse); ASSERT (nRead = 1)
 END Read;
 
 PROCEDURE Init;
 	VAR res : Win.Bool;
 BEGIN
-	nilAdr[0] := 0;
 	res := Win.AllocConsole();
-	stdin := Win.GetStdHandle (Win.STD_INPUT_HANDLE);
-	stdout := Win.GetStdHandle (Win.STD_OUTPUT_HANDLE)
+	stdin := Win.GetStdHandle(Win.STD_INPUT_HANDLE);
+	stdout := Win.GetStdHandle(Win.STD_OUTPUT_HANDLE)
 END Init;
 
 BEGIN

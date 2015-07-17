@@ -30,9 +30,9 @@ CONST
 	greater* = 13; less_equal* = 14; in* = 15; is* = 16;
 	
 	arrow* = 17; period* = 18;
-	lparen* = 29; lbrak* = 30; lbrace* = 31;
 	
-	not* = 32; number* = 34; nil* = 35; true* = 36; false* = 37; string* = 38;
+	lparen* = 29; lbrak* = 30; lbrace* = 31; not* = 32;
+	number* = 34; nil* = 35; true* = 36; false* = 37; string* = 38;
 	ident* = 39;
 	
 	if* = 55; while* = 56; repeat* = 57; for* = 58; case* = 59;
@@ -89,7 +89,7 @@ END Seek_back;
 	
 PROCEDURE Mark* (s : ARRAY OF CHAR);
 BEGIN
-	IF charNum # prevErrorPos THEN
+	IF charNum > prevErrorPos + 10 THEN
 		Sys.Console_WriteInt (charNum);
 		Sys.Console_WriteString (': '); Sys.Console_WriteString (s);
 		Sys.Console_WriteLn; haveError := TRUE; prevErrorPos := charNum
@@ -127,7 +127,11 @@ BEGIN
 		ELSIF (i = 5) & (id = 'BEGIN') THEN sym := begin
 		END |
 		
-		'C': IF (i = 5) & (id = 'CONST') THEN sym := const END |
+		'C':
+		IF (i = 4) & (id = 'CASE') THEN sym := case
+		ELSIF (i = 5) & (id = 'CONST') THEN sym := const
+		END |
+		
 		'D':
 		IF (i = 2) & (id[1] = 'O') THEN sym := do
 		ELSIF (i = 3) & (id[1] = 'I') & (id[2] = 'V') THEN sym := div;
@@ -139,7 +143,11 @@ BEGIN
 		ELSIF (i = 5) & (id = 'ELSIF') THEN sym := elsif
 		END |
 		
-		'F': IF (i = 5) & (id = 'FALSE') THEN sym := false END |
+		'F':
+		IF (i = 3) & (id[1] = 'O') & (id[2] = 'R') THEN sym := for
+		ELSIF (i = 5) & (id = 'FALSE') THEN sym := false
+		END |
+		
 		'I':
 		IF i = 2 THEN
 			IF id [1] = 'F' THEN sym := if

@@ -305,7 +305,6 @@ BEGIN
 		typ.alignment := typ.base.alignment
 	ELSIF form = Base.type_pointer THEN
 		Detect_typeI (typ.base);
-		Base.ReadInt (symfile, typ.len);
 		typ.size := Base.Word_size;
 		typ.num_ptr := 1;
 		typ.alignment := Base.Word_size
@@ -335,6 +334,10 @@ BEGIN
 		typ.base := Base.char_type;
 		typ.size := typ.len * Base.Char_size;
 		typ.alignment := Base.char_type.alignment
+	ELSIF typ.form = Base.type_address THEN
+		Detect_typeI (typ.base);
+		typ.size := Base.Word_size;
+		typ.alignment := Base.Word_size
 	END
 END Import_type;
 
@@ -546,8 +549,7 @@ BEGIN
 		Detect_type (typ.base);
 		Base.WriteInt (symfile, typ.len)
 	ELSIF typ.form = Base.type_pointer THEN
-		Detect_type (typ.base);
-		Base.WriteInt (symfile, typ.len)
+		Detect_type (typ.base)
 	ELSIF typ.form = Base.type_procedure THEN
 		Detect_type (typ.base);
 		Base.WriteInt (symfile, typ.len);
@@ -566,6 +568,8 @@ BEGIN
 	ELSIF typ.form = Base.type_string THEN
 		Base.WriteInt (symfile, typ.len);
 		Base.WriteInt (symfile, typ.charVal)
+	ELSIF typ.form = Base.type_address THEN
+		Detect_type (typ.base)
 	END
 END Export_type;
 

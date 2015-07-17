@@ -58,6 +58,11 @@ CONST
 	OPEN_EXISTING* = 3;
 	TRUNCATE_EXISTING* = 5;
 	
+	(* File move mode *)
+	FILE_BEGIN* = 0;
+	FILE_CURRENT* = 1;
+	FILE_END* = 2;
+	
 TYPE
 	AsciiStr = ARRAY 64 OF BYTE;
 	
@@ -125,11 +130,16 @@ TYPE
 	PSecurity_attributes* = ADDRESS OF Security_attributes;
 	
 	Overlapped* = RECORD
-		Internal, InternalHigh: Ulong_ptr;
-		Offset, OffsetHigh: Dword;
-		hEvent: Handle
+		Internal*, InternalHigh*: Ulong_ptr;
+		Offset*, OffsetHigh*: Dword;
+		hEvent*: Handle
 	END;
 	POverlapped* = ADDRESS OF Overlapped;
+	
+	Large_integer* = RECORD
+		QuadPart*: INTEGER
+	END;
+	PLarge_integer* = ADDRESS OF Large_integer;
 	
 VAR
 	(* Console functions *)
@@ -159,7 +169,16 @@ VAR
 	GetModuleHandleW* : PROCEDURE (lpModuleName : PChar) : Handle;
 	
 	(* File Management functions *)
-	GetFileAttributesW* : PROCEDURE (lpFilename : PChar) : Dword;
+	GetFileAttributesW* : PROCEDURE (lpFilename: PChar) : Dword;
+	MoveFileW*: PROCEDURE (lpExistingFileName, lpNewFileName: PChar) : Bool;
+	DeleteFileW*: PROCEDURE (lpFilename: PChar) : Bool;
+	
+	SetFilePointerEx*: PROCEDURE (
+		hFile: Handle;
+		liDistanceToMove: Large_integer;
+		lpNewFilePointer: PLarge_integer;
+		dwMoveMethod: Dword
+	) : Bool;
 	
 	CreateFileW* : PROCEDURE (
 		lpFilename : PChar;
@@ -169,13 +188,19 @@ VAR
 		hTemplateFile: Handle
 	) : Handle;
 	
-	MoveFileW*: PROCEDURE (lpExistingFileName, lpNewFileName: PChar) : Bool;
-	DeleteFileW*: PROCEDURE (lpFilename: PChar) : Bool;
 	ReadFile*: PROCEDURE (
 		hFile: Handle;
 		lpBuffer: Lpvoid;
 		nNumberOfBytesToRead: Dword;
 		lpNumberOfBytesRead: PDword;
+		lpOverlapped: POverlapped
+	) : Bool;
+	
+	WriteFile*: PROCEDURE (
+		hFile: Handle;
+		lpBuffer: Lpvoid;
+		nNumberOfBytesToWrite: Dword;
+		lpNumberOfBytesWrite: PDword;
 		lpOverlapped: POverlapped
 	) : Bool;
 	
@@ -260,6 +285,10 @@ BEGIN
 	SYSTEM.GetProcAddress (DeleteFileW, kernel32, SYSTEM.ADR(str));
 	Make_AsciiStr (str, 'ReadFile');
 	SYSTEM.GetProcAddress (ReadFile, kernel32, SYSTEM.ADR(str));
+	Make_AsciiStr (str, 'WriteFile');
+	SYSTEM.GetProcAddress (WriteFile, kernel32, SYSTEM.ADR(str));
+	Make_AsciiStr (str, 'SetFilePointerEx');
+	SYSTEM.GetProcAddress (SetFilePointerEx, kernel32, SYSTEM.ADR(str));
 	
 	Make_AsciiStr (str, 'CloseHandle');
 	SYSTEM.GetProcAddress (CloseHandle, kernel32, SYSTEM.ADR(str));

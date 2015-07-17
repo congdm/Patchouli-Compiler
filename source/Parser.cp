@@ -1191,7 +1191,7 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 			THEN (* Ok *)
 		ELSE Scanner.Mark ('Expect a string or character')
 		END;
-		Generator.SFunc_ADR (x); x.type := Get_address_type_of (Base.char_type)
+		Generator.SFunc_ADR (x); x.type := Get_address_type_of(Base.char_type)
 	END SFunc_STRADR;
 		
 BEGIN (* StandFunc *)
@@ -1352,6 +1352,11 @@ END set;
 	
 PROCEDURE factor (VAR x : Base.Item);
 BEGIN
+	IF (sym < Scanner.lparen) OR (sym > Scanner.ident) THEN
+		Scanner.Mark('Expression expected');
+		REPEAT Scanner.Get (sym)
+		UNTIL (sym >= Scanner.lparen) & (sym <= Scanner.ident)
+    END;
 	IF sym = Scanner.number THEN
 		Generator.Make_const (x, Scanner.typeOfVal, Scanner.val);
 		Scanner.Get (sym)
@@ -1470,62 +1475,17 @@ BEGIN (* expression *)
 		END
 	END
 END expression;
-
-(*	
-PROCEDURE ForStatement;
-	VAR
-		x, beg, end, rel, inc : Base.Item;
-		flag : BOOLEAN;
-		L : INTEGER;
-BEGIN
-	Scanner.Get (sym); expression (x);
-	IF x.mode # Base.class_var THEN
-		Scanner.Mark ('Invalid for loop control variable');
-		x.mode := Base.class_var; x.lev := 0; x.a := 0
-	END;
-	IF x.type # Base.int_type THEN
-		Scanner.Mark ('Control variable type must be INTEGER');
-		x.type := Base.int_type
-	END;
-		
-	Check (Scanner.becomes, 'Expect :=');
-	expression (beg); Check_int (beg);
-	
-	Check (Scanner.to, 'No TO in FOR statement');
-	expression (end); Check_int (end);
-	
-	IF sym = Scanner.by THEN
-		Scanner.Get (sym); expression (inc);
-		IF inc.mode # Base.class_const THEN
-			Scanner.Mark ('Expect a const expression'); flag := TRUE
-		ELSIF inc.type # Base.int_type THEN
-			Scanner.Mark ('Expect a integer value'); flag := TRUE
-		ELSE
-			flag := FALSE
-		END
-	ELSE
-		flag := TRUE
-	END;
-	IF flag THEN Generator.Make_const (inc, Base.int_type, 1)
-	END;
-	
-	Check (Scanner.do, 'No DO in FOR statement');
-	L := 0; Generator.Begin_FOR (x, beg, end, rel, L, SHORT (inc.a));
-	StatementSequence;
-	Check (Scanner.end, 'No END for FOR statement');
-	Generator.End_FOR (x, rel, inc, L)
-END ForStatement;
-*)
 	
 PROCEDURE StatementSequence;
-	CONST err1 = 'Invalid statement'; err3 = 'Missing semicolon?';
+	CONST err1 = 'Invalid statement';
+		err3 = 'Missing semicolon?';
 		err4 = 'No THEN after IF condition';
 		err5 = 'No THEN after ELSIF condition';
 		err6 = 'No END for structured statement';
 		err7 = 'No DO after WHILE condition';
 		err8 = 'No DO after ELSIF condition';
 		err9 = 'No UNTIL for REPEAT statement';
-	VAR x, y : Base.Item; L : INTEGER;
+	VAR x, y, z, t: Base.Item; L: INTEGER; obj: Base.Object;
 BEGIN
 	REPEAT
 		IF ~ ((sym = Scanner.ident)
@@ -1546,10 +1506,7 @@ BEGIN
 			ELSIF (sym = Scanner.lparen) & (x.mode IN classes_Value)
 			& (x.type.form = Base.type_procedure) THEN
 				ProcedureCall (x, TRUE)
-			ELSE Scanner.Mark (err1);
-				REPEAT Scanner.Get (sym)
-				UNTIL (sym >= Scanner.if) & (sym <= Scanner.case)
-					OR (sym >= Scanner.semicolon)
+			ELSE Scanner.Mark (err1)
 			END
 		ELSIF sym = Scanner.if THEN
 			L := 0; Scanner.Get (sym); expression (x); Check_bool (x);
@@ -1585,10 +1542,22 @@ BEGIN
 			Check (Scanner.until, err9);
 			expression (x); Check_bool (x); Generator.CBJump (x, L)
 		ELSIF sym = Scanner.for THEN
-			Scanner.Mark ('FOR statement not supported yet!')
+			Scanner.Mark ('FOR statement not supported yet!');
+			Scanner.Get (sym); qualident (obj); Generator.Make_item (x, obj);
+			Check_assignment_dest (x); Check_int (x);
+			Check (Scanner.becomes, 'No :='); expression (y); Check_int (y);
+			Check (Scanner.to, 'No TO'); expression (z);
+			IF sym = Scanner.by THEN Scanner.Get (sym); expression (t);
+				Check_int (t);
+				IF t.mode # Scanner.const THEN Scanner.Mark ('Not const')
+				END
+			END;
+			Check (Scanner.do, 'No DO in FOR statement'); StatementSequence;
+			Check (Scanner.end, err6)
 			(* Implement later *)
 		ELSIF sym = Scanner.case THEN
-			Scanner.Mark ('CASE statement not supported yet!')
+			Scanner.Mark ('CASE statement not supported yet!');
+			Scanner.Get (sym)
 			(* Implement later *)
 		END;
 		

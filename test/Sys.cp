@@ -1,7 +1,7 @@
 MODULE Sys;
 
 IMPORT
-	WinApi;
+	SYSTEM, Strings, WinApi;
 	
 CONST
 	failed = FALSE; success = TRUE;
@@ -27,15 +27,18 @@ END Get_executable_path;
 	
 PROCEDURE Show_error* (msg : ARRAY OF CHAR);
 BEGIN
+(*
 	Console.WriteString ('ERROR: ');
 	Console.WriteString (msg);
-	Console.WriteLn;
+	Console.WriteLn
+*)
 END Show_error;
 
 PROCEDURE File_existed* (filename : ARRAY OF CHAR) : BOOLEAN;
-	VAR res : Dword;
+	VAR res : WinApi.Dword; ptr: WinApi.PChar;
 BEGIN
-	res := WinApi.GetFileAttributesW(filename);
+	ptr := SYSTEM.STRADR(filename);
+	res := WinApi.GetFileAttributesW(SYSTEM.STRADR(filename));
 	RETURN res # ORD(WinApi.INVALID_FILE_ATTRIBUTES)
 END File_existed;
 	
@@ -43,12 +46,13 @@ PROCEDURE Open* (VAR file : FileHandle; filename : ARRAY OF CHAR);
 BEGIN
 	IF File_existed(filename) THEN
 		file.f := WinApi.CreateFileW(
-			SYSTEM.STRADR (filename), ORD(WinApi.GENERIC_READ), 0, NIL,
+			SYSTEM.STRADR (filename),
+			ORD(WinApi.GENERIC_READ + WinApi.GENERIC_WRITE), 0, NIL,
 			WinApi.OPEN_EXISTING, 0, 0
 		)
 	ELSE
 		Show_error ('File not existed!')
-	END;
+	END
 END Open;
 	
 PROCEDURE Rewrite* (VAR file : FileHandle; filename : ARRAY OF CHAR);
@@ -61,7 +65,7 @@ BEGIN
 END Rewrite;
 
 PROCEDURE Close* (VAR file : FileHandle);
-	VAR res: Bool;
+	VAR res: WinApi.Bool;
 BEGIN
 	IF file.f # 0 THEN
 		res := WinApi.CloseHandle(file.f); file.f := 0
@@ -69,18 +73,18 @@ BEGIN
 END Close;
 
 PROCEDURE Rename_file* (oldname, newname : ARRAY OF CHAR);
-	VAR res: Bool;
+	VAR res: WinApi.Bool;
 BEGIN
 	res := WinApi.MoveFileW(SYSTEM.STRADR(oldname), SYSTEM.STRADR(newname))
 END Rename_file;
 
 PROCEDURE Delete_file* (filename : ARRAY OF CHAR);
-	VAR res: Bool;
+	VAR res: WinApi.Bool;
 BEGIN
 	res := WinApi.DeleteFileW(SYSTEM.STRADR(filename))
 END Delete_file;
 
-PROCEDURE Calculate_MD5_hash* (VAR file : FileHandle; VAR buf : ARRAY OF UBYTE);
+PROCEDURE Calculate_MD5_hash* (VAR file : FileHandle; VAR buf : ARRAY OF BYTE);
 (*
 	VAR result : POINTER TO ARRAY OF UBYTE; md5hasher : Crypt.MD5; i : INTEGER;
 *)
@@ -98,7 +102,7 @@ END Calculate_MD5_hash;
 PROCEDURE Read_byte* (VAR file : FileHandle; VAR n : INTEGER);
 	VAR res: WinApi.Bool; buf: BYTE; byteRead: WinApi.Dword;
 BEGIN
-	res := WinApi.ReadFile (
+	res := WinApi.ReadFile(
 		file.f, SYSTEM.ADR(buf), 1, SYSTEM.ADR2(byteRead), NIL
 	);
 	IF (res = 0) OR (byteRead # 1) THEN n := -1 ELSE n := buf
@@ -108,7 +112,7 @@ END Read_byte;
 PROCEDURE Read_2bytes* (VAR file : FileHandle; VAR n : INTEGER);
 	VAR res: WinApi.Bool; buf: WinApi.Word; byteRead: WinApi.Dword;
 BEGIN
-	res := WinApi.ReadFile (
+	res := WinApi.ReadFile(
 		file.f, SYSTEM.ADR(buf), 2, SYSTEM.ADR2(byteRead), NIL
 	);
 	IF (res = 0) OR (byteRead # 2) THEN n := -1 ELSE n := buf
@@ -127,17 +131,17 @@ END Read_string;
 PROCEDURE Read_4bytes* (VAR file : FileHandle; VAR n : INTEGER);
 	VAR res: WinApi.Bool; buf, byteRead: WinApi.Dword;
 BEGIN
-	res := WinApi.ReadFile (
+	res := WinApi.ReadFile(
 		file.f, SYSTEM.ADR(buf), 4, SYSTEM.ADR2(byteRead), NIL
 	);
 	IF (res = 0) OR (byteRead # 4) THEN n := -1 ELSE n := buf
 	END
 END Read_4bytes;
 	
-PROCEDURE Read_8bytes* (VAR file : FileHandle; VAR n : LONGINT);
+PROCEDURE Read_8bytes* (VAR file : FileHandle; VAR n : INTEGER);
 	VAR res: WinApi.Bool; buf: INTEGER; byteRead: WinApi.Dword;
 BEGIN
-	res := WinApi.ReadFile (
+	res := WinApi.ReadFile(
 		file.f, SYSTEM.ADR(buf), 8, SYSTEM.ADR2(byteRead), NIL
 	);
 	IF (res = 0) OR (byteRead # 8) THEN n := -1 ELSE n := buf
@@ -147,79 +151,93 @@ END Read_8bytes;
 (* -------------------------------------------------------------------------- *)
 	
 PROCEDURE Write_byte* (VAR file : FileHandle; n : INTEGER);
-	VAR b : UBYTE;
+	VAR res: WinApi.Bool; buf: BYTE; byteWritten: WinApi.Dword;
 BEGIN
-	b := USHORT(n); file.f.WriteByte (b)
+	buf := n;
+	res := WinApi.WriteFile(
+		file.f, SYSTEM.ADR(buf), 1, SYSTEM.ADR2(byteWritten), NIL
+	)
 END Write_byte;
 
 PROCEDURE Write_ansi_str* (VAR file : FileHandle; str : ARRAY OF CHAR);
-	VAR b : UBYTE; i : INTEGER;
+	VAR i : INTEGER;
 BEGIN
 	i := 0;
-	WHILE i < LEN(str) DO
-		b := USHORT (ORD (str[i])); file.f.WriteByte (b); INC (i)
-	END
+	WHILE (i < LEN(str)) & (str[i] # 0X) DO
+		Write_byte (file, ORD(str[i])); INC (i)
+	END;
+	Write_byte (file, 0)
 END Write_ansi_str;
 	
 PROCEDURE Write_2bytes* (VAR file : FileHandle; n : INTEGER);
-	VAR b : UBYTE;
+	VAR res: WinApi.Bool; buf: WinApi.Word; byteWritten: WinApi.Dword;
 BEGIN
-	b := USHORT(n MOD 256); file.f.WriteByte (b);
-	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b)
+	buf := n;
+	res := WinApi.WriteFile(
+		file.f, SYSTEM.ADR(buf), 2, SYSTEM.ADR2(byteWritten), NIL
+	)
 END Write_2bytes;
 
 PROCEDURE Write_string* (VAR file : FileHandle; str : ARRAY OF CHAR);
 	VAR i : INTEGER;
 BEGIN
 	i := 0;
-	WHILE str[i] # 0X DO Write_2bytes (file, ORD (str[i])); i := i + 1 END;
+	WHILE (i < LEN(str)) & (str[i] # 0X) DO
+		Write_2bytes (file, ORD(str[i])); i := i + 1
+	END;
 	Write_2bytes (file, 0)
 END Write_string;
 	
 PROCEDURE Write_4bytes* (VAR file : FileHandle; n : INTEGER);
-	VAR b : UBYTE;
+	VAR res: WinApi.Bool; buf, byteWritten: WinApi.Dword;
 BEGIN
-	b := USHORT(n MOD 256); file.f.WriteByte (b);
-	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b);
-	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b);
-	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b)
+	buf := n;
+	res := WinApi.WriteFile(
+		file.f, SYSTEM.ADR(buf), 4, SYSTEM.ADR2(byteWritten), NIL
+	)
 END Write_4bytes;
 	
-PROCEDURE Write_8bytes* (VAR file : FileHandle; n : LONGINT);
-	VAR b : UBYTE;
+PROCEDURE Write_8bytes* (VAR file : FileHandle; n : INTEGER);
+	VAR res: WinApi.Bool; byteWritten: WinApi.Dword;
 BEGIN
-	b := USHORT(n MOD 256); file.f.WriteByte (b);
-	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b);
-	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b);
-	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b);
-	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b);
-	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b);
-	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b);
-	n := n DIV 256; b := USHORT(n MOD 256); file.f.WriteByte (b)
+	res := WinApi.WriteFile(
+		file.f, SYSTEM.ADR(n), 8, SYSTEM.ADR2(byteWritten), NIL
+	)
 END Write_8bytes;
 
-PROCEDURE FilePos* (VAR file : FileHandle) : LONGINT;
+PROCEDURE FilePos* (VAR file : FileHandle) : INTEGER;
+	VAR res: WinApi.Bool; byteToMove, newPointer: WinApi.Large_integer;
 BEGIN
-	RETURN file.f.get_Position()
+	byteToMove.QuadPart := 0;
+	res := WinApi.SetFilePointerEx(
+		file.f, byteToMove, SYSTEM.ADR2(newPointer), WinApi.FILE_CURRENT
+	);
+	RETURN newPointer.QuadPart
 END FilePos;
 
-PROCEDURE Seek* (VAR file : FileHandle; pos : LONGINT);
-	VAR res : LONGINT;
+PROCEDURE Seek* (VAR file : FileHandle; pos : INTEGER);
+	VAR res: WinApi.Bool; byteToMove, newPointer: WinApi.Large_integer;
 BEGIN
-	res := file.f.Seek (pos, IO.SeekOrigin.Begin);
-	ASSERT (res = pos)
+	byteToMove.QuadPart := pos;
+	res := WinApi.SetFilePointerEx(
+		file.f, byteToMove, SYSTEM.ADR2(newPointer), WinApi.FILE_BEGIN
+	)
 END Seek;
 
-PROCEDURE SeekRel* (VAR file : FileHandle; offset : LONGINT);
-	VAR res : LONGINT;
+PROCEDURE SeekRel* (VAR file : FileHandle; offset : INTEGER);
+	VAR res: WinApi.Bool; byteToMove, newPointer: WinApi.Large_integer;
 BEGIN
-	res := file.f.Seek (offset, IO.SeekOrigin.Current)
+	byteToMove.QuadPart := offset;
+	res := WinApi.SetFilePointerEx(
+		file.f, byteToMove, SYSTEM.ADR2(newPointer), WinApi.FILE_CURRENT
+	)
 END SeekRel;
 
-PROCEDURE Int_to_string* (x : LONGINT; VAR str : ARRAY OF CHAR);
+PROCEDURE Int_to_string* (x : INTEGER; VAR str : ARRAY OF CHAR);
 	VAR negative : BOOLEAN; s : ARRAY 32 OF CHAR; i, j : INTEGER;
 BEGIN
-	IF x = MIN_INT THEN str := '-9223372036854775808'
+	IF x = MIN_INT THEN str[0] := 0X;
+		Strings.Append ('-9223372036854775808', str)
 	ELSE
 		IF x < 0 THEN negative := TRUE; x := -x
 		ELSE negative := FALSE
@@ -233,18 +251,19 @@ BEGIN
 		
 		IF negative THEN
 			str[0] := '-';
-			FOR j := 0 TO i - 1 DO str[j + 1] := s[i - 1 - j] END;
+			FOR j := 0 TO i - 1 DO str[j + 1] := s[i - 1 - j]
+			END;
 			str[i + 1] := 0X
 		ELSE
-			FOR j := 0 TO i - 1 DO str[j] := s[i - 1 - j] END;
-			str [i] := 0X
+			FOR j := 0 TO i - 1 DO str[j] := s[i - 1 - j]
+			END;
+			str[i] := 0X
 		END
 	END
 END Int_to_string;
 	
-PROCEDURE Console_WriteInt* (x : LONGINT);
-	VAR
-		a : ARRAY 21 OF CHAR;
+PROCEDURE Console_WriteInt* (x : INTEGER);
+	VAR a : ARRAY 21 OF CHAR;
 BEGIN
 	Int_to_string (x, a);
 	Console.WriteString (a)
