@@ -2041,11 +2041,15 @@ BEGIN (* Write_to_file *)
 	END
 END Write_to_file;
 
-PROCEDURE Module_init;
+PROCEDURE Module_init*;
 	VAR modid, i, L, r : INTEGER; int64 : LONGINT;
 		str : Base.LongString; exit : BOOLEAN; key : SymTable.ModuleKey;
 		obj : Base.Object; x, td : Base.Item; tp : Base.Type;
 BEGIN
+	Reset_code_buffer; Reset_reg_stack; curRegs := {}; curXregs := {};
+	ProcState.usedRegs := {}; ProcState.memstack := 0; ProcState.adr := ip;
+	ProcState.locblksize := 0; ProcState.parlist := NIL;
+
 	IF ~ Base.CompilerFlag.main THEN
 		EmitRI (CMPi, reg_D, 4, 1); L := pc; CondBranch (ccZ, 0);
 		EmitBare (RET); Fix_link (L)
@@ -2117,10 +2121,13 @@ BEGIN
 			Free_reg
 		END;
 		tp := tp.next
-	END
+	END;
+	
+	(* Call module main procedure *)
+	CallNear (Linker.entry); Linker.entry := ProcState.adr
 END Module_init;
 
-PROCEDURE Module_exit;
+PROCEDURE Module_exit*;
 BEGIN
 	IF Base.CompilerFlag.main THEN
 		EmitRI (SUBi, reg_SP, 8, 32);
@@ -2130,7 +2137,9 @@ BEGIN
 		MoveRI (reg_A, 4, 1);
 		EmitRI (ADDi, reg_SP, 8, 40);
 		EmitBare (RET)
-	END
+	END;
+	ProcState.prolog_size := 0;
+	Write_to_file (1, pc - 1)
 END Module_exit;
 
 PROCEDURE Placeholder_proc*;
@@ -2160,8 +2169,7 @@ BEGIN
 	ELSE
 		Linker.entry := ip;
 		ProcState.locblksize := 0;
-		ProcState.parlist := NIL;
-		Module_init
+		ProcState.parlist := NIL
 	END;
 END Enter;
 	
@@ -2183,50 +2191,50 @@ PROCEDURE Return*;
 	END Param_size;
 		
 BEGIN (* Return *)
-	IF ProcState.parlist # NIL THEN
-		nXregs := 0;
-		FOR i := 15 TO 6 BY -1 DO
-			IF i IN ProcState.usedXregs THEN
-				SetRmOperand_regI (reg_SP, nXregs * 16);
-				EmitXmmRm (VMOVAPS, i, 4); INC (nXregs)
-			END
-		END;
+	nXregs := 0;
+	FOR i := 15 TO 6 BY -1 DO
+		IF i IN ProcState.usedXregs THEN
+			SetRmOperand_regI (reg_SP, nXregs * 16);
+			EmitXmmRm (VMOVAPS, i, 4); INC (nXregs)
+		END
+	END;
+
+	nRegs := 0;
+	FOR i := 15 TO 0 BY -1 DO
+		IF i IN savedRegs * ProcState.usedRegs THEN
+			PopR (i); INC (nRegs)
+		END
+	END;
 	
-		nRegs := 0;
-		FOR i := 15 TO 0 BY -1 DO
+	i := (ProcState.locblksize + nRegs * 8) MOD 16;
+	IF i > 0 THEN INC (ProcState.locblksize, 16 - i) END;
+	EmitBare (LEAVE); EmitBare (RET);
+	endPC := pc; endIP := ip;
+	
+	PushR (reg_BP); EmitRR (MOVd, reg_BP, 8, reg_SP);
+	IF ProcState.locblksize > 0 THEN
+		EmitRI (SUBi, reg_SP, 8, ProcState.locblksize)
+	END;
+	
+	IF nRegs > 0 THEN
+		FOR i := 0 TO 15 DO
 			IF i IN savedRegs * ProcState.usedRegs THEN
-				PopR (i); INC (nRegs)
+				PushR (i); INC (nRegs)
 			END
-		END;
-		
-		i := (ProcState.locblksize + nRegs * 8) MOD 16;
-		IF i > 0 THEN INC (ProcState.locblksize, 16 - i) END;
-		EmitBare (LEAVE); EmitBare (RET);
-		endPC := pc; endIP := ip;
-		
-		PushR (reg_BP); EmitRR (MOVd, reg_BP, 8, reg_SP);
-		IF ProcState.locblksize > 0 THEN
-			EmitRI (SUBi, reg_SP, 8, ProcState.locblksize)
-		END;
-		
-		IF nRegs > 0 THEN
-			FOR i := 0 TO 15 DO
-				IF i IN savedRegs * ProcState.usedRegs THEN
-					PushR (i); INC (nRegs)
-				END
+		END
+	END;
+	
+	IF nXregs > 0 THEN
+		EmitRI (SUBi, reg_SP, 8, nXregs * 16);
+		FOR i := 6 TO 15 DO
+			IF i IN ProcState.usedXregs THEN
+				DEC (nXregs); SetRmOperand_regI (reg_SP, nXregs * 16);
+				EmitXmmRm (VMOVAPSd, i, 4)
 			END
-		END;
-		
-		IF nXregs > 0 THEN
-			EmitRI (SUBi, reg_SP, 8, nXregs * 16);
-			FOR i := 6 TO 15 DO
-				IF i IN ProcState.usedXregs THEN
-					DEC (nXregs); SetRmOperand_regI (reg_SP, nXregs * 16);
-					EmitXmmRm (VMOVAPSd, i, 4)
-				END
-			END
-		END;
-		
+		END
+	END;
+	
+	IF ProcState.parlist # NIL THEN
 		paramRegs [0] := reg_C; paramRegs [1] := reg_D;
 		paramRegs [2] := reg_R8; paramRegs [3] := reg_R9;
 		obj := ProcState.parlist; i := 0; k := 0;
@@ -2239,15 +2247,12 @@ BEGIN (* Return *)
 			END;
 			i := i + 1; k := k - 8;
 			IF k = 0 THEN obj := obj.next END
-		END;
-	
-		ProcState.prolog_size := ip - endIP;
-		Write_to_file (endPC, pc - 1);
-		Write_to_file (1, endPC - 1)
-	ELSE
-		ProcState.prolog_size := 0;
-		Module_exit; Write_to_file (1, pc - 1)
-	END
+		END
+	END;
+
+	ProcState.prolog_size := ip - endIP;
+	Write_to_file (endPC, pc - 1);
+	Write_to_file (1, endPC - 1)
 END Return;
 
 PROCEDURE Check_varsize* (n : LONGINT; g : BOOLEAN);

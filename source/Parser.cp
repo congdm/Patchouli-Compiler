@@ -1621,6 +1621,8 @@ BEGIN
 			StatementSequence
 		END;
 		Generator.Return;
+		Generator.Module_init;
+		Generator.Module_exit;
 
 		Check (Scanner.end, 'No END for module');
 		IF sym = Scanner.ident THEN

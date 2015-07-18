@@ -241,7 +241,7 @@ VAR
 		hwnd : Handle;
 		lpText, lpCaption : PChar;
 		uType : Dword
-	) : SYSTEM.DWORD;
+	) : Dword;
 	
 	(* Painting and Drawing functions *)
 	BeginPaint* : PROCEDURE (hwnd : Handle; lpPaint : PPaintstruct) : Handle;
