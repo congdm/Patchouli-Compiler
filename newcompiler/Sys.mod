@@ -9,9 +9,8 @@ TYPE
 	END;
 	
 PROCEDURE File_existed* (filename : ARRAY OF CHAR) : BOOLEAN;
-	VAR res : WinApi.Dword; ptr: WinApi.PChar;
+	VAR res : WinApi.Dword;
 BEGIN
-	ptr := SYSTEM.STRADR(filename);
 	res := WinApi.GetFileAttributesW(SYSTEM.STRADR(filename));
 	RETURN res # ORD(WinApi.INVALID_FILE_ATTRIBUTES)
 END File_existed;

@@ -133,7 +133,7 @@ PROCEDURE Write_ansi_str* (VAR file : FileHandle; str : ARRAY OF CHAR);
 	VAR b : UBYTE; i : INTEGER;
 BEGIN
 	i := 0;
-	WHILE i < LEN(str) DO
+	WHILE (i < LEN(str)) & (str[i] # 0X) DO
 		b := USHORT (ORD (str[i])); file.f.WriteByte (b); INC (i)
 	END
 END Write_ansi_str;

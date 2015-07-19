@@ -850,12 +850,12 @@ BEGIN
 			ELSE Scanner.Mark (err1); Generator.Free_item (x)
 			END
 		ELSIF ~ par.readonly THEN
-			IF xtype = ftype THEN Generator.Ref_param (x, pinfo)
-			ELSIF {ftype.form, xtype.form} = {Base.type_record} THEN
+			IF {ftype.form, xtype.form} = {Base.type_record} THEN
 				IF Base.Is_extension (xtype, ftype) THEN (* Ok *)					
 				ELSE Scanner.Mark ('Actual type is not an extension of formal')
 				END;
 				Generator.Record_var_param (x, pinfo)
+			ELSIF xtype = ftype THEN Generator.Ref_param (x, pinfo)
 			ELSE Scanner.Mark (err1); Generator.Free_item (x)
 			END
 		ELSE Check_assignment (ftype, x); Generator.Ref_param (x, pinfo)

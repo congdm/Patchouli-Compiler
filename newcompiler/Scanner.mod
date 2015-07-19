@@ -30,7 +30,7 @@ CONST
     maxExp = 38; stringBufSize = 256;
   
     (* Symbols *)
-    null = 0; times* = 1; rdiv* = 2; div* = 3; mod* = 4;
+    null* = 0; times* = 1; rdiv* = 2; div* = 3; mod* = 4;
     and* = 5; plus* = 6; minus* = 7; or* = 8; eql* = 9;
     neq* = 10; lss* = 11; leq* = 12; gtr* = 13; geq* = 14;
     in* = 15; is* = 16; arrow* = 17; period* = 18;
@@ -319,7 +319,7 @@ BEGIN
 			END;
 			Read
 		END
-	UNTIL sym # null
+	UNTIL (sym # null) OR eof
 END Get;
 
 PROCEDURE Init* (VAR file: Sys.FileHandle; pos: INTEGER);

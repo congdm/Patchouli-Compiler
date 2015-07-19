@@ -98,7 +98,7 @@ TYPE
 	
 VAR
 	modid : Base.String;
-	out, fixupFile : Sys.FileHandle;
+	out, fixupFile, debugFile : Sys.FileHandle;
 
 	code : ARRAY 100000H OF UBYTE;
 	codeinfo : ARRAY 20000H OF InstructionInfo;
@@ -536,9 +536,12 @@ BEGIN
 	IF type.mod = -1 THEN
 		ASSERT (type.tdAdr # 0);
 		x.mode := Base.class_var; x.lev := -1
-	ELSIF type.tdAdr = 0 THEN
-		SymTable.Add_usedType (type, type.mod);
-		Alloc_static_data (8, 8); type.tdAdr := -staticsize;
+	ELSE
+		(* Imported type *)
+		IF type.tdAdr = 0 THEN
+			SymTable.Add_usedType (type, type.mod);
+			Alloc_static_data (8, 8); type.tdAdr := -staticsize
+		END;
 		x.mode := Base.class_ref; x.lev := -2; x.c := 0
 	END;
 	x.type := Base.int_type; x.a := type.tdAdr
@@ -1259,10 +1262,7 @@ END Field;
 	
 PROCEDURE Deref* (VAR x : Base.Item);
 BEGIN
-	IF x.mode = Base.class_ref THEN
-		x.r := Alloc_reg(); SetRmOperand (x); EmitRegRm (MOVd, x.r, 8);
-		x.a := x.c; x.mode := mode_regI
-	ELSIF x.mode = Base.class_var THEN
+	IF x.mode IN {Base.class_var, Base.class_ref} THEN
 		load (x); x.a := 0; x.mode := mode_regI
 	ELSIF x.mode = mode_regI THEN
 		SetRmOperand (x); EmitRegRm (MOVd, x.r, 8); x.a := 0
@@ -1708,7 +1708,8 @@ BEGIN
 		tag.mode := Base.class_ref; tag.lev := x.lev; tag.a := x.a + 8
 	ELSE Get_typedesc (tag, x.type)
 	END;
-	Ref_param (x, pinfo); Ref_param (tag, pinfo)
+	Ref_param (x, pinfo);
+	Ref_param (tag, pinfo)
 END Record_var_param;
 	
 PROCEDURE Open_array_param* (VAR x : Base.Item; VAR pinfo : ProcInfo; ftype : Base.Type);
@@ -2152,7 +2153,7 @@ BEGIN
 END Placeholder_proc;
 
 PROCEDURE Enter* (proc : Base.Object; locblksize : INTEGER);
-	VAR k : INTEGER;
+	VAR k : INTEGER; str: Base.String;
 BEGIN
 	Reset_code_buffer; Reset_reg_stack; curRegs := {}; curXregs := {};
 	ProcState.usedRegs := {}; ProcState.memstack := 0; ProcState.adr := ip;
@@ -2165,7 +2166,12 @@ BEGIN
 				Sys.Write_4bytes (fixupFile, ip - 5)
 			END;
 			proc.val := ip
-		END
+		END;
+		(* Debug info *)
+		Sys.Write_ansi_str (debugFile, proc.name);
+		Sys.Write_byte (debugFile, ORD(' ')); Sys.Int_to_string (ip, str);
+		Sys.Write_ansi_str (debugFile, str);
+		Sys.Write_byte (debugFile, 13); Sys.Write_byte (debugFile, 10)
 	ELSE
 		Linker.entry := ip;
 		ProcState.locblksize := 0;
@@ -2273,7 +2279,7 @@ PROCEDURE Init* (modname : Base.String);
 BEGIN
 	ip := 0; varbase := 0; staticsize := 128; modid := modname;
 	Sys.Rewrite (out, tempOutputName); Sys.Seek (out, 400H);
-	Sys.Rewrite (fixupFile, tempFixupName)
+	Sys.Rewrite (fixupFile, tempFixupName); Sys.Rewrite (debugFile, 'debug.txt')
 END Init;
 
 PROCEDURE Align (VAR off : INTEGER; alignment : INTEGER);
@@ -2634,7 +2640,7 @@ BEGIN
 		Sys.Console_WriteLn; Sys.Console_WriteString ('No output generated.');
 		Sys.Console_WriteLn; Sys.Delete_file (tempOutputName)
 	END;
-	Sys.Delete_file (tempFixupName)
+	Sys.Delete_file (tempFixupName); Sys.Close (debugFile)
 END Finish;
 
 BEGIN
