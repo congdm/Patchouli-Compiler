@@ -97,10 +97,8 @@ BEGIN
 		OR (ch # '_') & (ch > 'Z') & (ch < 'a') OR (ch > 'z');
 	id[i] := 0X; 
 	IF i < 10 THEN k2 := KWX[i-1];  (* search for keyword *)
-		WHILE (id # keyTab[k2].id) & (k2 < KWX[i]) DO INC(k2)
-		END;
-		IF k2 < KWX[i] THEN sym := keyTab[k2].sym ELSE sym := ident
-		END
+		WHILE (id # keyTab[k2].id) & (k2 < KWX[i]) DO INC(k2) END;
+		IF k2 < KWX[i] THEN sym := keyTab[k2].sym ELSE sym := ident END
 	ELSE sym := ident
 	END
 END Identifier;
@@ -328,7 +326,7 @@ BEGIN
 END Init;
 
 PROCEDURE EnterKW (sym: INTEGER; name: ARRAY OF CHAR);
-BEGIN Base.StrCopy(name, keyTab[k].id); keyTab[k].sym := sym; INC(k)
+BEGIN Base.StrCopy(name, keyTab[k].id); keyTab[k].sym := sym; INC(k);
 END EnterKW;
 
 BEGIN

@@ -275,7 +275,10 @@ PROCEDURE EmitRmImm (op, rsize, imm : INTEGER);
 	CONST w_bit = 1; s_bit = 2;
 	VAR op3bits : INTEGER;
 BEGIN
-	Emit_16bit_prefix (rsize); Emit_REX_prefix (0, rsize);
+	Emit_16bit_prefix (rsize);
+	IF op MOD 256 # IMULi THEN Emit_REX_prefix (0, rsize)
+	ELSE Emit_REX_prefix (op DIV 256, rsize)
+	END;
 	Handle_multibytes_opcode (op);
 	
 	op3bits := op DIV 256; op := op MOD 256;
@@ -1850,7 +1853,7 @@ BEGIN
 END Scalar_comparison;
 	
 PROCEDURE String_comparison (op : INTEGER; VAR x, y : Base.Item);
-	VAR xform, yform, xsize, ysize, i : INTEGER;
+	VAR xform, yform, xsize, ysize, i, count : INTEGER;
 		charsize, L, r, rc : INTEGER; xstr, ystr : Base.LongString;
 		hasToGenerateCode : BOOLEAN;
 BEGIN
@@ -1880,18 +1883,21 @@ BEGIN
 	IF hasToGenerateCode THEN
 		Load_adr (x); Load_adr (y);
 		EmitRR (MOVd, reg_DI, 8, x.r); EmitRR (MOVd, reg_SI, 8, y.r);
-		r := x.r; rc := y.r; IF xsize > ysize THEN xsize := ysize END;
-		MoveRI (rc, 4, xsize);
+		r := x.r; rc := y.r;
+		IF xsize > ysize THEN count := ysize ELSE count := xsize END;
+		MoveRI (rc, 4, count);
 		
 		L := pc; SetRmOperand_regI (reg_DI, 0); EmitRegRm (MOVd, r, 2);
-		SetRmOperand_regI (reg_SI, 0);
-		EmitRegRm (CMPd, r, 2); Set_cond (x, ccZ); CFJump (x);
-		EmitRR (TEST, x.r, 4, x.r); Set_cond (x, ccNZ); CFJump (x);
-		EmitRI (SUBi, rc, 4, 2); Set_cond (x, ccNZ); CFJump (x);
+		SetRmOperand_regI (reg_SI, 0); EmitRegRm (CMPd, r, 2);
+		Set_cond (x, ccZ); CFJump (x);
+		EmitRR (TEST, x.r, 4, x.r); CFJump (x);
+		EmitRI (SUBi, rc, 4, 2); CFJump (x);
 		EmitRI (ADDi, reg_DI, 8, 2); EmitRI (ADDi, reg_SI, 8, 2);
 		BJump (L); Fixup (x);
 		SetRmOperand_regI (reg_SI, 0); EmitRegRm (CMPd, r, 2);
-		Set_cond (x, ccZ);
+		IF (xsize = ysize) OR ({xform, yform} # {Base.type_array}) THEN
+			Set_cond (x, ccCodeOf(op))
+		END;
 		
 		Free_reg; Free_reg
 	ELSE x.mode := mode_imm
