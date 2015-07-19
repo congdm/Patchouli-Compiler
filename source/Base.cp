@@ -340,8 +340,10 @@ BEGIN
 		Sys.Read_byte (f, b);
 		IF i < 10 THEN
 			finish := b >= 128; b := b MOD 128; n := n + b * k;
-			k := k * 128; i := i + 1;
-			IF finish & (b >= 64) THEN n := n + (-1 * k) END
+			IF i # 9 THEN k := k * 128 END; i := i + 1;
+			IF finish & (b >= 64) THEN
+				IF i # 9 THEN n := n + (-1 * k) ELSE n := n + MIN_INT END
+			END
 		ELSIF i = 10 THEN
 			finish := TRUE; IF b = 127 THEN n := n + MIN_INT END
 		ELSE ASSERT(FALSE); finish := TRUE

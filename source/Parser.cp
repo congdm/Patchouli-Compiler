@@ -255,6 +255,9 @@ BEGIN
 			OR (yform = Base.type_array)
 			& (y.type.base = Base.char_type)
 			& (xform = Base.type_string) THEN (* Ok *)
+		ELSIF (xform = Base.type_array) & (x.type.base = Base.char_type)
+			& (yform = Base.type_array)	& (y.type.base = Base.char_type) THEN
+			(* Ok *)
 		ELSIF equality THEN
 			IF (xform IN Base.types_Address) & (yform = Base.type_nil) THEN
 				(* Ok *)

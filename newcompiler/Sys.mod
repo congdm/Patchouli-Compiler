@@ -1,39 +1,13 @@
 MODULE Sys;
 
 IMPORT
-	SYSTEM, Strings, WinApi;
-	
-CONST
-	failed = FALSE; success = TRUE;
-	MIN_INT = -9223372036854775807 - 1;
+	SYSTEM, Strings, WinApi, Console;
 	
 TYPE
 	FileHandle* = RECORD
 		f : WinApi.Handle
 	END;
 	
-PROCEDURE Get_executable_path* (VAR out : ARRAY OF CHAR; VAR n : INTEGER);
-(*	VAR
-		asm : Reflect.Assembly;
-		s : System.String;
-		i : INTEGER; *)
-BEGIN
-(*	asm := Reflect.Assembly.GetEntryAssembly();
-	s := asm.get_Location();
-	i := s.LastIndexOf('\');
-	s := s.Remove(i + 1);
-	out := s; n := s.get_Length() *)
-END Get_executable_path;
-	
-PROCEDURE Show_error* (msg : ARRAY OF CHAR);
-BEGIN
-(*
-	Console.WriteString ('ERROR: ');
-	Console.WriteString (msg);
-	Console.WriteLn
-*)
-END Show_error;
-
 PROCEDURE File_existed* (filename : ARRAY OF CHAR) : BOOLEAN;
 	VAR res : WinApi.Dword; ptr: WinApi.PChar;
 BEGIN
@@ -50,8 +24,7 @@ BEGIN
 			ORD(WinApi.GENERIC_READ + WinApi.GENERIC_WRITE), 0, NIL,
 			WinApi.OPEN_EXISTING, 0, 0
 		)
-	ELSE
-		Show_error ('File not existed!')
+	ELSE Console.WriteString ('File not existed!'); Console.WriteLn
 	END
 END Open;
 	
@@ -83,19 +56,6 @@ PROCEDURE Delete_file* (filename : ARRAY OF CHAR);
 BEGIN
 	res := WinApi.DeleteFileW(SYSTEM.STRADR(filename))
 END Delete_file;
-
-PROCEDURE Calculate_MD5_hash* (VAR file : FileHandle; VAR buf : ARRAY OF BYTE);
-(*
-	VAR result : POINTER TO ARRAY OF UBYTE; md5hasher : Crypt.MD5; i : INTEGER;
-*)
-BEGIN
-(*
-	md5hasher := Crypt.MD5.Create();
-	result := md5hasher.ComputeHash (file.f);
-	FOR i := 0 TO 15 DO buf[i] := result[i] END
-*)
-	(* stub *)
-END Calculate_MD5_hash;
 
 (* -------------------------------------------------------------------------- *)
 
@@ -232,52 +192,6 @@ BEGIN
 		file.f, byteToMove, SYSTEM.ADR2(newPointer), WinApi.FILE_CURRENT
 	)
 END SeekRel;
-
-PROCEDURE Int_to_string* (x : INTEGER; VAR str : ARRAY OF CHAR);
-	VAR negative : BOOLEAN; s : ARRAY 32 OF CHAR; i, j : INTEGER;
-BEGIN
-	IF x = MIN_INT THEN str[0] := 0X;
-		Strings.Append ('-9223372036854775808', str)
-	ELSE
-		IF x < 0 THEN negative := TRUE; x := -x
-		ELSE negative := FALSE
-		END;
-		
-		i := 0;
-		REPEAT
-			s[i] := CHR(x MOD 10 + ORD('0'));
-			INC (i); x := x DIV 10
-		UNTIL x = 0;
-		
-		IF negative THEN
-			str[0] := '-';
-			FOR j := 0 TO i - 1 DO str[j + 1] := s[i - 1 - j]
-			END;
-			str[i + 1] := 0X
-		ELSE
-			FOR j := 0 TO i - 1 DO str[j] := s[i - 1 - j]
-			END;
-			str[i] := 0X
-		END
-	END
-END Int_to_string;
-	
-PROCEDURE Console_WriteInt* (x : INTEGER);
-	VAR a : ARRAY 21 OF CHAR;
-BEGIN
-	Int_to_string (x, a);
-	Console.WriteString (a)
-END Console_WriteInt;
-	
-PROCEDURE Console_WriteString* (s : ARRAY OF CHAR);
-BEGIN
-	Console.WriteString (s)
-END Console_WriteString;
-
-PROCEDURE Console_WriteLn*;
-BEGIN
-	Console.WriteLn
-END Console_WriteLn;
 
 BEGIN
 END Sys.
