@@ -32,7 +32,7 @@ END WriteLn;
 	
 BEGIN
 	Sys.Open (srcfile, 'Test.mod'); Scanner.Init (srcfile, 0);
-	REPEAT Scanner.Get (sym); Console.WriteInt(sym);
+	REPEAT Scanner.Get (sym);
 		IF sym = Scanner.module THEN WriteLn ('MODULE')
 		END
 	UNTIL sym = Scanner.null;

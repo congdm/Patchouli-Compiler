@@ -242,11 +242,12 @@ END Next_inst;
 	
 PROCEDURE EmitRegRm (op, reg, rsize : INTEGER);
 	CONST w_bit = 1;
+	VAR org: INTEGER;
 BEGIN
 	Emit_16bit_prefix (rsize); Emit_REX_prefix (reg, rsize);
-	Handle_multibytes_opcode (op);
+	org := op; Handle_multibytes_opcode (op);
 	
-	IF (rsize > 1) & ((op < LEA) OR (op = MOVZX) OR (op = IMUL)) THEN
+	IF (rsize > 1) & ((org < LEA) OR (org = MOVZX) OR (org = IMUL)) THEN
 		op := op + w_bit
 	END;
 	Put_byte (op); Emit_ModRM (reg);

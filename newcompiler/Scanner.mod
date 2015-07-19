@@ -92,6 +92,7 @@ PROCEDURE Identifier (VAR sym: INTEGER);
 BEGIN
 	i := 0;
 	REPEAT
+		Console.Write (ch); Console.WriteLn;
 		IF i < Base.MaxIdentLen THEN id[i] := ch; INC(i) END; Read
 	UNTIL (ch < '0') OR (ch > '9') & (ch < 'A')
 		OR (ch # '_') & (ch > 'Z') & (ch < 'a') OR (ch > 'z');
