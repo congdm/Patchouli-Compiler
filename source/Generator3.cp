@@ -342,7 +342,7 @@ BEGIN
 	IF x.mode IN {Base.class_var, Base.class_ref} THEN
 		Emit.mem.rm := reg_BP; Emit.mem.disp := SHORT (x.a);
 		IF x.lev > 0 THEN
-			IF (x.a >= MIN_INT8) OR (x.a <= MAX_INT8) THEN Emit.mem.mod := 1
+			IF (x.a >= MIN_INT8) & (x.a <= MAX_INT8) THEN Emit.mem.mod := 1
 			ELSE Emit.mem.mod := 2
 			END
 		ELSE
@@ -2169,10 +2169,8 @@ BEGIN
 			proc.val := ip
 		END;
 		(* Debug info *)
-		Sys.Write_ansi_str (debugFile, proc.name);
-		Sys.Write_byte (debugFile, ORD(' ')); Sys.Int_to_string (ip, str);
-		Sys.Write_ansi_str (debugFile, str);
-		Sys.Write_byte (debugFile, 13); Sys.Write_byte (debugFile, 10)
+		Sys.Console_WriteString (proc.name); Sys.Console_WriteString (' ');
+		Sys.Console_WriteInt (ip); Sys.Console_WriteLn
 	ELSE
 		Linker.entry := ip;
 		ProcState.locblksize := 0;
@@ -2280,7 +2278,7 @@ PROCEDURE Init* (modname : Base.String);
 BEGIN
 	ip := 0; varbase := 0; staticsize := 128; modid := modname;
 	Sys.Rewrite (out, tempOutputName); Sys.Seek (out, 400H);
-	Sys.Rewrite (fixupFile, tempFixupName); Sys.Rewrite (debugFile, 'debug.txt')
+	Sys.Rewrite (fixupFile, tempFixupName)
 END Init;
 
 PROCEDURE Align (VAR off : INTEGER; alignment : INTEGER);
@@ -2620,6 +2618,7 @@ BEGIN
 		Sys.Close (out);
 
 		(* Show statistics *)
+		Sys.Console_WriteLn;
 		Sys.Console_WriteString ('No errors found.'); Sys.Console_WriteLn;
 		Sys.Console_WriteString ('Code size: ');
 		Sys.Console_WriteInt (Linker.code_size); Sys.Console_WriteLn;
@@ -2641,7 +2640,7 @@ BEGIN
 		Sys.Console_WriteLn; Sys.Console_WriteString ('No output generated.');
 		Sys.Console_WriteLn; Sys.Delete_file (tempOutputName)
 	END;
-	Sys.Delete_file (tempFixupName); Sys.Close (debugFile)
+	Sys.Delete_file (tempFixupName)
 END Finish;
 
 BEGIN

@@ -26,7 +26,7 @@ IMPORT
   
 CONST
 	MaxIdLen = Base.MaxIdentLen;
-    NKW = 34;  (* Number of keywords *)
+    NKW = 35;  (* Number of keywords *)
     maxExp = 38; stringBufSize = 256;
   
     (* Symbols *)
@@ -92,7 +92,6 @@ PROCEDURE Identifier (VAR sym: INTEGER);
 BEGIN
 	i := 0;
 	REPEAT
-		Console.Write (ch); Console.WriteLn;
 		IF i < Base.MaxIdentLen THEN id[i] := ch; INC(i) END; Read
 	UNTIL (ch < '0') OR (ch > '9') & (ch < 'A')
 		OR (ch # '_') & (ch > 'Z') & (ch < 'a') OR (ch > 'z');
