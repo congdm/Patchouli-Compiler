@@ -326,7 +326,7 @@ BEGIN
 END Init;
 
 PROCEDURE EnterKW (sym: INTEGER; name: ARRAY OF CHAR);
-BEGIN Base.StrCopy(name, keyTab[k].id); keyTab[k].sym := sym; INC(k);
+BEGIN Base.StrCopy(name, keyTab[k].id); keyTab[k].sym := sym; INC(k)
 END EnterKW;
 
 BEGIN

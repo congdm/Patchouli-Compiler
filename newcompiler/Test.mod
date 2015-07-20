@@ -6,7 +6,7 @@ IMPORT
 	
 VAR
 	srcfile: Sys.FileHandle;
-	sym: INTEGER;
+	sym, prevSym: INTEGER;
 	
 	(* Symbols *)
 (*    null = 0; times* = 1; rdiv* = 2; div* = 3; mod* = 4;
@@ -27,14 +27,64 @@ VAR
 	
 PROCEDURE WriteLn (str: ARRAY OF CHAR);
 BEGIN
-	Console.WriteString (str); Console.WriteLn
+	Console.WriteString (str);
+	IF str[0] # ';' THEN Console.Write(' ') ELSE Console.WriteLn END
 END WriteLn;
 	
 BEGIN
-	Sys.Open (srcfile, 'Test.mod'); Scanner.Init (srcfile, 0);
+	Sys.Open (srcfile, 'Test.mod'); Scanner.Init (srcfile, 0); prevSym := 0;
 	REPEAT Scanner.Get (sym);
 		IF sym = Scanner.module THEN WriteLn ('MODULE')
-		END
+		ELSIF sym = Scanner.import THEN WriteLn ('IMPORT')
+		ELSIF sym = Scanner.begin THEN WriteLn ('BEGIN')
+		ELSIF sym = Scanner.procedure THEN WriteLn ('PROCEDURE')
+		ELSIF sym = Scanner.var THEN WriteLn ('VAR')
+		ELSIF sym = Scanner.type THEN WriteLn ('TYPE')
+		ELSIF sym = Scanner.const THEN WriteLn ('CONST')
+		ELSIF sym = Scanner.address THEN WriteLn ('ADDRESS')
+		ELSIF sym = Scanner.pointer THEN WriteLn ('POINTER')
+		ELSIF sym = Scanner.record THEN WriteLn ('RECORD')
+		ELSIF sym = Scanner.array THEN WriteLn ('ARRAY')
+		ELSIF sym = Scanner.return THEN WriteLn ('RETURN')
+		ELSIF sym = Scanner.until THEN WriteLn ('UNTIL')
+		ELSIF sym = Scanner.elsif THEN WriteLn ('ELSIF')
+		ELSIF sym = Scanner.else THEN WriteLn ('ELSE')
+		ELSIF sym = Scanner.bar THEN WriteLn ('|')
+		ELSIF sym = Scanner.end THEN WriteLn ('END')
+		ELSIF sym = Scanner.semicolon THEN WriteLn (';')
+		ELSIF sym = Scanner.by THEN WriteLn ('BY')
+		ELSIF sym = Scanner.to THEN WriteLn ('TO')
+		ELSIF sym = Scanner.do THEN WriteLn ('DO')
+		ELSIF sym = Scanner.of THEN WriteLn ('OF')
+		ELSIF sym = Scanner.then THEN WriteLn ('THEN')
+		ELSIF sym = Scanner.rbrace THEN WriteLn ('}')
+		ELSIF sym = Scanner.rbrak THEN WriteLn (']')
+		ELSIF sym = Scanner.rparen THEN WriteLn (')')
+		ELSIF sym = Scanner.upto THEN WriteLn ('..')
+		ELSIF sym = Scanner.becomes THEN WriteLn (':=')
+		ELSIF sym = Scanner.colon THEN WriteLn (':')
+		ELSIF sym = Scanner.comma THEN WriteLn (',')
+		ELSIF sym = Scanner.for THEN WriteLn ('FOR')
+		ELSIF sym = Scanner.case THEN WriteLn ('CASE')
+		ELSIF sym = Scanner.repeat THEN WriteLn ('REPEAT')
+		ELSIF sym = Scanner.while THEN WriteLn ('WHILE')
+		ELSIF sym = Scanner.if THEN WriteLn ('IF')
+		ELSIF sym = Scanner.ident THEN WriteLn (Scanner.id)
+		ELSIF sym = Scanner.lbrace THEN WriteLn ('{')
+		ELSIF sym = Scanner.lbrak THEN WriteLn ('[')
+		ELSIF sym = Scanner.lparen THEN WriteLn ('(')
+		ELSIF sym = Scanner.not THEN WriteLn ('~')
+		ELSIF sym = Scanner.string THEN WriteLn (Scanner.str)
+		ELSIF sym = Scanner.nil THEN WriteLn ('NIL')
+		ELSIF sym = Scanner.true THEN WriteLn ('TRUE')
+		ELSIF sym = Scanner.false THEN WriteLn ('FALSE')
+		ELSIF sym = Scanner.real THEN Console.WriteReal (Scanner.rval); Console.Write(' ')
+		ELSIF sym = Scanner.int THEN Console.WriteInt (Scanner.ival); Console.Write(' ')
+		ELSIF sym = Scanner.char THEN Console.Write (CHR(Scanner.ival)); Console.Write(' ')
+		ELSIF sym = Scanner.period THEN WriteLn ('.')
+		ELSIF sym = Scanner.arrow THEN WriteLn ('^')
+		END;
+		prevSym := sym
 	UNTIL sym = Scanner.null;
 	Sys.Close (srcfile)
 END Test.

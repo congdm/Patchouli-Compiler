@@ -827,7 +827,7 @@ BEGIN
 		EmitRegRm (MOVd, reg, 8);
 		IF x.c # 0 THEN EmitRI (ADDi, reg, 8, x.c) END
 	ELSIF x.mode = mode_regI THEN
-		EmitRR (MOVd, reg, 8, x.r);
+		IF reg # x.r THEN EmitRR (MOVd, reg, 8, x.r) END;
 		IF x.a # 0 THEN EmitRI (ADDi, reg, 8, x.a) END
 	ELSE ASSERT(FALSE)
 	END
@@ -1033,11 +1033,16 @@ BEGIN
 END IntegerOp;
 
 PROCEDURE Subtract (VAR x, y : Base.Item);
+	VAR r: INTEGER;
 BEGIN
 	IF x.mode # mode_imm THEN
 		IF Small_const (y) THEN EmitRI (SUBi, x.r, 8, y.a)
 		ELSE load (y); EmitRR (SUBd, x.r, 8, y.r); Free_reg
 		END
+	ELSIF y.mode IN {mode_reg, mode_regI} THEN
+		r := Alloc_reg(); Load_to_reg (r, 8, y); Load_to_reg (y.r, 8, y);
+		EmitRR (SUBd, y.r, 8, r); Free_reg;
+		x.r := y.r; x.mode := mode_reg
 	ELSE
 		load (x); load (y); x.r := Reg_stack(-2);
 		EmitRR (SUBd, x.r, 8, Reg_stack(-1)); Free_reg
@@ -1890,7 +1895,7 @@ BEGIN
 		L := pc; SetRmOperand_regI (reg_DI, 0); EmitRegRm (MOVd, r, 2);
 		SetRmOperand_regI (reg_SI, 0); EmitRegRm (CMPd, r, 2);
 		Set_cond (x, ccZ); CFJump (x);
-		EmitRR (TEST, x.r, 4, x.r); CFJump (x);
+		EmitRR (TEST, x.r, 4, x.r); x.c := ccNZ; CFJump (x);
 		EmitRI (SUBi, rc, 4, 2); CFJump (x);
 		EmitRI (ADDi, reg_DI, 8, 2); EmitRI (ADDi, reg_SI, 8, 2);
 		BJump (L); Fixup (x);

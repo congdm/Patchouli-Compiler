@@ -1,7 +1,7 @@
 MODULE Base;
 
 IMPORT
-	Sys, Console;
+	Sys;
 	
 CONST
 	WordSize* = 8; CharSize* = 2; MaxChar* = 65535; SetUpperLimit* = 64;
@@ -112,7 +112,7 @@ PROCEDURE StrCopy* (src: ARRAY OF CHAR; VAR dst: ARRAY OF CHAR);
 BEGIN
 	i := 0;
 	WHILE (i < LEN(dst) - 1) & (i < LEN(src)) & (src[i] # 0X) DO
-		dst[i] := src[i]; INC(i);
+		dst[i] := src[i]; INC(i)
 	END;
 	dst[i] := 0X
 END StrCopy;
