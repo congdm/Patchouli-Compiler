@@ -1858,54 +1858,57 @@ BEGIN
 END Scalar_comparison;
 	
 PROCEDURE String_comparison (op : INTEGER; VAR x, y : Base.Item);
-	VAR xform, yform, xsize, ysize, i, count : INTEGER;
-		charsize, L, r, rc : INTEGER; xstr, ystr : Base.LongString;
+	VAR xform, yform, xlen, ylen, xb, yb, i, count : INTEGER;
+		chsize, L, r, rc : INTEGER; xstr, ystr : Base.LongString;
 		hasToGenerateCode : BOOLEAN;
 BEGIN
-	ASSERT (x.type.len > 0); ASSERT (y.type.len > 0);
-	(* Open array case not implemented yet *)
-	
-	xform := x.type.form; yform := y.type.form;
-	xsize := x.type.size; ysize := y.type.size;
-	charsize := Base.char_type.size;
-	hasToGenerateCode := FALSE;
-	
-	IF {xform, yform} = {Base.type_string} THEN
-		IF xsize # ysize THEN x.a := 0
-		ELSIF (x.lev # -2) & (y.lev # -2) THEN
-			(* x and y are not imported strings *)
-			Base.Get_string (xstr, x.type.strPos);
-			Base.Get_string (ystr, y.type.strPos);
-			IF xstr = ystr THEN x.a := 1 ELSE x.a := 0 END
+	chsize := Base.char_type.size; xlen := x.type.len; ylen := y.type.len;
+	ASSERT ((chsize = 1) OR (chsize = 2) OR (chsize = 4) OR (chsize = 8));
+	IF (xlen > 0) & (ylen > 0) THEN
+		xform := x.type.form; yform := y.type.form; hasToGenerateCode := FALSE;
+		IF {xform, yform} = {Base.type_string} THEN
+			IF xlen # ylen THEN x.a := 0
+			ELSIF (x.lev # -2) & (y.lev # -2) THEN
+				(* x and y are not imported strings *)
+				Base.Get_string (xstr, x.type.strPos);
+				Base.Get_string (ystr, y.type.strPos);
+				IF xstr = ystr THEN x.a := 1 ELSE x.a := 0 END
+			ELSE hasToGenerateCode := TRUE
+			END
+		ELSIF (xform = Base.type_string) & (xlen - 1 > ylen)
+			OR (yform = Base.type_string) & (ylen - 1 > xlen) THEN x.a := 0
 		ELSE hasToGenerateCode := TRUE
+		END;	
+		IF hasToGenerateCode THEN
+			INCL (ProcState.usedRegs, reg_DI);
+			INCL (ProcState.usedRegs, reg_SI);
+			Load_adr (x); Load_adr (y); EmitRR (MOVd, reg_DI, 8, x.r);
+			EmitRR (MOVd, reg_SI, 8, y.r); r := x.r; rc := y.r;
+			IF xlen > ylen THEN count := ylen ELSE count := xlen END;
+			MoveRI (rc, 8, count); L := pc;
+			SetRmOperand_regI (reg_DI, 0); EmitRegRm (MOVd, r, chsize);
+			SetRmOperand_regI (reg_SI, 0); EmitRegRm (CMPd, r, chsize);
+			Set_cond (x, ccZ); CFJump (x);
+			IF chsize = 8 THEN EmitRR (TEST, r, 8, r)
+			ELSE EmitRR (TEST, r, 4, r)
+			END;
+			x.c := ccNZ; CFJump (x); EmitRI (SUBi, rc, 4, 1); CFJump (x);
+			EmitRI (ADDi, reg_DI, 8, chsize); EmitRI (ADDi, reg_SI, 8, chsize);
+			BJump (L); Fixup (x); SetRmOperand_regI (reg_SI, 0);
+			EmitRegRm (CMPd, r, chsize); Set_cond (x, ccCodeOf(op));
+			IF (xlen # ylen) & ({xform, yform} = {Base.type_array}) THEN
+				CFJump (x);
+				IF xlen > ylen THEN SetRmOperand_regI (reg_DI, chsize)
+				ELSE SetRmOperand_regI (reg_SI, chsize)
+				END;
+				EmitRmImm (CMPi, chsize, 0); x.c := ccZ
+			END;		
+			Free_reg; Free_reg
+		ELSE x.mode := mode_imm
 		END
-	ELSIF (xform = Base.type_string) & (xsize - charsize > ysize)
-		OR (yform = Base.type_string) & (ysize - charsize > xsize) THEN
-		x.a := 0
-	ELSE hasToGenerateCode := TRUE
-	END;
-	
-	IF hasToGenerateCode THEN
-		Load_adr (x); Load_adr (y);
-		EmitRR (MOVd, reg_DI, 8, x.r); EmitRR (MOVd, reg_SI, 8, y.r);
-		r := x.r; rc := y.r;
-		IF xsize > ysize THEN count := ysize ELSE count := xsize END;
-		MoveRI (rc, 4, count);
-		
-		L := pc; SetRmOperand_regI (reg_DI, 0); EmitRegRm (MOVd, r, 2);
-		SetRmOperand_regI (reg_SI, 0); EmitRegRm (CMPd, r, 2);
-		Set_cond (x, ccZ); CFJump (x);
-		EmitRR (TEST, x.r, 4, x.r); x.c := ccNZ; CFJump (x);
-		EmitRI (SUBi, rc, 4, 2); CFJump (x);
-		EmitRI (ADDi, reg_DI, 8, 2); EmitRI (ADDi, reg_SI, 8, 2);
-		BJump (L); Fixup (x);
-		SetRmOperand_regI (reg_SI, 0); EmitRegRm (CMPd, r, 2);
-		IF (xsize = ysize) OR ({xform, yform} # {Base.type_array}) THEN
-			Set_cond (x, ccCodeOf(op))
-		END;
-		
-		Free_reg; Free_reg
-	ELSE x.mode := mode_imm
+	ELSE (* Open array *)
+		Sys.Console_WriteString ('Open array comparison not supported yet');
+		ASSERT(FALSE)
 	END
 END String_comparison;
 
@@ -2180,8 +2183,10 @@ BEGIN
 			proc.val := ip
 		END;
 		(* Debug info *)
+		(*
 		Sys.Console_WriteString (proc.name); Sys.Console_WriteString (' ');
 		Sys.Console_WriteInt (ip); Sys.Console_WriteLn
+		*)
 	ELSE
 		Linker.entry := ip;
 		ProcState.locblksize := 0;
@@ -2629,7 +2634,6 @@ BEGIN
 		Sys.Close (out);
 
 		(* Show statistics *)
-		Sys.Console_WriteLn;
 		Sys.Console_WriteString ('No errors found.'); Sys.Console_WriteLn;
 		Sys.Console_WriteString ('Code size: ');
 		Sys.Console_WriteInt (Linker.code_size); Sys.Console_WriteLn;

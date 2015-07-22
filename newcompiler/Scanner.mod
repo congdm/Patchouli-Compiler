@@ -154,12 +154,12 @@ END Ten;
 PROCEDURE Number(VAR sym: INTEGER);
     CONST max = Base.MaxInt;
 	VAR i, k2, e, n, s, h: INTEGER; x: REAL;
-		d: ARRAY 16 OF INTEGER;
+		d: ARRAY 21 OF INTEGER;
 		negE: BOOLEAN;
 BEGIN
 	ival := 0; i := 0; n := 0; k2 := 0;
     REPEAT
-		IF n < 16 THEN d[n] := ORD(ch)-30H; INC(n)
+		IF n < LEN(d) THEN d[n] := ORD(ch)-30H; INC(n)
 		ELSE Mark('Too many digits'); n := 0
 		END;
 		Read

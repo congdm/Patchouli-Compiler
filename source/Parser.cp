@@ -275,9 +275,11 @@ BEGIN
 				END
 			ELSIF (yform IN Base.types_Address) & (xform = Base.type_nil) THEN
 				(* Ok *)
-			ELSE Scanner.Mark (errWrongType); y.type := x.type
+			ELSE Scanner.Mark (errWrongType); y.type := Base.int_type;
+				x.type := Base.int_type
 			END
-		ELSE Scanner.Mark (errWrongType); y.type := x.type
+		ELSE Scanner.Mark (errWrongType); y.type := Base.int_type;
+			x.type := Base.int_type
 		END
 	END
 END Check_comparison;

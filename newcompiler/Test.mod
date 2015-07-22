@@ -83,6 +83,22 @@ BEGIN
 		ELSIF sym = Scanner.char THEN Console.Write (CHR(Scanner.ival)); Console.Write(' ')
 		ELSIF sym = Scanner.period THEN WriteLn ('.')
 		ELSIF sym = Scanner.arrow THEN WriteLn ('^')
+		ELSIF sym = Scanner.is THEN WriteLn ('IS')
+		ELSIF sym = Scanner.in THEN WriteLn ('IN')
+		ELSIF sym = Scanner.geq THEN WriteLn ('>=')
+		ELSIF sym = Scanner.gtr THEN WriteLn ('>')
+		ELSIF sym = Scanner.leq THEN WriteLn ('<=')
+		ELSIF sym = Scanner.lss THEN WriteLn ('<')
+		ELSIF sym = Scanner.neq THEN WriteLn ('#')
+		ELSIF sym = Scanner.eql THEN WriteLn ('=')
+		ELSIF sym = Scanner.or THEN WriteLn ('OR')
+		ELSIF sym = Scanner.minus THEN WriteLn ('-')
+		ELSIF sym = Scanner.plus THEN WriteLn ('+')
+		ELSIF sym = Scanner.and THEN WriteLn ('&')
+		ELSIF sym = Scanner.mod THEN WriteLn ('MOD')
+		ELSIF sym = Scanner.div THEN WriteLn ('DIV')
+		ELSIF sym = Scanner.rdiv THEN WriteLn ('/')
+		ELSIF sym = Scanner.times THEN WriteLn ('*')
 		END;
 		prevSym := sym
 	UNTIL sym = Scanner.null;
