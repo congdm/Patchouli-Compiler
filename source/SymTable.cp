@@ -536,7 +536,8 @@ BEGIN
 			IF field.export OR (field.type.num_ptr > 0) THEN
 				Base.WriteInt (symfile, Base.class_field);
 				IF ~ field.export THEN
-					Sys.Int_to_string (i, s); Sys.Write_string (symfile, s)
+					Sys.Int_to_string (i, s); Sys.Write_string (symfile, s);
+					INC (i)
 				ELSE Sys.Write_string (symfile, field.name)
 				END;
 				Detect_type (field.type);

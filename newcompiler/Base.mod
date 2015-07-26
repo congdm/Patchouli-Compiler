@@ -10,8 +10,8 @@ CONST
 	
 	(* Object class/Item mode *)
 	cHead* = 0; cModule* = 1; cVar* = 2; cRef* = 3; cConst* = 4;
-	cField* = 5; cType* = 6; cProc* = 7; cSproc* = 8;
-	mReg* = 9; mRegI* = 10; mCond* = 11; mXreg* = 12;
+	cField* = 5; cType* = 6; cProc* = 7; cSProc* = 8; cSFunc* = 9;
+	mReg* = 10; mRegI* = 11; mCond* = 12; mXreg* = 13;
 	
 	clsVariable* = {cVar, cRef, mRegI};
 	clsValue* = clsVariable	+ {cConst, mReg, mCond, cProc, mXreg};
@@ -48,7 +48,6 @@ TYPE
 	TypeDesc* = RECORD
 		ref*, mod*: INTEGER;
 		tdAdr*, expno*: INTEGER;
-		strAdr*, strPos*, charVal*: INTEGER;
 		
 		form*, size*, len*, numPtr*, alignment*: INTEGER;
 		base*: Type; baseTpObj*: Object;
@@ -78,7 +77,7 @@ VAR
 	intType*, byteType*, wordType*, dwordType*: Type;
 	boolType*, setType*, charType*, nilType*: Type;
 	realType*, longrealType*: Type;
-	byteArrayType*: Type;
+	byteArrayType*, stringType*: Type;
 	
 	predefinedTypes*: ARRAY 32 OF Type;
 	preTypeNo*: INTEGER;
@@ -217,7 +216,9 @@ BEGIN
 	
 	NewPredefinedType (wordType, tInteger, 2);
 	NewPredefinedType (dwordType, tInteger, 4);
-
+	
+	NewPredefinedType (stringType, tString, CharSize);
+	
 	NewPredefinedType (byteArrayType, tArray, 1);
 	byteArrayType.base := byteType; byteArrayType.baseTpObj := NIL;
 	byteArrayType.len := 1

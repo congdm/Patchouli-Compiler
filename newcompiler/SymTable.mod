@@ -621,25 +621,25 @@ BEGIN
 	Enter (Base.cType, 0, 'REAL', Base.realType);
 	Enter (Base.cType, 0, 'LONGREAL', Base.realType);
 	
-	Enter (Base.cSproc, 0, 'INC', NIL);
-	Enter (Base.cSproc, 1, 'DEC', NIL);
-	Enter (Base.cSproc, 2, 'INCL', NIL);
-	Enter (Base.cSproc, 3, 'EXCL', NIL);
-	Enter (Base.cSproc, 4, 'NEW', NIL);
-	Enter (Base.cSproc, 5, 'ASSERT', NIL);
+	Enter (Base.cSProc, 0, 'INC', NIL);
+	Enter (Base.cSProc, 1, 'DEC', NIL);
+	Enter (Base.cSProc, 2, 'INCL', NIL);
+	Enter (Base.cSProc, 3, 'EXCL', NIL);
+	Enter (Base.cSProc, 4, 'NEW', NIL);
+	Enter (Base.cSProc, 5, 'ASSERT', NIL);
 (*	Enter (Base.cSproc, 6, 'PACK', NIL); *)
 (*	Enter (Base.cSproc, 7, 'UNPK', NIL); *)
 	
-	Enter (Base.cSproc, 200, 'ABS', Base.intType);
-	Enter (Base.cSproc, 201, 'ODD', Base.boolType);
-	Enter (Base.cSproc, 202, 'LEN', Base.intType);
-	Enter (Base.cSproc, 203, 'LSL', Base.intType);
-	Enter (Base.cSproc, 204, 'ASR', Base.intType);
-	Enter (Base.cSproc, 205, 'ROR', Base.intType);
-	Enter (Base.cSproc, 206, 'FLOOR', Base.intType);
-	Enter (Base.cSproc, 207, 'FLT', Base.realType);
-	Enter (Base.cSproc, 208, 'ORD', Base.intType);
-	Enter (Base.cSproc, 209, 'CHR', Base.charType)
+	Enter (Base.cSFunc, 200, 'ABS', Base.intType);
+	Enter (Base.cSFunc, 201, 'ODD', Base.boolType);
+	Enter (Base.cSFunc, 202, 'LEN', Base.intType);
+	Enter (Base.cSFunc, 203, 'LSL', Base.intType);
+	Enter (Base.cSFunc, 204, 'ASR', Base.intType);
+	Enter (Base.cSFunc, 205, 'ROR', Base.intType);
+	Enter (Base.cSFunc, 206, 'FLOOR', Base.intType);
+	Enter (Base.cSFunc, 207, 'FLT', Base.realType);
+	Enter (Base.cSFunc, 208, 'ORD', Base.intType);
+	Enter (Base.cSFunc, 209, 'CHR', Base.charType)
 END Init;
 	
 BEGIN

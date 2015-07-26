@@ -4,4 +4,7 @@
 ..\source\AyaCompile Sys.mod
 ..\source\AyaCompile Base.mod
 ..\source\AyaCompile Scanner.mod
+..\source\AyaCompile Generator.mod
+..\source\AyaCompile SymTable.mod
+..\source\AyaCompile Parser.mod
 ..\source\AyaCompile Test.mod
