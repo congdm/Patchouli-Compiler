@@ -1889,10 +1889,8 @@ BEGIN
 			SetRmOperand_regI (reg_DI, 0); EmitRegRm (MOVd, r, chsize);
 			SetRmOperand_regI (reg_SI, 0); EmitRegRm (CMPd, r, chsize);
 			Set_cond (x, ccZ); CFJump (x);
-			IF chsize = 8 THEN EmitRR (TEST, r, 8, r)
-			ELSE EmitRR (TEST, r, 4, r)
-			END;
-			x.c := ccNZ; CFJump (x); EmitRI (SUBi, rc, 4, 1); CFJump (x);
+			EmitRR (TEST, r, chsize, r); x.c := ccNZ; CFJump (x);
+			EmitRI (SUBi, rc, 4, 1); CFJump (x);
 			EmitRI (ADDi, reg_DI, 8, chsize); EmitRI (ADDi, reg_SI, 8, chsize);
 			BJump (L); Fixup (x); SetRmOperand_regI (reg_SI, 0);
 			EmitRegRm (CMPd, r, chsize); Set_cond (x, ccCodeOf(op));

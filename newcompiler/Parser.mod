@@ -504,6 +504,17 @@ END StatementSequence;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
+
+PROCEDURE ImportList;
+BEGIN Scanner.Get (sym);
+	IF sym = Scanner.ident THEN Scanner.Get (sym) END;
+	WHILE sym = Scanner.comma DO Scanner.Get (sym);
+		IF sym # Scanner.ident THEN Scanner.Mark (superflousCommaError)
+		ELSE Scanner.Get (sym)
+		END
+	END;
+	Check (Scanner.semicolon, noSemicolonError)
+END ImportList;
 	
 PROCEDURE Module*;
 	VAR modid: Base.IdentStr; varsize: INTEGER;
@@ -518,7 +529,7 @@ BEGIN
 	
 	IF modid # '@' THEN
 		Base.Init; SymTable.Init (modid); Generator.Init (modid);
-		(* IF sym = Scanner.import THEN ImportList END; *)
+		IF sym = Scanner.import THEN ImportList END;
 		varsize := 0; DeclarationSequence (varsize);
 
 		Generator.Enter (NIL, 0);
