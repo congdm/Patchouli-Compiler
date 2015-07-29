@@ -1,7 +1,11 @@
 MODULE Generator;
 
 IMPORT
-	Base, Scanner;
+	SYSTEM, Sys, Base, Scanner;
+
+VAR
+	static_buf: ARRAY 1048576 OF BYTE;
+	static_size, static_base: INTEGER;
 	
 PROCEDURE Clean_item* (VAR x: Base.Item);
 END Clean_item;
@@ -12,7 +16,16 @@ END Make_const;
 PROCEDURE Make_item* (VAR x: Base.Item; obj: Base.Object);
 END Make_item;
 
-PROCEDURE Make_string* (VAR x: Base.Item; slen: INTEGER);
+PROCEDURE Make_string* (VAR x: Base.Item);
+	VAR i, slen: INTEGER; str: Base.String;
+BEGIN
+	x.b := Scanner.slen; DEC (static_size, slen * Base.CharSize);
+	x.a := static_size; i := 0; str := Scanner.str;
+	WHILE i < x.b DO
+		SYSTEM.PUT (SYSTEM.ADR(static_size) + i * Base.CharSize, str[i]);
+		INC (i)
+	END;
+	x.mode := Base.cVar; x.type := Base.stringType; x.lev := -1
 END Make_string;
 
 PROCEDURE Align* (VAR offset: INTEGER; alignment: INTEGER);
@@ -29,6 +42,12 @@ END Str_to_char;
 
 PROCEDURE Store* (VAR x, y: Base.Item);
 END Store;
+
+PROCEDURE Store_struct* (VAR x, y: Base.Item);
+END Store_struct;
+
+PROCEDURE Store_string* (VAR x, y: Base.Item);
+END Store_string;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -109,6 +128,8 @@ END Module_exit;
 (* -------------------------------------------------------------------------- *)
 
 PROCEDURE Init* (modid: Base.IdentStr);
+BEGIN
+	static_size := 0; static_base := -24
 END Init;
 
 PROCEDURE Finish*;

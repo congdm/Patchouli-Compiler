@@ -23,7 +23,7 @@ CONST
 	tAddress* = 11;
 	
 	typeSimple* = {tInteger, tBoolean, tSet, tReal, tChar};
-	typeAddress* = {tPointer, tProcedure, tAddress};
+	typeAddress* = {tPointer, tProcedure, tAddress, tNil};
 	typePointer* = {tPointer, tAddress};
 	typeScalar* = typeSimple + typeAddress;
 	typeNumberic* = {tInteger, tReal};

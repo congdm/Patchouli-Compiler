@@ -161,8 +161,7 @@ PROCEDURE RegisterUndefType* (
 	VAR undef: UndefPtrList;
 BEGIN
 	NEW (undef); undef.typ := typ; Base.StrCopy(basename, undef.basename);
-	undef.exported := export; typ.base := Base.intType;
-	undef.next := undefPtr; undefPtr := undef
+	undef.exported := export; undef.next := undefPtr; undefPtr := undef
 END RegisterUndefType;
 	
 PROCEDURE CheckUndefList* (obj: Base.Object);
