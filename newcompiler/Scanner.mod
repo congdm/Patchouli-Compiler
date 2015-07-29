@@ -159,7 +159,7 @@ PROCEDURE Number(VAR sym: INTEGER);
 BEGIN
 	ival := 0; i := 0; n := 0; k2 := 0;
     REPEAT
-		IF n < LEN(d) THEN d[n] := ORD(ch)-30H; INC(n)
+		IF n < LEN(d) THEN d[n] := ORD(ch) - 30H; INC(n)
 		ELSE Mark('Too many digits'); n := 0
 		END;
 		Read
@@ -221,11 +221,11 @@ BEGIN
 		REPEAT
 			IF d[i] < 10 THEN
 				IF k2 <= (max-d[i]) DIV 10 THEN k2 := k2*10 + d[i]
-				ELSE Mark('Too large'); k2 := 0
+				ELSE Mark ('Too large'); k2 := 0
 				END
-			ELSE Mark('Bad integer')
+			ELSE Mark ('Bad integer')
 			END;
-			INC(i)
+			INC (i)
 		UNTIL i = n;
 		sym := int; ival := k2
     END

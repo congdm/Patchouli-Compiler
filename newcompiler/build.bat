@@ -8,3 +8,4 @@
 ..\source\AyaCompile SymTable.mod
 ..\source\AyaCompile Parser.mod
 ..\source\AyaCompile Test.mod
+..\source\AyaCompile AyaCompile.mod

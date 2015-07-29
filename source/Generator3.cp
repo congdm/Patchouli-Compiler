@@ -1040,7 +1040,7 @@ BEGIN
 		ELSE load (y); EmitRR (SUBd, x.r, 8, y.r); Free_reg
 		END
 	ELSIF y.mode IN {mode_reg, mode_regI} THEN
-		r := Alloc_reg(); Load_to_reg (r, 8, y); Load_to_reg (y.r, 8, y);
+		r := Alloc_reg(); Load_to_reg (r, 8, y); Load_to_reg (y.r, 8, x);
 		EmitRR (SUBd, y.r, 8, r); Free_reg;
 		x.r := y.r; x.mode := mode_reg
 	ELSE

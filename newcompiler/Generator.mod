@@ -7,13 +7,37 @@ VAR
 	static_buf: ARRAY 1048576 OF BYTE;
 	static_size, static_base: INTEGER;
 	
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+	
+PROCEDURE Align* (VAR offset: INTEGER; alignment: INTEGER);
+END Align;
+
+PROCEDURE FitInReg* (size: INTEGER) : BOOLEAN;
+	RETURN (size = 1) & (size = 2) & (size = 3) & (size = 8)
+END FitInReg;
+
+PROCEDURE Fix_param_adr* (VAR adr: INTEGER);
+BEGIN INC (adr, 16)
+END Fix_param_adr;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+	
 PROCEDURE Clean_item* (VAR x: Base.Item);
 END Clean_item;
 
 PROCEDURE Make_const* (VAR x: Base.Item; tp: Base.Type; val: INTEGER);
+BEGIN
+	x.mode := Base.cConst; x.type := tp; x.a := val
 END Make_const;
 
 PROCEDURE Make_item* (VAR x: Base.Item; obj: Base.Object);
+BEGIN
+	x.readonly := obj.readonly; x.param := obj.param;
+	x.mode := obj.class; x.lev := obj.lev;
+	x.type := obj.type; x.obj := obj;
+	x.a := obj.val; x.b := obj.val2; x.c := 0
 END Make_item;
 
 PROCEDURE Make_string* (VAR x: Base.Item);
@@ -27,9 +51,6 @@ BEGIN
 	END;
 	x.mode := Base.cVar; x.type := Base.stringType; x.lev := -1
 END Make_string;
-
-PROCEDURE Align* (VAR offset: INTEGER; alignment: INTEGER);
-END Align;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
