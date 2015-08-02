@@ -2,6 +2,12 @@ MODULE Generator;
 
 IMPORT
 	SYSTEM, Sys, Base, Scanner;
+	
+TYPE
+	ProcCall* = RECORD
+		fpar*: Base.Object;
+		nofact*, nofpar*: INTEGER
+	END;
 
 VAR
 	static_buf: ARRAY 1048576 OF BYTE;
@@ -129,6 +135,57 @@ END Member_test;
 
 PROCEDURE Type_test* (VAR x: Base.Item; tp: Base.Type; guard: BOOLEAN);
 END Type_test;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+
+PROCEDURE Set1* (VAR x: Base.Item);
+END Set1;
+
+PROCEDURE Set2* (VAR x, y: Base.Item);
+END Set2;
+
+PROCEDURE Set3* (VAR x, y, z: Base.Item);
+END Set3;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+(* selector *)
+
+PROCEDURE Deref* (VAR x: Base.Item);
+END Deref;
+
+PROCEDURE Field* (VAR x: Base.Item; field: Base.Object);
+END Field;
+
+PROCEDURE Index* (VAR x, y: Base.Item);
+END Index;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+(* Procedure call *)
+
+PROCEDURE Prepare_to_call* (VAR x: Base.Item; VAR call: ProcCall);
+END Prepare_to_call;
+
+PROCEDURE Call* (VAR call: ProcCall);
+END Call;
+
+PROCEDURE Return_value* (VAR x: Base.Item);
+BEGIN
+END Return_value;
+
+PROCEDURE Value_param* (VAR x: Base.Item; VAR call: ProcCall);
+END Value_param;
+
+PROCEDURE Ref_param* (VAR x: Base.Item; VAR call: ProcCall);
+END Ref_param;
+
+PROCEDURE Record_param* (VAR x: Base.Item; VAR call: ProcCall);
+END Record_param;
+
+PROCEDURE Array_param* (VAR x: Base.Item; VAR call: ProcCall);
+END Array_param;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)

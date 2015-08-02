@@ -161,7 +161,7 @@ PROCEDURE RegisterUndefType* (
 	VAR undef: UndefPtrList;
 BEGIN
 	NEW (undef); undef.typ := typ; Base.StrCopy(basename, undef.basename);
-	undef.exported := export; undef.next := undefPtr; undefPtr := undef
+	undef.next := undefPtr; undefPtr := undef
 END RegisterUndefType;
 	
 PROCEDURE CheckUndefList* (obj: Base.Object);
@@ -169,15 +169,11 @@ PROCEDURE CheckUndefList* (obj: Base.Object);
 BEGIN
 	p := undefPtr;
 	REPEAT
-		IF p.basename # obj.name THEN prev := p; p := p.next
-		ELSE
-			p.typ.base := obj.type;
-			IF ~ p.exported OR obj.export THEN (* no problem *)
-			ELSE Scanner.Mark ('This record type must be exported')
-			END;
+		IF p.basename # obj.name THEN prev := p
+		ELSE p.typ.base := obj.type;
 			IF p = undefPtr THEN undefPtr := p.next ELSE prev.next := p.next
 			END;
-			p := NIL (* exit *)
+			p := p.next
 		END
 	UNTIL p = NIL
 END CheckUndefList;
@@ -187,7 +183,7 @@ PROCEDURE CleanupUndefList*;
 BEGIN
 	REPEAT msg := 'Record type '; Strings.Append (undefPtr.basename, msg);
 		Strings.Append (' is not defined', msg); Scanner.Mark (msg);
-		undefPtr.typ.base := Base.intType; undefPtr := undefPtr.next
+		undefPtr := undefPtr.next
 	UNTIL undefPtr = NIL
 END CleanupUndefList;
 

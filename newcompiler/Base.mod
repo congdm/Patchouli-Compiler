@@ -50,7 +50,7 @@ TYPE
 		tdAdr*, expno*: INTEGER;
 		
 		form*, size*, len*, numPtr*, alignment*: INTEGER;
-		base*: Type; baseTpObj*: Object;
+		base*: Type; obj*: Object;
 		fields*: Object
 	END;
 	
@@ -58,7 +58,7 @@ TYPE
 		param*, readonly*, export* : BOOLEAN;
 		name* : IdentStr;
 		class*, lev* : INTEGER;
-		type* : Type; tpObj*: Object;
+		type* : Type;
 		next*, dsc* : Object;
 		val*, val2* : INTEGER
 	END;
@@ -220,6 +220,6 @@ BEGIN
 	NewPredefinedType (stringType, tString, CharSize);
 	
 	NewPredefinedType (byteArrayType, tArray, 1);
-	byteArrayType.base := byteType; byteArrayType.baseTpObj := NIL;
+	byteArrayType.base := byteType;
 	byteArrayType.len := 1
 END Base.

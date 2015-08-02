@@ -2191,11 +2191,37 @@ BEGIN
 		ProcState.parlist := NIL
 	END;
 END Enter;
+
+PROCEDURE Set_pointer_to_zero (adr : LONGINT; lev : INTEGER; typ : Base.Type);
+	VAR x, y : Base.Item; i : INTEGER; field : Base.Object;
+BEGIN
+	IF typ.form = Base.type_pointer THEN
+		x.mode := Base.class_var; x.a := adr; x.type := typ; x.lev := lev;
+		SetRmOperand (x); EmitRmImm (MOVi, 8, 0)
+	ELSIF typ.form = Base.type_array THEN i := 0;
+		WHILE i < typ.len DO
+			Set_pointer_to_zero (adr + i * typ.base.size, lev, typ.base);
+			INC (i)
+		END
+	ELSIF typ.form = Base.type_record THEN
+		IF (typ.base # NIL) & (typ.base.num_ptr > 0) THEN
+			Set_pointer_to_zero (adr, lev, typ.base)
+		END;
+		field := typ.fields;
+		WHILE field # Base.guard DO
+			IF field.type.num_ptr > 0 THEN
+				Set_pointer_to_zero (adr + field.val, lev, field.type)
+			END;
+			field := field.next
+		END
+	END
+END Set_pointer_to_zero;
 	
 PROCEDURE Return*;
 	CONST savedRegs = {reg_DI, reg_SI, reg_R12, reg_R13, reg_R14, reg_R15};
 	VAR i, k, nXregs, nRegs, endPC, endIP : INTEGER;
 		paramRegs : ARRAY 4 OF UBYTE; obj : Base.Object;
+		x : Base.Item;
 		
 	PROCEDURE Param_size (obj : Base.Object) : INTEGER;
 		VAR result : INTEGER;
@@ -2267,6 +2293,15 @@ BEGIN (* Return *)
 			i := i + 1; k := k - 8;
 			IF k = 0 THEN obj := obj.next END
 		END
+	END;
+	
+	obj := SymTable.top_scope.next;
+	WHILE obj # Base.guard DO
+		IF (obj.class = Base.class_var) & ~ obj.param
+			& (obj.type.num_ptr > 0) THEN
+			Set_pointer_to_zero (obj.val, obj.lev, obj.type)
+		END;
+		obj := obj.next
 	END;
 
 	ProcState.prolog_size := ip - endIP;
