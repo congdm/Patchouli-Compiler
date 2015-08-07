@@ -698,12 +698,12 @@ BEGIN
 		L := pc; CondBranch (cond, 0); Branch (0); Fix_link (L);
 		L := pc - 1;
 		MoveRI (reg_A, 1, trapno);
-		MoveRI (reg_C, 4, Scanner.charNum);
+		(*MoveRI (reg_C, 4, Scanner.charNum);*)
 		EmitBare (INT3);
 		Fix_link (L)
 	ELSIF cond = ccAlways THEN
 		MoveRI (reg_A, 1, trapno);
-		MoveRI (reg_C, 4, Scanner.charNum);
+		(*MoveRI (reg_C, 4, Scanner.charNum);*)
 		EmitBare (INT3)
 	END
 END Trap;

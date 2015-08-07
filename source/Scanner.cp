@@ -201,8 +201,9 @@ PROCEDURE Hex;
 	VAR x, i : INTEGER;
 BEGIN val := 0; i := 0;
 	IF numLen > 16 THEN Mark (errLargeNumber); numLen := 16 END;
+	
 	WHILE i < numLen DO x := numArray [i];
-		IF x > 9 THEN x := x - (ORD ('A') - ORD ('0')) END;
+		IF x > 9 THEN x := x - (ORD ('A') - ORD ('0')) + 10 END;
 		val := ASH (val, 4) + x; INC (i)
 	END;
 	IF ch = 'H' THEN Read_char; typeOfVal := Base.int_type

@@ -8,6 +8,8 @@ CONST
 	noEndError = 'END expected';
 	noOfError = 'OF expected';
 	noToError = 'TO expected';
+	noThenError = 'THEN expected';
+	noDoError = 'DO expected';
 	notConstError = 'Not a constant value';
 	superflousCommaError = 'Superflous ,';
 	superflousSemicolonError = 'Superflous ;';
@@ -32,6 +34,7 @@ CONST
 	invalidExtError = 'Invalid extension';
 	noIdentError = 'Expect an identifier';
 	tooMuchParamError = 'Too much parameters';
+	undefinedError = 'Undefined identifier';
 	
 VAR
 	sym*: INTEGER;
@@ -285,7 +288,7 @@ BEGIN (* stub *)
 			IF sym # Scanner.ident THEN Scanner.Mark (noIdentError) END;
 			SymTable.Find (obj, 'INTEGER')
 		END;
-	ELSE Scanner.Mark ('Undefined identifier')
+	ELSE Scanner.Mark (undefinedError)
 	END;
 	Scanner.Get (sym)
 END qualident;
@@ -622,11 +625,62 @@ BEGIN
 				ProcedureCall (x, TRUE)
 			ELSE Scanner.Mark ('Invalid statement'); Scanner.Get (sym)
 			END
-		ELSIF sym = Scanner.if THEN Scanner.Get (sym)
-		ELSIF sym = Scanner.while THEN Scanner.Get (sym)
-		ELSIF sym = Scanner.repeat THEN Scanner.Get (sym)
-		ELSIF sym = Scanner.for THEN Scanner.Get (sym)
-		ELSIF sym = Scanner.case THEN Scanner.Get (sym)
+		ELSIF sym = Scanner.if THEN
+			L := 0; Scanner.Get (sym); expression (x); CheckBool (x);
+			Generator.CFJump (x); Check (Scanner.then, noThenError);
+			StatementSequence;
+			WHILE sym = Scanner.elsif DO
+				Generator.FJump (L); Generator.Fix_link (x.a);
+				Scanner.Get (sym); expression (x); CheckBool (x);
+				Generator.CFJump (x); Check (Scanner.then, noThenError);
+				StatementSequence
+			END;			
+			IF sym = Scanner.else THEN
+				Generator.FJump (L); Generator.Fix_link (x.a);
+				Scanner.Get (sym); StatementSequence
+			ELSE Generator.Fix_link (x.a)
+			END;
+			Generator.Fix_link (L); Check (Scanner.end, noEndError)
+		ELSIF sym = Scanner.while THEN
+			L := Generator.pc; Scanner.Get (sym); expression (x); CheckBool (x);
+			Generator.CFJump (x); Check (Scanner.do, noDoError);
+			StatementSequence;
+			WHILE sym = Scanner.elsif DO
+				Generator.BJump (L); Generator.Fix_link (x.a);
+				Scanner.Get (sym); expression (x); CheckBool (x);
+				Generator.CFJump (x); Check (Scanner.do, noDoError);
+				StatementSequence
+			END;
+			Generator.BJump (L); Generator.Fix_link (x.a);
+			Check (Scanner.end, noEndError)
+		ELSIF sym = Scanner.repeat THEN
+			L := Generator.pc; Scanner.Get (sym); StatementSequence;
+			Check (Scanner.until, 'UNTIL expected'); expression (x);
+			CheckBool (x); Generator.CBJump (x, L)
+		ELSIF sym = Scanner.for THEN Scanner.Get (sym);
+			IF sym = Scanner.ident THEN SymTable.Find (obj, Scanner.id);
+				IF obj # Base.guard THEN Generator.Make_item (x, obj);
+					CheckVar (x, FALSE); CheckInt (x)
+				ELSE Scanner.Mark (undefinedError); MakeVar (x, Base.intType)
+				END;
+			ELSE Scanner.Mark (noIdentError); MakeVar (x, Base.intType)
+			END;
+			Check (Scanner.becomes, 'No :='); expression (y); CheckInt (y);
+			Generator.Store (x, y); Check (Scanner.to, noToError);
+			expression (z); CheckInt (z); Generator.For1 (z);
+			IF sym = Scanner.by THEN
+				Scanner.Get (sym); expression (t); CheckInt (t);
+				IF t.mode # Scanner.const THEN
+					Scanner.Mark (notConstError); MakeIntConst (t)
+				END
+			END;
+			L := Generator.pc; Generator.For2 (x, z);
+			Check (Scanner.do, noDoError); StatementSequence;
+			Check (Scanner.end, noEndError); Generator.For3 (x, z, t.a, L)
+		ELSIF sym = Scanner.case THEN
+			Scanner.Mark ('CASE statement not supported yet!');
+			Scanner.Get (sym)
+			(* Implement later *)
 		END;
 		IF sym = Scanner.semicolon THEN Scanner.Get(sym)
 		ELSIF sym < Scanner.semicolon THEN Scanner.Mark (noSemicolonError)

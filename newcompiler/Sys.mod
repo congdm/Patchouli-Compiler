@@ -32,7 +32,7 @@ BEGIN
 	file.f := WinApi.CreateFileW(
 		SYSTEM.STRADR (filename),
 		ORD(WinApi.GENERIC_READ + WinApi.GENERIC_WRITE), 0, NIL,
-		WinApi.OPEN_EXISTING, 0, 0
+		WinApi.CREATE_ALWAYS, 0, 0
 	)
 END Rewrite;
 
