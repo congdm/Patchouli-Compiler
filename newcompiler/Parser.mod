@@ -109,7 +109,7 @@ END CheckSet;
 
 PROCEDURE CheckBool (VAR x: Base.Item);
 BEGIN
-	IF ~ (x.mode IN Base.clsValue) OR (x.type = Base.boolType) THEN
+	IF ~(x.mode IN Base.clsValue) OR (x.type # Base.boolType) THEN
 		Scanner.Mark ('Not a BOOLEAN'); MakeConst (x, Base.boolType)
 	END
 END CheckBool;
@@ -455,12 +455,16 @@ BEGIN factor (x);
 		ELSE Scanner.Mark (invalidOperationError)
 		END;
 		Scanner.Get (sym); factor (y);
-		IF x.type.form = Base.tInteger THEN
-			CheckInt (y); Generator.Int_op2 (op, x, y)
+		IF x.type.form = Base.tInteger THEN CheckInt (y);
+			IF op = Scanner.times THEN Generator.Multiply (x, y)
+			ELSE Generator.Divide (op, x, y)
+			END
 		ELSIF x.type.form = Base.tReal THEN
-			CheckReal (y); Generator.Real_op2 (op, x, y)
-		ELSIF x.type = Base.setType THEN
-			CheckSet (y); Generator.Set_op2 (op, x, y)
+			CheckReal (y); Generator.Multiply_real (op, x, y)
+		ELSIF x.type = Base.setType THEN CheckSet (y);
+			IF op = Scanner.times THEN Generator.Intersection (x, y)
+			ELSE Generator.Symmetric_difference (x, y)
+			END
 		ELSIF x.type = Base.boolType THEN CheckBool (y); Generator.And2 (x, y)
 		ELSE MakeIntConst (y); MakeIntConst (x)
 		END
@@ -489,11 +493,13 @@ BEGIN
 		END;
 		Scanner.Get (sym); term (y);
 		IF x.type.form = Base.tInteger THEN
-			CheckInt (y); Generator.Int_op1 (op, x, y)
+			CheckInt (y); Generator.Add (op, x, y)
 		ELSIF x.type.form = Base.tReal THEN
-			CheckReal (y); Generator.Real_op1 (op, x, y)
-		ELSIF x.type = Base.setType THEN
-			CheckSet (y); Generator.Set_op1 (op, x, y)
+			CheckReal (y); Generator.Add_real (op, x, y)
+		ELSIF x.type = Base.setType THEN CheckSet (y);
+			IF op = Scanner.plus THEN Generator.Union (x, y)
+			ELSE Generator.Negate (y); Generator.Intersection (x, y)
+			END
 		ELSIF x.type = Base.boolType THEN CheckBool (y); Generator.Or2 (x, y)
 		ELSE MakeIntConst (y); MakeIntConst (x)
 		END

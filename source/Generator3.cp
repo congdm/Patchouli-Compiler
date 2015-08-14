@@ -78,6 +78,9 @@ CONST
 	(* Opcodes used with EmitSeeRegRm *)
 	VCVTSS2SI = 2D0FF3H; VCVTSI2SS = 2A0FF3H;
 	
+	(* Misc *)
+	enable_emit_adr = FALSE;
+	
 TYPE
 	InstructionInfo = RECORD
 		relfixup : BOOLEAN;
@@ -749,6 +752,8 @@ BEGIN
 		END
 	ELSIF x.mode = mode_reg THEN
 		EmitRR (MOVd, reg, rsize, x.r)
+	ELSIF x.mode = mode_xreg THEN
+		SetRmOperand_reg (reg); EmitXmmRm (VMOVDQd, xmm_stack - 1, 4)
 	ELSE ASSERT(FALSE)
 	END
 END Load_to_reg;
@@ -1455,7 +1460,7 @@ END SFunc_ADR;
 PROCEDURE SFunc_ODD* (VAR x : Base.Item);
 BEGIN
 	IF x.mode = mode_imm THEN x.a := x.a MOD 2
-	ELSE EmitRI (ANDi, x.r, 8, 1)
+	ELSE load (x); EmitRI (ANDi, x.r, 8, 1); Free_reg
 	END;
 	Set_cond (x, ccNZ)
 END SFunc_ODD;
@@ -1563,6 +1568,17 @@ BEGIN
 	EmitXmmRm (VCVTSI2SS, xmm_stack - 1, 8);
 	Free_reg; x.mode := mode_xreg; x.r := xmm_stack - 1
 END SFunc_FLT;
+
+PROCEDURE SFunc_VAL* (VAR x : Base.Item; cast_type : Base.Type);
+	VAR r : INTEGER;
+BEGIN
+	IF (x.mode = mode_xreg) & (cast_type # Base.real_type) THEN
+		r := Alloc_reg(); Load_to_reg (r, 4, x); x.mode := mode_reg; x.r := r
+	ELSIF (x.mode = mode_reg) & (cast_type = Base.real_type) THEN
+		x.type := Base.real_type; fpload (x)
+	END;
+	x.type := cast_type
+END SFunc_VAL;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -2181,10 +2197,10 @@ BEGIN
 			proc.val := ip
 		END;
 		(* Debug info *)
-		(*
-		Sys.Console_WriteString (proc.name); Sys.Console_WriteString (' ');
-		Sys.Console_WriteInt (ip); Sys.Console_WriteLn
-		*)
+		IF enable_emit_adr THEN
+			Sys.Console_WriteString (proc.name); Sys.Console_WriteString (' ');
+			Sys.Console_WriteInt (ip); Sys.Console_WriteLn
+		END
 	ELSE
 		Linker.entry := ip;
 		ProcState.locblksize := 0;

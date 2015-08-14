@@ -85,9 +85,9 @@ VAR
 	stringData: ARRAY 65536 OF CHAR;
 	strPos: INTEGER;
 	
-	CompilerFlag* : RECORD
-		arrayCheck*, overflowCheck*, typeCheck*, nilCheck*: BOOLEAN;
-		alignment*, main*, console*: BOOLEAN
+	CplFlag* : RECORD
+		divideCheck*, arrayCheck*, typeCheck*, nilCheck*: BOOLEAN;
+		main*, console*: BOOLEAN
 	END;
 	
 (* -------------------------------------------------------------------------- *)
@@ -176,21 +176,20 @@ END ReadInt;
 
 PROCEDURE SetCompilerFlag* (pragma : ARRAY OF CHAR);
 BEGIN
-	IF StrEqual(pragma,'MAIN') THEN CompilerFlag.main := TRUE
+	IF StrEqual(pragma,'MAIN') THEN CplFlag.main := TRUE
 	ELSIF StrEqual(pragma,'CONSOLE') THEN
-		CompilerFlag.main := TRUE; CompilerFlag.console := TRUE
+		CplFlag.main := TRUE; CplFlag.console := TRUE
 	END
 END SetCompilerFlag;
 
 PROCEDURE ResetCompilerFlag*;
 BEGIN
-	CompilerFlag.arrayCheck := TRUE;
-	CompilerFlag.overflowCheck := TRUE;
-	CompilerFlag.typeCheck := TRUE;
-	CompilerFlag.nilCheck := TRUE;
-	CompilerFlag.alignment := TRUE;
-	CompilerFlag.main := FALSE;
-	CompilerFlag.console := FALSE
+	CplFlag.divideCheck := TRUE;
+	CplFlag.arrayCheck := TRUE;
+	CplFlag.typeCheck := TRUE;
+	CplFlag.nilCheck := TRUE;
+	CplFlag.main := FALSE;
+	CplFlag.console := FALSE
 END ResetCompilerFlag;
 	
 PROCEDURE Init*;

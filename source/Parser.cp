@@ -1169,8 +1169,7 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 	END SFunc_BIT;
 		
 	PROCEDURE SFunc_VAL (VAR x : Base.Item);
-		VAR y : Base.Item;
-			cast_type : Base.Type;
+		VAR cast_type : Base.Type;
 	BEGIN
 		expression (x);
 		IF (x.mode = Base.class_type) & (x.type.form IN Base.types_Scalar) THEN
@@ -1179,7 +1178,7 @@ PROCEDURE StandFunc (VAR x : Base.Item);
 			cast_type := Base.int_type; Generator.Free_item (x)
 		END;
 		Check (Scanner.comma, errTooLittleParam);
-		expression (y); Check_val (y); x := y; x.type := cast_type
+		expression (x); Check_val (x); Generator.SFunc_VAL (x, cast_type);
 	END SFunc_VAL;
 	
 	PROCEDURE SFunc_ADR2 (VAR x : Base.Item);
