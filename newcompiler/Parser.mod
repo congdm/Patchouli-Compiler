@@ -382,7 +382,7 @@ END designator;
 PROCEDURE StandFunc (VAR x: Base.Item);
 END StandFunc;
 
-PROCEDURE element (VAR x : Base.Item);
+PROCEDURE element (VAR x: Base.Item);
 	VAR y, z : Base.Item;
 BEGIN
 	expression (y); CheckInt (y);
@@ -394,7 +394,7 @@ BEGIN
 	END
 END element;
 
-PROCEDURE set (VAR x : Base.Item);
+PROCEDURE set (VAR x: Base.Item);
 BEGIN
 	Scanner.Get (sym); Generator.Make_const (x, Base.setType, 0);
 	IF sym # Scanner.rbrace THEN element (x);
