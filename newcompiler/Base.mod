@@ -7,6 +7,7 @@ CONST
 	WordSize* = 8; CharSize* = 2; MaxChar* = 65535; SetUpperLimit* = 64;
 	MaxInt* = 9223372036854775807; MinInt* = -MaxInt - 1; MaxIdentLen* = 63;
 	MaxStrLen* = 255; MaxExtension* = 8; MaxRecordTypes* = 512;
+	MaxModules* = 256; MaxExportTypes* = 1024;
 	
 	(* Object class/Item mode *)
 	cHead* = 0; cModule* = 1; cVar* = 2; cRef* = 3; cConst* = 4;
@@ -47,20 +48,19 @@ TYPE
 	
 	TypeDesc* = RECORD
 		ref*, mod*: INTEGER;
-		tdAdr*, expno*: INTEGER;
-		
-		form*, size*, len*, numPtr*, alignment*: INTEGER;
+		modname*: POINTER TO RECORD s*: IdentStr END;
+		form*, size*, len*, nptr*, alignment*, parblksize*: INTEGER;
 		base*: Type; obj*: Object;
 		fields*: Object
 	END;
 	
 	ObjectDesc* = RECORD
-		param*, readonly*, export* : BOOLEAN;
-		name* : IdentStr;
-		class*, lev* : INTEGER;
-		type* : Type;
-		next*, dsc* : Object;
-		val*, val2* : INTEGER
+		param*, readonly*, export*: BOOLEAN;
+		name*: IdentStr;
+		class*, lev*, expno*: INTEGER;
+		type*: Type;
+		next*, dsc*: Object;
+		val*, val2*: INTEGER
 	END;
 	
 	Item* = RECORD
@@ -80,13 +80,14 @@ VAR
 	byteArrayType*, stringType*: Type;
 	
 	predefinedTypes*: ARRAY 32 OF Type;
-	preTypeNo*: INTEGER;
+	preTypeNo*, recTypeNo*: INTEGER;
 
 	stringData: ARRAY 65536 OF CHAR;
 	strPos: INTEGER;
 	
 	CplFlag* : RECORD
-		divideCheck*, arrayCheck*, typeCheck*, nilCheck*: BOOLEAN;
+		overflowCheck*, divideCheck*, arrayCheck*: BOOLEAN;
+		typeCheck*, nilCheck*: BOOLEAN;
 		main*, console*: BOOLEAN
 	END;
 	
@@ -125,7 +126,7 @@ BEGIN
 	typ.form := form;
 	typ.mod := -1;
 	typ.ref := -1;
-	typ.numPtr := 0
+	typ.nptr := 0
 END NewType;
 
 PROCEDURE NewPredefinedType (VAR typ: Type; form, size: INTEGER);
@@ -202,7 +203,7 @@ END Init;
 
 BEGIN
 	NEW (guard); guard.class := cHead;
-	preTypeNo := 0; predefinedTypes[0] := NIL;
+	preTypeNo := 0; recTypeNo := 0; predefinedTypes[0] := NIL;
 	
 	NewPredefinedType (intType, tInteger, WordSize);
 	NewPredefinedType (boolType, tBoolean, 1);

@@ -58,12 +58,9 @@ VAR
     srcfile : Sys.FileHandle;
     k: INTEGER;
     KWX: ARRAY 10 OF INTEGER;
-    keyTab: ARRAY NKW OF
-		RECORD sym: INTEGER; id: Base.IdentStr
-		END;
+    keyTab: ARRAY NKW OF RECORD sym: INTEGER; id: Base.IdentStr END;
   
 PROCEDURE Pos*() : INTEGER;
-BEGIN
 	RETURN Sys.FilePos(srcfile)
 END Pos;
 

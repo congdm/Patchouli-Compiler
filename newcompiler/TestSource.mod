@@ -1,8 +1,14 @@
 MODULE TestSource;
-VAR x: INTEGER;
+
+CONST
+	s1 = 'Hello'; s2 = 'World';
+VAR
+	x: INTEGER; a: ARRAY 12 OF BYTE;
+
+PROCEDURE ABCD;
 BEGIN
-	IF x = 0 THEN x := 1
-	ELSIF x > 5 THEN x := 0
-	END;
-	x := x DIV 20
+END ABCD;
+
+BEGIN
+	ABCD
 END TestSource.

@@ -1,7 +1,7 @@
 MODULE Generator;
 
 IMPORT
-	SYSTEM, Console, Sys, Base, Scanner;
+	SYSTEM, Strings, Console, Sys, Base, Scanner, SymTable;
 	
 CONST
 	MaxInt = Base.MaxInt;
@@ -10,7 +10,9 @@ CONST
 	MinInt32 = -2147483648;
 
 	tempOutputName = 'output.temp_';
+	tempSymName = 'sym.temp_';
 	dividedByNonPositiveError = 'Divided by non-positive number';
+	arrayIndexError = 'Array index out of bound';
 	
 	divide_trap = 0;
 	array_trap = 1;
@@ -18,6 +20,7 @@ CONST
 	assert_trap = 3;
 	nil_trap = 4;
 	modkey_trap = 5;
+	overflow_trap = 6;
 
 	mReg = Base.mReg;
 	mXreg = Base.mXreg;
@@ -75,38 +78,57 @@ CONST
 	CVTSS2SI = 2D0FF3H; CVTSI2SS = 2A0FF3H;
 	
 TYPE
-	ProcCall* = RECORD
-		fpar*: Base.Object;
-		nofact*, nofpar*: INTEGER
-	END;
-	
 	Inst = RECORD
 		relfixup: BOOLEAN;
 		size, dispPos: BYTE;
 		ip: INTEGER
 	END;
 	
+	RegAllocOrder = RECORD
+		ord: ARRAY 16 OF INTEGER;
+		numOfRegs: INTEGER
+	END;
+	
 	RegStack = RECORD
-		ord : ARRAY 16 OF INTEGER;
-		i, n : INTEGER
+		allocOrd, rh: INTEGER
+	END;
+	
+	ProcCall* = RECORD
+		oldRegStack: RegStack;
+		oldXregStack: INTEGER;
+		oldCurRegs, oldCurXregs: SET;
+		
+		proc: Base.Item;
+		parOff, parblksize: INTEGER;
+		
+		rtype*: Base.Type; fpar*: Base.Object;
+		nofact*, nofpar*: INTEGER
+	END;
+	
+	FixupList = POINTER TO FixupListDesc;
+	FixupListDesc = RECORD
+		loc, val: INTEGER;
+		next: FixupList
 	END;
 
 VAR
 	out: Sys.FileHandle;
+	modid: Base.IdentStr;
 
-	static_buf: ARRAY 1048576 OF BYTE;
+	staticBuf: ARRAY 1048576 OF BYTE;
 	code: ARRAY 1048576 OF BYTE;
 	metacode: ARRAY 131072 OF Inst;
-	staticsize, staticbase, varbase: INTEGER;
+	staticsize, staticbase, varsize, varbase: INTEGER;
 	pc*, ip: INTEGER;
+	fixupList: FixupList;
 	
 	(* Global variables for code emitter *)
 	Emit: RECORD
-		i, oldi : INTEGER;
-		mem : RECORD
-			mod : INTEGER;
-			rm, bas, idx, scl : INTEGER;
-			disp : INTEGER
+		i, oldi: INTEGER;
+		mem: RECORD
+			mod: INTEGER;
+			rm, bas, idx, scl: INTEGER;
+			disp: INTEGER
 		END
 	END;
 	
@@ -118,9 +140,20 @@ VAR
 	END;
 	
 	(* Reg stacks *)
-	reg_stacks : ARRAY 2 OF RegStack;
-	xmm_stack, crs : INTEGER;
-	curRegs, curXregs : SET;
+	regAllocOrds: ARRAY 2 OF RegAllocOrder;
+	reg_stack: RegStack;
+	xmm_stack: INTEGER;
+	curRegs, curXregs: SET;
+	
+	(* Linker state *)
+	Linker: RECORD
+		imagebase, entry : INTEGER;
+		code_rawsize, data_rawsize, edata_rawsize : INTEGER;
+		code_size, data_size, edata_size : INTEGER;
+		code_rva, data_rva, idata_rva, reloc_rva, edata_rva : INTEGER;
+		code_fadr, data_fadr, idata_fadr, reloc_fadr, edata_fadr : INTEGER;
+		Kernel32Table: ARRAY 7 OF INTEGER
+	END;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -430,11 +463,11 @@ PROCEDURE Write_to_file* (from, to: INTEGER);
 	VAR	p, i, k: INTEGER;
 		
 	PROCEDURE Fixup_disp (p, i: INTEGER);
-		VAR disp: INTEGER;
+		VAR disp: SYSTEM.DWORD;
 	BEGIN
 		disp := 0; i := i + metacode[p].dispPos;
 		SYSTEM.GET (SYSTEM.ADR(code[i]), disp);
-		DEC (disp, metacode[p].ip + metacode[p].size + ProcState.prologsize);
+		disp := disp - metacode[p].ip - metacode[p].size - ProcState.prologsize;
 		SYSTEM.PUT (SYSTEM.ADR(code[i]), disp)
 	END Fixup_disp;
 	
@@ -484,35 +517,47 @@ BEGIN e := 0;
 	RETURN e
 END log2;
 
+PROCEDURE ParamSize (obj: Base.Object) : INTEGER;
+	VAR result: INTEGER;
+BEGIN
+	IF (obj.type.form = Base.tArray) & (obj.type.len = 0) THEN
+		result := obj.type.size
+	ELSIF ~obj.readonly & (obj.class = Base.cRef)
+		& (obj.type.form = Base.tRecord)
+	THEN result := 16
+	ELSE result := 8
+	END;
+	RETURN result
+END ParamSize;
+
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 (* Register stacks *)
 
 PROCEDURE Reset_reg_stack;
-BEGIN reg_stacks[0].i := 0; crs := 0; xmm_stack := 0
+BEGIN
+	reg_stack.rh := 0; reg_stack.allocOrd := 0; xmm_stack := 0;
+	curRegs := {}; curXregs := {}
 END Reset_reg_stack;
 
 PROCEDURE RegHead (offset: INTEGER) : INTEGER;
-	VAR i: INTEGER;
-BEGIN i := reg_stacks[crs].i;
-	RETURN reg_stacks[crs].ord[i + offset]
+	RETURN regAllocOrds[reg_stack.allocOrd].ord[reg_stack.rh + offset]
 END RegHead;
 
 PROCEDURE Alloc_reg (VAR r: INTEGER);
 	VAR i: INTEGER;
-BEGIN i := reg_stacks[crs].i;
-	IF i < reg_stacks[crs].n THEN INC (reg_stacks[crs].i)
+BEGIN i := reg_stack.allocOrd; r := regAllocOrds[i].ord[reg_stack.rh];
+	IF reg_stack.rh < regAllocOrds[i].numOfRegs THEN
+		INC (reg_stack.rh); INCL (curRegs, r); INCL (ProcState.usedRegs, r)
 	ELSE Scanner.Mark ('Compiler limit: Register stack overflow')
-	END;
-	r := reg_stacks[crs].ord[i]; INCL (curRegs, r);
-	INCL (ProcState.usedRegs, r)
+	END
 END Alloc_reg;
 
 PROCEDURE Free_reg;
 	VAR i, r: INTEGER;
-BEGIN i := reg_stacks[crs].i;
-	IF i > 0 THEN DEC (reg_stacks[crs].i);
-		r := reg_stacks[crs].ord[i - 1]; EXCL (curRegs, r)
+BEGIN
+	IF reg_stack.rh > 0 THEN DEC (reg_stack.rh); i := reg_stack.allocOrd;
+		r := regAllocOrds[i].ord[reg_stack.rh]; EXCL (curRegs, r)
 	ELSE Scanner.Mark ('Fault: Register stack underflow')
 	END
 END Free_reg;
@@ -534,6 +579,7 @@ END Free_xreg;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
+(* Item *)
 	
 PROCEDURE Clean_item* (VAR x: Base.Item);
 BEGIN
@@ -554,19 +600,25 @@ BEGIN
 	x.a := obj.val; x.b := obj.val2; x.c := 0
 END Make_item;
 
-PROCEDURE Make_string* (VAR x: Base.Item);
-	VAR i, slen: INTEGER; str: Base.String;
+PROCEDURE Alloc_static_data (size, alignment: INTEGER);
 BEGIN
-	x.b := Scanner.slen; DEC (staticsize, slen * Base.CharSize);
-	x.a := staticsize; i := 0; str := Scanner.str;
-	WHILE i < x.b DO
-		SYSTEM.PUT (SYSTEM.ADR(staticsize) + i * Base.CharSize, str[i]);
-		INC (i)
-	END;
+	IF staticsize + size <= LEN(staticBuf) THEN
+		staticsize := staticsize + size; Align (staticsize, alignment)
+	ELSE Scanner.Mark ('The limit for static data is reached.')
+	END
+END Alloc_static_data;
+
+PROCEDURE Make_string* (VAR x: Base.Item);
+	CONST chSz = Base.CharSize;
+	VAR i, adr: INTEGER;
+BEGIN x.b := Scanner.slen; Alloc_static_data (x.b * chSz, chSz);
+	adr := SYSTEM.ADR(staticBuf) + LEN(staticBuf) - staticsize;
+	x.a := -staticsize; i := 0;
+	WHILE i < x.b DO SYSTEM.PUT (adr + i * chSz, Scanner.str[i]); INC (i) END;
 	x.mode := Base.cVar; x.type := Base.stringType; x.lev := -1
 END Make_string;
 
-PROCEDURE Get_array_length (array: Base.Item; VAR len: Base.Item);
+PROCEDURE Get_array_length (VAR len: Base.Item; array: Base.Item);
 	VAR n: INTEGER;
 BEGIN
 	IF array.type.form = Base.tArray THEN n := array.type.len;
@@ -581,6 +633,28 @@ BEGIN
 	END
 END Get_array_length;
 
+PROCEDURE Alloc_temp_var (VAR x: Base.Item; tp: Base.Type);
+BEGIN
+	ProcState.locblksize := ProcState.locblksize + tp.size;
+	Align (ProcState.locblksize, tp.alignment);
+	x.mode := Base.cVar; x.lev := 1; x.type := tp; x.a := -ProcState.locblksize
+END Alloc_temp_var;
+
+PROCEDURE Alloc_typedesc* (type: Base.Type);
+	VAR tdsize, i, n : INTEGER;
+BEGIN tdsize := 8 + 8 * (Base.MaxExtension - 1) + 4 * (type.nptr + 1);
+	Alloc_static_data (tdsize, 8); type.obj.val := -staticsize
+END Alloc_typedesc;
+
+PROCEDURE Get_typedesc (VAR x: Base.Item);
+BEGIN
+	IF x.lev = 0 THEN x.mode := Base.cVar
+	ELSIF x.lev = -2 THEN x.mode := Base.cRef
+	ELSE ASSERT(FALSE)
+	END;
+	x.type := Base.intType
+END Get_typedesc;
+
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 (* Fixup & Branch cond *)
@@ -590,8 +664,9 @@ PROCEDURE Fix_link_with (L, dst: SYSTEM.DWORD);
 BEGIN
 	WHILE L # 0 DO
 		size := metacode[L].size; dispPos := metacode[L].dispPos;
-		i := metacode[L].ip; n := dst - i - size; DEC (i, ProcState.adr);
-		INC (i, dispPos); SYSTEM.GET (SYSTEM.ADR(code[i]), L);
+		i := metacode[L].ip; n := dst - i - size;
+		i := i - ProcState.adr + dispPos;
+		SYSTEM.GET (SYSTEM.ADR(code[i]), L);
 		SYSTEM.PUT (SYSTEM.ADR(code[i]), n)
 	END
 END Fix_link_with;
@@ -740,7 +815,7 @@ PROCEDURE Str_to_char* (VAR x: Base.Item);
 	VAR ch: CHAR;
 BEGIN
 	IF x.lev = -1 THEN
-		SYSTEM.GET (SYSTEM.ADR(static_buf[LEN(static_buf) + x.a]), ch);
+		SYSTEM.GET (SYSTEM.ADR(staticBuf) + LEN(staticBuf) + x.a, ch);
 		x.a := ORD(ch); x.mode := mImm; x.type := Base.charType
 	ELSIF x.lev = -2 THEN (* stub *)
 	END
@@ -875,7 +950,8 @@ BEGIN
 		END
 	ELSE load (x);
 		IF x.type.form = Base.tInteger THEN
-			EmitR (NEG, x.r, 8); x.type := Base.intType
+			EmitR (NEG, x.r, 8); x.type := Base.intType;
+			IF Base.CplFlag.overflowCheck THEN Trap (ccO, overflow_trap) END
 		ELSIF x.type = Base.setType THEN EmitR (NOT, x.r, 8)
 		ELSIF x.type = Base.realType THEN
 			Alloc_xreg; SetRmOperand_reg (xmm_stack - 1);
@@ -899,39 +975,50 @@ BEGIN
 		ELSIF ~SmallConst(x) THEN load (x); load (y); x.r := RegHead(-2);
 			EmitRR (ADDd, x.r, 8, RegHead(-1)); Free_reg
 		ELSE load (y); EmitRI (ADDi, y.r, 8, x.a); x.mode := mReg; x.r := y.r
-		END
+		END;
+		IF Base.CplFlag.overflowCheck THEN Trap (ccO, overflow_trap) END
 	ELSIF op = Scanner.minus THEN
 		IF x.mode = mReg THEN
 			IF SmallConst(y) THEN EmitRI (SUBi, x.r, 8, y.a)
 			ELSE load (y); EmitRR (SUBd, x.r, 8, y.r); Free_reg
 			END
-		ELSIF SmallConst(x) THEN load (y); EmitRI (SUBi, y.r, 8, x.a);
-			EmitR (NEG, y.r, 8); x.r := y.r; x.mode := mReg
 		ELSE load (x); load (y);
 			IF x.r # RegHead(-2) THEN EmitRR (XCHG, x.r, 8, y.r); x.r := y.r
 			END;
 			EmitRR (SUBd, x.r, 8, RegHead(-1)); Free_reg
-		END
+		END;
+		IF Base.CplFlag.overflowCheck THEN Trap (ccO, overflow_trap) END
 	ELSE ASSERT(FALSE)
 	END;
 	x.type := Base.intType
 END Add;
 
-PROCEDURE Multiply* (VAR x, y: Base.Item);
-	VAR e, r: INTEGER;
+PROCEDURE Multiply* (VAR x, y: Base.Item; noCheck: BOOLEAN);
+	VAR e: INTEGER;
 BEGIN
 	IF (x.mode = mImm) & (y.mode = mImm) THEN x.a := x.a * y.a
-	ELSIF x.mode = mImm THEN load (y); e := log2(x.a);
-		IF e > 0 THEN EmitRI (SHLi, y.r, 8, e)
-		ELSIF e < 0 THEN EmitRI (IMULi, y.r, 8, x.a)
+	ELSIF x.mode = mImm THEN load (y);
+		IF Base.CplFlag.overflowCheck & ~ noCheck THEN
+			EmitRI (IMULi, y.r, 8, x.a); Trap (ccO, overflow_trap)
+		ELSE e := log2(x.a);
+			IF e > 0 THEN EmitRI (SHLi, y.r, 8, e)
+			ELSIF e < 0 THEN EmitRI (IMULi, y.r, 8, x.a)
+			END
 		END;
 		x.mode := mReg; x.r := y.r
-	ELSIF y.mode = mImm THEN load (x); e := log2(y.a);
-		IF e > 0 THEN EmitRI (SHLi, x.r, 8, e)
-		ELSIF e < 0 THEN EmitRI (IMULi, x.r, 8, y.a)
+	ELSIF y.mode = mImm THEN load (x);
+		IF Base.CplFlag.overflowCheck & ~ noCheck THEN
+			EmitRI (IMULi, x.r, 8, y.a); Trap (ccO, overflow_trap)
+		ELSE e := log2(y.a);
+			IF e > 0 THEN EmitRI (SHLi, x.r, 8, e)
+			ELSIF e < 0 THEN EmitRI (IMULi, x.r, 8, y.a)
+			END
 		END
-	ELSE load (x); load (y); r := RegHead(-2); EmitRR (IMUL, r, 8, RegHead(-1));
-		x.r := r; Free_reg
+	ELSE load (x); load (y); x.r := RegHead(-2);
+		EmitRR (IMUL, x.r, 8, RegHead(-1)); Free_reg;
+		IF Base.CplFlag.overflowCheck & ~ noCheck THEN 
+			Trap (ccO, overflow_trap)
+		END
 	END
 END Multiply;
 
@@ -944,9 +1031,14 @@ BEGIN
 		ELSE Scanner.Mark (dividedByNonPositiveError)
 		END
 	ELSIF (y.mode # mImm) OR (y.a > 0) & (log2(y.a) < 0) THEN
-		r := 0; r2 := 0; load (x); load (y);
-		IF Base.CplFlag.divideCheck THEN
-			EmitRR (TEST, y.r, 8, y.r); Trap (ccLE, divide_trap)
+		r := 0; r2 := 0; load (x);
+		IF y.mode = mImm THEN
+			IF y.a <= 0 THEN Scanner.Mark (dividedByNonPositiveError) END;
+			load (y)
+		ELSE load (y);
+			IF Base.CplFlag.divideCheck THEN
+				EmitRR (TEST, y.r, 8, y.r); Trap (ccLE, divide_trap)
+			END
 		END;
 		
 		dst := RegHead(-2);
@@ -1016,11 +1108,45 @@ BEGIN
 END Divide;
 
 PROCEDURE Add_real* (op: INTEGER; VAR x, y: Base.Item);
-(* stub *)
+	VAR xa, ya: REAL;
+BEGIN
+	IF (x.mode = mImm) & (y.mode = mImm) THEN
+		xa := SYSTEM.VAL(REAL, x.a); ya := SYSTEM.VAL(REAL, y.a);
+		IF op = Scanner.plus THEN x.a := SYSTEM.VAL(INTEGER, xa + ya)
+		ELSE x.a := SYSTEM.VAL(INTEGER, xa - ya)
+		END
+	ELSE load (x); load (y);
+		IF op = Scanner.plus THEN SetRmOperand_reg (xmm_stack - 1);
+			EmitXmmRm (ADDSS, xmm_stack - 2, 4); x.r := xmm_stack - 2	
+		ELSE SetRmOperand_reg (y.r); EmitXmmRm (SUBSS, x.r, 4);
+			IF x.r # xmm_stack - 2 THEN
+				SetRmOperand_reg (x.r); EmitXmmRm (MOVSS, xmm_stack - 2, 4);
+				x.r := xmm_stack - 2
+			END
+		END;
+		Free_xreg
+	END
 END Add_real;
 
 PROCEDURE Multiply_real* (op: INTEGER; VAR x, y: Base.Item);
-(* stub *)
+	VAR xa, ya: REAL;
+BEGIN
+	IF (x.mode = mImm) & (y.mode = mImm) THEN
+		xa := SYSTEM.VAL(REAL, x.a); ya := SYSTEM.VAL(REAL, y.a);
+		IF op = Scanner.times THEN x.a := SYSTEM.VAL(INTEGER, xa * ya)
+		ELSE x.a := SYSTEM.VAL(INTEGER, xa / ya)
+		END
+	ELSE load (x); load (y);
+		IF op = Scanner.times THEN SetRmOperand_reg (xmm_stack - 1);
+			EmitXmmRm (MULSS, xmm_stack - 2, 4); x.r := xmm_stack - 2	
+		ELSE SetRmOperand_reg (y.r); EmitXmmRm (DIVSS, x.r, 4);
+			IF x.r # xmm_stack - 2 THEN
+				SetRmOperand_reg (x.r); EmitXmmRm (MOVSS, xmm_stack - 2, 4);
+				x.r := xmm_stack - 2
+			END
+		END;
+		Free_xreg
+	END
 END Multiply_real;
 
 PROCEDURE Set_op (opR, opI: INTEGER; VAR x, y: Base.Item);
@@ -1122,6 +1248,9 @@ BEGIN
 END Int_relation;
 
 PROCEDURE Real_relation* (rel: INTEGER; VAR x, y: Base.Item);
+BEGIN
+	load (x); load (y); SetRmOperand_reg (y.r); EmitXmmRm (COMISS, x.r, 4);
+	Free_xreg; Free_xreg; Set_cond (x, ccCodeOf(rel)); x.type := Base.boolType
 END Real_relation;
 
 PROCEDURE Set_relation* (rel: INTEGER; VAR x, y: Base.Item);
@@ -1158,11 +1287,11 @@ BEGIN (* String_relation *)
 	Load_adr_to_reg (reg_DI, x); Load_adr_to_reg (reg_SI, y);
 	Alloc_reg (rc); EmitRR (XORd, rc, 4, rc); Alloc_reg (reg); L := pc;
 	
-	L1 := pc; Compare_length (rc, ylen); CondBranch (ccZ, 0);
+	Compare_length (rc, ylen); L1 := pc; CondBranch (ccZ, 0);
 	SetRmOperand_regI (reg_SI, 0); EmitRmImm (CMPi, chSz, 0);
 	CondBranch (ccZ, L1); L1 := pc - 1;
 	
-	L2 := pc; Compare_length (rc, xlen); CondBranch (ccZ, 0);
+	Compare_length (rc, xlen); L2 := pc; CondBranch (ccZ, 0);
 	SetRmOperand_regI (reg_DI, 0); EmitRegRm (MOVd, reg, chSz);
 	EmitRR (TEST, reg, chSz, reg); CondBranch (ccZ, L2); L2 := pc - 1;
 	
@@ -1170,10 +1299,10 @@ BEGIN (* String_relation *)
 	L3 := pc; CondBranch (ccNZ, 0);
 	
 	EmitRI (ADDi, reg_DI, 8, chSz); EmitRI (ADDi, reg_SI, 8, chSz);
-	EmitRI (ADDi, rc, 8, 1); Branch (L);
+	EmitRI (ADDi, rc, 8, 1); BJump (L);
 	
 	Fix_link (L1);
-	L1 := pc; Compare_length (rc, xlen); CondBranch (ccZ, 0);
+	Compare_length (rc, xlen); L1 := pc; CondBranch (ccZ, 0);
 	SetRmOperand_regI (reg_DI, 0); EmitRmImm (CMPi, chSz, 0);
 	
 	Free_reg; Free_reg;
@@ -1270,62 +1399,382 @@ END Set3;
 (* selector *)
 
 PROCEDURE Deref* (VAR x: Base.Item);
+BEGIN load (x); x.mode := mRegI; x.a := 0;
+	IF Base.CplFlag.nilCheck THEN
+		EmitRR (TEST, x.r, 8, x.r); Trap (ccZ, nil_trap)
+	END;
+	x.param := FALSE; x.readonly := FALSE; x.type := x.type.base
 END Deref;
 
 PROCEDURE Field* (VAR x: Base.Item; field: Base.Object);
+BEGIN
+	IF x.mode = Base.cRef THEN x.c := x.c + field.val
+	ELSE x.a := x.a + field.val
+	END;
+	x.param := FALSE; x.type := field.type
 END Field;
 
 PROCEDURE Index* (VAR x, y: Base.Item);
+	VAR z: Base.Item; len, size: INTEGER;
+	
+	PROCEDURE Get_element_size (VAR x: Base.Item; tp: Base.Type; lenoff, n: INTEGER);
+		VAR y: Base.Item;
+	BEGIN
+		IF (tp.form # Base.tArray) OR (tp.len > 0) THEN
+			IF n = 1 THEN Make_const (x, Base.intType, tp.size)
+			ELSE Make_const (y, Base.intType, tp.size); Multiply (x, y, TRUE)
+			END
+		ELSE
+			x.mode := Base.cVar; x.lev := 1;
+			x.a := lenoff; x.type := Base.intType;
+			Get_element_size (x, tp.base, lenoff + 8, n + 1)
+		END
+	END Get_element_size;
+	
+BEGIN (* Index *)
+	len := x.type.len;
+	IF len > 0 THEN size := x.type.base.size;
+		IF y.mode = mImm THEN
+			IF (y.a >= 0) OR (y.a < len) THEN
+				IF x.mode IN {Base.cVar, mRegI} THEN x.a := x.a + y.a * size
+				ELSIF x.mode = Base.cRef THEN x.c := x.c + y.a * size
+				END
+			ELSE Scanner.Mark (arrayIndexError)
+			END
+		ELSE load (y);
+			IF Base.CplFlag.arrayCheck THEN
+				EmitRI (CMPi, y.r, 8, len); Trap (ccAE, array_trap)
+			END;
+			Make_const (z, Base.intType, size); Multiply (y, z, TRUE);
+			IF (x.mode = Base.cVar) & (x.lev > 0) THEN
+				EmitRR (ADDd, y.r, 8, reg_BP); x.r := y.r; x.mode := mRegI
+			ELSE
+				IF x.mode = Base.cVar THEN Load_adr (x); x.a := 0
+				ELSIF x.mode = Base.cRef THEN Ref_to_regI (x)
+				END;
+				EmitRR (ADDd, RegHead(-2), 8, RegHead(-1));
+				x.mode := mRegI; x.r := RegHead(-2); Free_reg
+			END
+		END
+	ELSIF len = 0 THEN
+		IF y.mode = mImm THEN
+			IF y.a < 0 THEN Scanner.Mark (arrayIndexError) END; load (y);
+			IF Base.CplFlag.arrayCheck THEN
+				Get_array_length (z, x); SetRmOperand (z);
+				EmitRegRm (CMPd, y.r, 8); Trap (ccAE, array_trap)
+			END;
+			Get_element_size (z, x.type.base, x.b + 8, 1);
+			Multiply (y, z, TRUE);
+			IF x.mode = Base.cRef THEN Ref_to_regI (x) END;
+			EmitRR (ADDd, RegHead(-2), 8, RegHead(-1));
+			x.r := RegHead(-2); x.b := x.b + 8; Free_reg
+		END;
+	ELSE ASSERT(FALSE)
+	END;
+	x.type := x.type.base
 END Index;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
 PROCEDURE For1* (VAR z: Base.Item);
+	VAR t: Base.Item;
+BEGIN t := z;
+	Alloc_temp_var (z, Base.intType); Store (z, t)
 END For1;
 
-PROCEDURE For2* (VAR x, z: Base.Item);
+PROCEDURE For2* (x, z: Base.Item; inc: INTEGER; VAR L2: INTEGER);
+	VAR c: Base.Item; cond: INTEGER;
+BEGIN c := x; load (c); SetRmOperand (z); EmitRegRm (CMPd, c.r, 8);
+	IF inc >= 0 THEN cond := ccLE ELSE cond := ccGE END;
+	L2 := pc; CondBranch (cond, 0)
 END For2;
 
-PROCEDURE For3* (VAR x, z: Base.Item; n, L: INTEGER);
+PROCEDURE For3* (VAR x: Base.Item; inc, L, L2: INTEGER);
+	VAR i: Base.Item;
+BEGIN ASSERT (x.mode IN {Base.cVar, Base.cRef});
+	IF x.mode = Base.cRef THEN Ref_to_regI (x) END; SetRmOperand (x);
+	IF (inc >= MinInt32) & (inc <= MaxInt32) THEN
+		EmitRmImm (ADDi, x.type.size, inc)
+	ELSE Make_const (i, Base.intType, inc); EmitRegRm (ADD, i.r, x.type.size)
+	END;
+	IF x.mode = mRegI THEN Free_reg END;
+	BJump (L); Fix_link (L2)
 END For3;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 (* Procedure call *)
 
-PROCEDURE Prepare_to_call* (VAR x: Base.Item; VAR call: ProcCall);
+PROCEDURE Save_reg_stacks (VAR c: ProcCall);
+	VAR i, n: INTEGER;
+BEGIN
+	c.oldRegStack := reg_stack; c.oldCurRegs := curRegs; i := 0;
+	WHILE i <= 15 DO
+		IF i IN curRegs THEN PushR (i) END; INC (i)
+	END;
+	reg_stack.allocOrd := 1; reg_stack.rh := 0; curRegs := {};
+	
+	c.oldXregStack := xmm_stack; c.oldCurXregs := curXregs;
+	IF curXregs # {} THEN n := 0; i := 0;
+		WHILE i <= 15 DO
+			IF i IN curXregs THEN INC (n) END; INC (i)
+		END;
+		EmitRI (SUBi, reg_SP, 8, n * 8);
+		ProcState.memstack := ProcState.memstack + n * 8; i := 0;
+		WHILE i <= 15 DO
+			IF i IN curXregs THEN DEC (n);
+				SetRmOperand_regI (reg_SP, n * 8); EmitXmmRm (MOVSSd, i, 4)
+			END;
+			INC (i)
+		END
+	END;
+	xmm_stack := 0; curXregs := {}
+END Save_reg_stacks;
+
+PROCEDURE Restore_reg_stacks (VAR c: ProcCall);
+	VAR r, i, n: INTEGER;
+BEGIN
+	xmm_stack := c.oldXregStack; curXregs := c.oldCurXregs;
+	IF curXregs # {} THEN n := 0; i := 15;
+		WHILE i >= 1 DO
+			IF i IN curXregs THEN SetRmOperand_regI (reg_SP, n * 8);
+				EmitXmmRm (MOVSS, i, 4); INC (n)
+			END;
+			DEC (i)
+		END;
+		IF 0 IN curXregs THEN
+			IF c.rtype = Base.realType THEN Alloc_xreg;
+				SetRmOperand_reg (0); EmitXmmRm (MOVSS, xmm_stack - 1, 4)
+			END;
+			SetRmOperand_regI (reg_SP, n * 8); EmitXmmRm (MOVSS, 0, 4); INC (n)
+		END;
+		ProcState.memstack := ProcState.memstack - n * 8;
+		EmitRI (ADDi, reg_SP, 8, n * 8)
+	END;
+
+	reg_stack := c.oldRegStack; curRegs := c.oldCurRegs; i := 15;
+	WHILE i >= 1 DO
+		IF i IN curRegs THEN PopR (i) END; DEC (i)
+	END;
+	IF reg_A IN curRegs THEN
+		IF (c.rtype # NIL) & (c.rtype # Base.realType) THEN
+			Alloc_reg (r); EmitRR (MOVd, r, 8, reg_A)
+		END;
+		PopR (reg_A)
+	END
+END Restore_reg_stacks;
+
+PROCEDURE Prepare_to_call* (VAR x: Base.Item; VAR c: ProcCall);
+BEGIN Save_reg_stacks (c);
+	c.proc := x; c.parOff := 0; c.parblksize := x.type.parblksize;
+	IF x.mode # Base.cProc THEN load (x); PushR (x.r); Free_reg END;
+	
+	IF c.parblksize < 32 THEN c.parblksize := 32 END;
+	ProcState.memstack := ProcState.memstack + c.parblksize;
+	IF ProcState.memstack MOD 16 # 0 THEN
+		c.parblksize := c.parblksize + 8;
+		ProcState.memstack := ProcState.memstack + 8
+	END;
+	EmitRI (SUBi, reg_SP, 8, c.parblksize)
 END Prepare_to_call;
 
-PROCEDURE Call* (VAR call: ProcCall);
+PROCEDURE Call* (VAR c: ProcCall);
+BEGIN
+	IF c.proc.mode = Base.cProc THEN
+		IF c.proc.lev >= 0 THEN CallNear (c.proc.a)
+		ELSE SetRmOperand (c.proc); EmitRm (CALL, 4)
+		END
+	ELSE
+		SetRmOperand_regI (reg_SP, c.parblksize); EmitRegRm (MOVd, reg_A, 8);
+		SetRmOperand_reg (reg_A); EmitRm (CALL, 4);
+		c.parblksize := c.parblksize + 8
+	END;
+	
+	(* Release the stack area used for parameters and proc address *)
+	EmitRI (ADDi, reg_SP, 8, c.parblksize);
+	ProcState.memstack := ProcState.memstack - c.parblksize;
+	Restore_reg_stacks (c)
 END Call;
 
-PROCEDURE Return_value* (VAR x: Base.Item);
-BEGIN
+PROCEDURE Return_value* (VAR x: Base.Item; rtype: Base.Type);
+BEGIN x.type := rtype;
+	IF rtype.form # Base.tReal THEN x.mode := mReg;
+		IF reg_A IN curRegs THEN x.r := RegHead(-1)
+		ELSE Alloc_reg (x.r);
+			IF x.r # reg_A THEN EmitRR (MOVd, x.r, 8, reg_A) END
+		END
+	ELSE x.mode := mXreg;
+		IF 0 IN curXregs THEN x.r := xmm_stack - 1
+		ELSE Alloc_xreg; x.r := 0; ASSERT (xmm_stack = 1)
+		END
+	END
 END Return_value;
 
-PROCEDURE Value_param* (VAR x: Base.Item; VAR call: ProcCall);
+PROCEDURE Value_param* (VAR x: Base.Item; VAR c: ProcCall);
+	VAR i: INTEGER;
+BEGIN i := c.parOff DIV 8 + 1; load (x);
+	IF c.parOff >= 32 THEN SetRmOperand_regI (reg_SP, c.parOff);
+		IF x.mode = Base.mReg THEN EmitRegRm (MOV, x.r, 8); Free_reg
+		ELSE EmitXmmRm (SeeMOVDQd, x.r, 8); Free_xreg
+		END
+	ELSIF reg_stack.rh # i THEN reg_stack.rh := i
+	ELSIF xmm_stack # i THEN xmm_stack := i
+	END;
+	INC (c.parOff, 8)
 END Value_param;
 
-PROCEDURE Ref_param* (VAR x: Base.Item; VAR call: ProcCall);
+PROCEDURE Ref_param* (VAR x: Base.Item; VAR c: ProcCall);
+	VAR i: INTEGER;
+BEGIN i := c.parOff DIV 8 + 1; Load_adr (x);
+	IF c.parOff >= 32 THEN
+		SetRmOperand_regI (reg_SP, c.parOff); EmitRegRm (MOV, x.r, 8); Free_reg
+	ELSIF xmm_stack # i THEN xmm_stack := i
+	END;
+	INC (c.parOff, 8)
 END Ref_param;
 
-PROCEDURE Record_param* (VAR x: Base.Item; VAR call: ProcCall);
+PROCEDURE Record_param* (VAR x: Base.Item; VAR c: ProcCall);
+BEGIN (* stub *)
+	Ref_param (x, c)
 END Record_param;
 
-PROCEDURE Array_param* (VAR x: Base.Item; VAR call: ProcCall);
+PROCEDURE Array_param* (VAR x: Base.Item; VAR c: ProcCall);
+	VAR array, len : Base.Item; tp, ftype : Base.Type;
+BEGIN array := x; Ref_param (array, c); tp := x.type; ftype := c.fpar.type;
+	WHILE (ftype.form = Base.tArray) & (ftype.len = 0) DO
+		IF tp = Base.stringType THEN Make_const (len, Base.intType, x.b)
+		ELSIF tp.len = 0 THEN len.mode := Base.cVar; len.lev := x.lev;
+			len.a := x.b; len.type := Base.intType; x.b := x.b + 8
+		ELSE Make_const (len, Base.intType, tp.len)
+		END;
+		Value_param (len, c); ftype := ftype.base; tp := tp.base
+	END
 END Array_param;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
+PROCEDURE Placeholder_proc*;
+BEGIN Reset_code_buffer; Reset_reg_stack; ProcState.usedRegs := {};
+	ProcState.memstack := 0; ProcState.adr := ip; ProcState.prologsize := 0;
+	Branch (0); Write_to_file (1, 1)
+END Placeholder_proc;
+
 PROCEDURE Enter* (proc: Base.Object; locblksize: INTEGER);
-BEGIN
-	Reset_code_buffer
+	VAR fix: FixupList;
+BEGIN (* Code generation is delayed *)
+	Reset_code_buffer; Reset_reg_stack; ProcState.usedRegs := {};
+	ProcState.memstack := 0; ProcState.adr := ip;
+	IF proc # NIL THEN
+		ProcState.locblksize := locblksize;
+		IF proc # Base.guard THEN ProcState.parlist := proc.type.fields;
+			IF proc.val # ip THEN (* This procedure have nested procedures *)
+				IF proc.lev = 0 THEN (* Need fixup *)
+					NEW (fix); fix.loc := proc.val + 1; fix.val := ip - 5;
+					fix.next := fixupList; fixupList := fix
+				END;
+				proc.val := ip
+			END
+		ELSE ProcState.parlist := NIL
+		END
+	ELSE
+		Linker.entry := ip;
+		ProcState.locblksize := 0;
+		ProcState.parlist := NIL
+	END
 END Enter;
 
+PROCEDURE Set_pointer_to_zero (adr: INTEGER; typ: Base.Type);
+	VAR x, y: Base.Item; i: INTEGER; field: Base.Object;
+BEGIN
+	IF typ.form IN {Base.tProcedure, Base.tPointer} THEN
+		x.mode := Base.cVar; x.a := adr; x.lev := 1;
+		SetRmOperand (x); EmitRmImm (MOVi, 8, 0)
+	ELSIF typ.form = Base.tArray THEN i := 0;
+		WHILE i < typ.len DO
+			Set_pointer_to_zero (adr + i * typ.base.size, typ.base); INC (i)
+		END
+	ELSIF typ.form = Base.tRecord THEN field := typ.fields;
+		WHILE field # Base.guard DO
+			Set_pointer_to_zero (adr + field.val, field.type);
+			field := field.next
+		END
+	END
+END Set_pointer_to_zero;
+	
 PROCEDURE Return*;
-BEGIN Write_to_file (1, pc - 1)
+	CONST savedRegs = {reg_DI, reg_SI, reg_R12, reg_R13, reg_R14, reg_R15};
+	VAR i, k, nXregs, nRegs, endPC, endIP: INTEGER;
+		paramRegs: ARRAY 4 OF BYTE; obj: Base.Object; x: Base.Item;
+BEGIN nXregs := 0; i := 15;
+	WHILE i >= 6 DO
+		IF i IN ProcState.usedXregs THEN
+			SetRmOperand_regI (reg_SP, nXregs * 16);
+			EmitXmmRm (MOVAPS, i, 4); INC (nXregs)
+		END;
+		DEC (i)
+	END;
+
+	nRegs := 0; i := 15;
+	WHILE i >= 0 DO
+		IF i IN savedRegs * ProcState.usedRegs THEN PopR (i); INC (nRegs) END;
+		DEC (i)
+	END;
+	
+	i := (ProcState.locblksize + nRegs * 8) MOD 16;
+	IF i > 0 THEN ProcState.locblksize := ProcState.locblksize + 16 - i END;
+	EmitBare (LEAVE); EmitBare (RET); endPC := pc; endIP := ip;
+	(* End of Return section *)
+	
+	(* Emit Enter section - delayed code generation *)
+	PushR (reg_BP); EmitRR (MOVd, reg_BP, 8, reg_SP);
+	IF ProcState.locblksize > 0 THEN
+		EmitRI (SUBi, reg_SP, 8, ProcState.locblksize)
+	END;
+	
+	IF nRegs > 0 THEN i := 0;
+		WHILE i <= 15 DO
+			IF i IN savedRegs * ProcState.usedRegs THEN PushR (i) END;
+			INC (i)
+		END
+	END;
+	
+	IF nXregs > 0 THEN EmitRI (SUBi, reg_SP, 8, nXregs * 16); i := 6;
+		WHILE i <= 15 DO
+			IF i IN ProcState.usedXregs THEN
+				DEC (nXregs); SetRmOperand_regI (reg_SP, nXregs * 16);
+				EmitXmmRm (MOVAPSd, i, 4)
+			END;
+			INC (i)
+		END
+	END;
+	
+	IF ProcState.parlist # NIL THEN obj := ProcState.parlist; i := 0; k := 0;
+		WHILE (i < 4) & (obj # Base.guard) DO
+			IF k = 0 THEN k := ParamSize(obj) END;
+			SetRmOperand_regI (reg_BP, 16 + i * 8);
+			IF obj.type # Base.realType THEN
+				EmitRegRm (MOV, regAllocOrds[1].ord[i], 8)
+			ELSE EmitXmmRm (SeeMOVDQd, i, 4)
+			END;
+			i := i + 1; k := k - 8;
+			IF k = 0 THEN obj := obj.next END
+		END
+	END;
+	
+	obj := SymTable.procScope;
+	IF obj # SymTable.universe THEN obj := obj.next;
+		WHILE obj # Base.guard DO
+			IF (obj.class = Base.cVar) & ~ obj.param THEN
+				Set_pointer_to_zero (obj.val, obj.type)
+			END;
+			obj := obj.next
+		END
+	END;
+
+	ProcState.prologsize := ip - endIP;
+	Write_to_file (endPC, pc - 1); Write_to_file (1, endPC - 1)
 END Return;
 
 PROCEDURE Module_init*;
@@ -1336,42 +1785,364 @@ END Module_exit;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
+(* Linker *)
 
-PROCEDURE Init* (modid: Base.IdentStr);
+PROCEDURE Init* (modname: Base.IdentStr);
 BEGIN
-	staticsize := 0; staticbase := -24; Sys.Rewrite (out, tempOutputName);
+	ip := 0; varbase := 0; staticsize := 128; Base.StrCopy (modname, modid);
+	Sys.Rewrite (out, tempOutputName); Sys.Seek (out, 400H)
 END Init;
 
+PROCEDURE Set_varsize* (size: INTEGER);
+BEGIN varsize := size; Align (varsize, 16); staticbase := -varsize
+END Set_varsize;
+
+PROCEDURE Write_idata_section;
+	CONST
+		table_len = LEN(Linker.Kernel32Table);
+		table_size = table_len * 8;
+		table_rva = 40;
+		name_rva = table_rva + table_size;
+		hint_rva = name_rva + 16;
+	VAR i: INTEGER;
+BEGIN
+	Sys.Seek (out, Linker.idata_fadr);
+	
+	(* Import Directory Entry - Kernel32.dll *)
+	Sys.Write_4bytes (out, Linker.idata_rva + table_rva);
+	Sys.Write_4bytes (out, 0);
+	Sys.Write_4bytes (out, 0);
+	Sys.Write_4bytes (out, Linker.idata_rva + name_rva);
+	i := Linker.data_rva + Linker.data_size + staticbase - table_size;
+	Sys.Write_4bytes (out, i);
+
+	Sys.Seek (out, Linker.idata_fadr + table_rva); i := 0;
+	WHILE i <= table_len - 2 DO
+		Linker.Kernel32Table[i] := Linker.idata_rva + hint_rva + 32 * i;
+		Sys.Write_8bytes (out, Linker.Kernel32Table[i]); INC (i)
+	END;
+	Linker.Kernel32Table[table_len - 1] := 0;
+	
+	Sys.Seek (out, Linker.idata_fadr + name_rva);
+	Sys.Write_ansi_str (out, 'KERNEL32.DLL');
+	
+	Sys.Seek (out, Linker.idata_fadr + hint_rva + 2);
+	Sys.Write_ansi_str (out, 'ExitProcess');
+	Sys.Seek (out, Linker.idata_fadr + hint_rva + (32 + 2));
+	Sys.Write_ansi_str (out, 'LoadLibraryW');
+	Sys.Seek (out, Linker.idata_fadr + hint_rva + (64 + 2));
+	Sys.Write_ansi_str (out, 'GetProcAddress');
+	Sys.Seek (out, Linker.idata_fadr + hint_rva + (96 + 2));
+	Sys.Write_ansi_str (out, 'GetProcessHeap');
+	Sys.Seek (out, Linker.idata_fadr + hint_rva + (128 + 2));
+	Sys.Write_ansi_str (out, 'HeapAlloc');
+	Sys.Seek (out, Linker.idata_fadr + hint_rva + (160 + 2));
+	Sys.Write_ansi_str (out, 'HeapFree')
+END Write_idata_section;
+
+PROCEDURE Fill_pointer_offset (offset: INTEGER; type: Base.Type);
+	VAR field: Base.Object; n, k, ptrcnt: INTEGER;
+BEGIN ptrcnt := type.nptr;
+	IF type.form = Base.tRecord THEN
+		field := type.fields;
+		REPEAT k := field.type.nptr;
+			IF k > 0 THEN ptrcnt := ptrcnt - k; n := offset + field.val;
+				IF field.type.form = Base.tPointer THEN
+					Sys.Write_4bytes (out, n)
+				ELSE Fill_pointer_offset (n, field.type)
+				END
+			END;
+			field := field.next
+		UNTIL ptrcnt <= 0; ASSERT (ptrcnt = 0)
+	ELSIF type.form = Base.tArray THEN type := type.base;
+		IF type.form = Base.tPointer THEN
+			REPEAT Sys.Write_4bytes (out, offset);
+				DEC (ptrcnt); offset := offset + 8
+			UNTIL ptrcnt <= 0; ASSERT (ptrcnt = 0)
+		ELSE k := type.base.nptr;
+			REPEAT
+				Fill_pointer_offset (offset, type); ptrcnt := ptrcnt - k;
+				offset := offset + type.size
+			UNTIL ptrcnt <= 0; ASSERT (ptrcnt = 0)
+		END
+	ELSE ASSERT(FALSE)
+	END
+END Fill_pointer_offset;
+
+PROCEDURE Write_data_section;
+	VAR basefadr, i, n: INTEGER; b: BYTE;
+BEGIN
+	i := LEN(staticBuf) - LEN(Linker.Kernel32Table) * 8;
+	n := SYSTEM.ADR(Linker.Kernel32Table);
+	WHILE i < LEN(staticBuf) DO SYSTEM.GET (n, b); staticBuf[i] := b;
+		INC (i); INC (n)
+	END;
+
+	basefadr := Linker.data_fadr + Linker.data_size - varsize;
+	Sys.Seek (out, basefadr - staticsize); i := LEN(staticBuf) - staticsize;
+	WHILE i < LEN(staticBuf) DO Sys.Write_byte (out, staticBuf[i]); INC (i) END
+END Write_data_section;
+
+PROCEDURE Write_edata_section;
+	CONST dirsize = 40;
+	VAR obj: Base.Object; name: Base.String;
+		namesize, tablesize, i, rva: INTEGER;
+BEGIN name[0] := 0X; Strings.Append (modid, name);
+	IF Base.CplFlag.main THEN Strings.Append ('.exe', name)
+	ELSE Strings.Append ('.dll', name)
+	END;
+	namesize := Strings.Length(name) + 1;
+	
+	tablesize := SymTable.expno * 4;
+
+	(* Export directory *)
+	Sys.Seek (out, Linker.edata_fadr + 12);
+	Sys.Write_4bytes (out, Linker.edata_rva + dirsize + tablesize);
+	Sys.Write_4bytes (out, 1);
+	Sys.Write_4bytes (out, SymTable.expno);
+	Sys.Write_4bytes (out, 0);
+	Sys.Write_4bytes (out, Linker.edata_rva + dirsize);
+	
+	(* Export address table *)
+	Sys.Seek (out, Linker.edata_fadr + dirsize); obj := SymTable.universe.next;
+	WHILE obj # Base.guard DO
+		IF obj.export THEN rva := obj.val;
+			IF (obj.class = Base.cType) OR (obj.type = Base.stringType) THEN
+				rva := rva + Linker.data_rva + Linker.data_size + staticbase
+			ELSIF obj.class = Base.cVar THEN
+				rva := rva + Linker.data_rva + Linker.data_size + varbase
+			ELSIF obj.class = Base.cProc THEN
+				rva := rva + Linker.code_rva
+			END;
+			Sys.Write_4bytes (out, rva)
+		END;
+		obj := obj.next
+	END;
+		
+	(* Name string *)
+	Sys.Write_ansi_str (out, name);
+	
+	Linker.edata_size := dirsize + tablesize + namesize;
+	Linker.edata_rawsize := Linker.edata_size;
+	IF Linker.edata_rawsize MOD 512 # 0 THEN
+		Align (Linker.edata_rawsize, 512);
+		Sys.Seek (out, Linker.edata_fadr + Linker.edata_rawsize - 1);
+		Sys.Write_byte (out, 1)
+	END
+END Write_edata_section;
+
+PROCEDURE Write_reloc_section;
+BEGIN
+	Sys.Seek (out, Linker.reloc_fadr);
+	Sys.Write_4bytes (out, 4);
+	Sys.Write_4bytes (out, 12);
+	Sys.Write_2bytes (out, 0);
+	Sys.Write_2bytes (out, 0)
+END Write_reloc_section;
+
+PROCEDURE Write_SectionHeader (
+	name: ARRAY OF CHAR; chr, rva, rawsize, size, fileadr: INTEGER
+);	
+	VAR b: BYTE; i: INTEGER;	
+BEGIN i := 0;
+	WHILE i < 8 DO b := 0; IF i < LEN(name) THEN b := ORD(name[i]) END;
+		Sys.Write_byte (out, b); INC (i)
+	END;
+	Sys.Write_4bytes (out, size);
+	Sys.Write_4bytes (out, rva);
+	Sys.Write_4bytes (out, rawsize);
+	Sys.Write_4bytes (out, fileadr);
+	Sys.Write_4bytes (out, 0);
+	Sys.Write_4bytes (out, 0);
+	Sys.Write_4bytes (out, 0);
+	Sys.Write_4bytes (out, chr)
+END Write_SectionHeader;
+
+PROCEDURE Write_PEHeader;
+	VAR k: INTEGER;
+BEGIN
+	Sys.Seek (out, 0);
+	Sys.Write_2bytes (out, 5A4DH);
+	Sys.Seek (out, 60);
+	Sys.Write_4bytes (out, 128);
+	Sys.Seek (out, 128);
+	Sys.Write_4bytes (out, 4550H);
+	
+	Sys.Write_2bytes (out, 8664H); (* Machine = AMD64/Intel 64 *)
+	Sys.Write_2bytes (out, 5); (* NumberOfSections *)
+	Sys.SeekRel (out, 4 * 3);
+	Sys.Write_2bytes (out, 240);
+	
+	(* Characteristics *)
+	IF Base.CplFlag.main THEN Sys.Write_2bytes (out, 20H + 2 + 1)
+	ELSE Sys.Write_2bytes (out, 2000H + 20H + 2)
+	END;
+	
+	Sys.Write_2bytes (out, 20BH);
+	Sys.SeekRel (out, 2);
+	Sys.Write_4bytes (out, Linker.code_rawsize);
+	k := Linker.data_rawsize + 200H * 2 + Linker.edata_rawsize;
+	Sys.Write_4bytes (out, k);
+	Sys.SeekRel (out, 4);
+	Sys.Write_4bytes (out, Linker.code_rva + Linker.entry);
+	Sys.Write_4bytes (out, Linker.code_rva);
+	
+	Sys.Write_8bytes (out, Linker.imagebase);
+	Sys.Write_4bytes (out, 4096);
+	Sys.Write_4bytes (out, 512);
+	Sys.Write_2bytes (out, 5); (* MajorOSVer *)
+	Sys.SeekRel (out, 2 * 3);
+	Sys.Write_2bytes (out, 5);
+	Sys.SeekRel (out, 2 + 4);
+	k := 4096 + (4096 - Linker.code_size) MOD 4096 + Linker.code_size;
+	k := k + Linker.data_size + 4096 + 4096;
+	k := k + (4096 - Linker.edata_size) MOD 4096 + Linker.edata_size;
+	Sys.Write_4bytes (out, k);
+	Sys.Write_4bytes (out, 400H);
+	Sys.SeekRel (out, 4);
+	IF Base.CplFlag.console THEN Sys.Write_2bytes (out, 3) (*Subsys = Console*)
+	ELSE Sys.Write_2bytes (out, 2) (* Subsys = GUI *)
+	END;
+	
+	(* DLL Characteristics *)
+	IF Base.CplFlag.main THEN Sys.Write_2bytes (out, 0)
+	ELSE Sys.Write_2bytes (out, 100H + 40H)
+	END;
+	
+	Sys.Write_8bytes (out, 1000H);
+	Sys.Write_8bytes (out, 1000H);
+	Sys.Write_8bytes (out, 10000H);
+	Sys.SeekRel (out, 8 + 4);
+	Sys.Write_4bytes (out, 16);
+	
+	Sys.Write_4bytes (out, Linker.edata_rva);
+	Sys.Write_4bytes (out, Linker.edata_size);
+	Sys.Write_4bytes (out, Linker.idata_rva);
+	Sys.Write_4bytes (out, 130H);
+	Sys.SeekRel (out, 8 * 3);
+	Sys.Write_4bytes (out, Linker.reloc_rva);
+	Sys.Write_4bytes (out, 12);
+	Sys.SeekRel (out, 8 * 10);
+	
+	Write_SectionHeader (
+		'.data', -1073741760, Linker.data_rva, Linker.data_rawsize,
+		Linker.data_size, Linker.data_fadr
+	);
+	Write_SectionHeader (
+		'.text', 60000020H, Linker.code_rva, Linker.code_rawsize,
+		Linker.code_size, Linker.code_fadr
+	);
+	Write_SectionHeader (
+		'.idata', -1073741760, Linker.idata_rva, 200H,
+		130H, Linker.idata_fadr
+	);
+	Write_SectionHeader (
+		'.reloc', 42000040H, Linker.reloc_rva, 200H,
+		12, Linker.reloc_fadr
+	);
+	Write_SectionHeader (
+		'.edata', 40000040H, Linker.edata_rva, Linker.edata_rawsize,
+		Linker.edata_size, Linker.edata_fadr
+	);
+END Write_PEHeader;
+
+PROCEDURE Perform_fixup;
+	VAR i: INTEGER; p: FixupList;
+BEGIN p := fixupList;
+	WHILE p # NIL DO p.loc := p.loc + Linker.code_fadr;
+		Sys.Seek (out, p.loc); Sys.Read_4bytes (out, i);
+		Sys.Seek (out, p.loc); Sys.Write_4bytes (out, i + p.val);
+		p := p.next
+	END
+END Perform_fixup;
+
 PROCEDURE Finish*;
-BEGIN Sys.Close (out)
+	VAR i, n, padding, filesize, k: INTEGER;
+		str: Base.String; modkey: SymTable.ModuleKey;
+BEGIN
+	IF Scanner.errcnt = 0 THEN
+		SymTable.Write_symbols_file;
+		Sys.Seek (out, 400H - 16); modkey := SymTable.module.key; i := 0;
+		WHILE i < 16 DO Sys.Write_byte (out, modkey[i]); INC (i) END;
+
+		IF Base.CplFlag.main THEN Linker.imagebase := 400000H
+		ELSE Linker.imagebase := 10000000H
+		END;
+
+		Linker.code_rawsize := (512 - ip) MOD 512 + ip;
+		Linker.code_size := ip;
+		
+		Linker.data_size := staticsize + varsize;
+		Align (Linker.data_size, 4096);
+		padding := Linker.data_size - staticsize - varsize;
+		Linker.data_rawsize := padding + staticsize;
+		Align (Linker.data_rawsize, 512);
+		
+		Linker.data_rva := 1000H;
+		Linker.code_rva := Linker.data_rva + Linker.data_size;
+		n := (4096 - Linker.code_size) MOD 4096 + Linker.code_size;
+		Linker.idata_rva := Linker.code_rva + n;
+		Linker.reloc_rva := Linker.idata_rva + 4096;
+		Linker.edata_rva := Linker.reloc_rva + 4096;
+		
+		Linker.code_fadr := 400H;
+		Linker.idata_fadr := Linker.code_fadr + Linker.code_rawsize;
+		Linker.data_fadr := Linker.idata_fadr + 200H;
+		Linker.reloc_fadr := Linker.data_fadr + Linker.data_rawsize;
+		Linker.edata_fadr := Linker.reloc_fadr + 200H;
+		
+		Write_idata_section; Write_data_section; Write_reloc_section;
+		Write_edata_section; Write_PEHeader; Perform_fixup;
+		Sys.Close (out);
+
+		(* Show statistics *)
+		Console.WriteString ('No errors found.'); Console.WriteLn;
+		Console.WriteString ('Code size: ');
+		Console.WriteInt (Linker.code_size); Console.WriteLn;
+		Console.WriteString ('Global variables size: ');
+		Console.WriteInt (varsize); Console.WriteLn;
+		Console.WriteString ('Static data size: ');
+		Console.WriteInt (staticsize); Console.WriteLn;
+		
+		(* Rename files *)
+		str[0] := 0X; Strings.Append (modid, str);
+		IF Base.CplFlag.main THEN Strings.Append ('.exe', str)
+		ELSE Strings.Append ('.dll', str)
+		END;
+		Sys.Delete_file (str); Sys.Rename_file (tempOutputName, str);
+		str[0] := 0X; Strings.Append (modid, str); Strings.Append ('.sym', str);
+		Sys.Delete_file (str); Sys.Rename_file (tempSymName, str)
+	ELSE
+		Sys.Close (out);
+		Console.WriteLn; Console.WriteString ('No output generated.');
+		Console.WriteLn; Sys.Delete_file (tempOutputName)
+	END
 END Finish;
 
 BEGIN
-	reg_stacks[0].i := 0;
-	reg_stacks[0].n := 11;
-	reg_stacks[0].ord[0] := reg_A;
-	reg_stacks[0].ord[1] := reg_C;
-	reg_stacks[0].ord[2] := reg_D;
-	reg_stacks[0].ord[3] := reg_R8;
-	reg_stacks[0].ord[4] := reg_R9;
-	reg_stacks[0].ord[5] := reg_R10;
-	reg_stacks[0].ord[6] := reg_R11;
-	reg_stacks[0].ord[7] := reg_R12;
-	reg_stacks[0].ord[8] := reg_R13;
-	reg_stacks[0].ord[9] := reg_R14;
-	reg_stacks[0].ord[10] := reg_R15;
+	regAllocOrds[0].numOfRegs := 11;
+	regAllocOrds[0].ord[0] := reg_A;
+	regAllocOrds[0].ord[1] := reg_C;
+	regAllocOrds[0].ord[2] := reg_D;
+	regAllocOrds[0].ord[3] := reg_R8;
+	regAllocOrds[0].ord[4] := reg_R9;
+	regAllocOrds[0].ord[5] := reg_R10;
+	regAllocOrds[0].ord[6] := reg_R11;
+	regAllocOrds[0].ord[7] := reg_R12;
+	regAllocOrds[0].ord[8] := reg_R13;
+	regAllocOrds[0].ord[9] := reg_R14;
+	regAllocOrds[0].ord[10] := reg_R15;
 	
-	reg_stacks[1].i := 0;
-	reg_stacks[1].n := 11;
-	reg_stacks[1].ord[0] := reg_C;
-	reg_stacks[1].ord[1] := reg_D;
-	reg_stacks[1].ord[2] := reg_R8;
-	reg_stacks[1].ord[3] := reg_R9;
-	reg_stacks[1].ord[4] := reg_A;
-	reg_stacks[1].ord[5] := reg_R10;
-	reg_stacks[1].ord[6] := reg_R11;
-	reg_stacks[1].ord[7] := reg_R12;
-	reg_stacks[1].ord[8] := reg_R13;
-	reg_stacks[1].ord[9] := reg_R14;
-	reg_stacks[1].ord[10] := reg_R15
+	regAllocOrds[1].numOfRegs := 11;
+	regAllocOrds[1].ord[0] := reg_C;
+	regAllocOrds[1].ord[1] := reg_D;
+	regAllocOrds[1].ord[2] := reg_R8;
+	regAllocOrds[1].ord[3] := reg_R9;
+	regAllocOrds[1].ord[4] := reg_A;
+	regAllocOrds[1].ord[5] := reg_R10;
+	regAllocOrds[1].ord[6] := reg_R11;
+	regAllocOrds[1].ord[7] := reg_R12;
+	regAllocOrds[1].ord[8] := reg_R13;
+	regAllocOrds[1].ord[9] := reg_R14;
+	regAllocOrds[1].ord[10] := reg_R15
 END Generator.

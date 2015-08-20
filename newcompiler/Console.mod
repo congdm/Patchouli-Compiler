@@ -68,6 +68,23 @@ BEGIN
 	IntToString (n, str); WriteString (str)
 END WriteInt;
 
+PROCEDURE IntToHexString* (x: INTEGER; VAR str: ARRAY OF CHAR);
+	VAR s: ARRAY 17 OF CHAR; i, j, n: INTEGER;
+BEGIN i := 0;
+	REPEAT n := x MOD 16; 
+		IF n < 10 THEN s[i] := CHR(n + ORD('0'))
+		ELSE s[i] := CHR(ORD('A') - 10 + n)
+		END;
+		INC (i); x := x DIV 16
+	UNTIL (x = 0) OR (i = 16);
+	j := 0; WHILE j < i DO str[j] := s[i - 1 - j]; INC (j) END; str[i] := 0X
+END IntToHexString;
+
+PROCEDURE WriteHex* (n: INTEGER);
+	VAR str: ARRAY 17 OF CHAR;
+BEGIN IntToHexString (n, str); WriteString (str)
+END WriteHex;
+
 (* Simple but not accurate *)
 PROCEDURE RealToString (x : REAL; VAR str : ARRAY OF CHAR);
 	VAR i, n, exp, exp10, frac, zeroNum : INTEGER;
