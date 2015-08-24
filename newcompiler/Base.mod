@@ -1,7 +1,7 @@
 MODULE Base;
 
 IMPORT
-	Sys;
+	Console, Sys;
 	
 CONST
 	WordSize* = 8; CharSize* = 2; MaxChar* = 65535; SetUpperLimit* = 64;
@@ -50,7 +50,7 @@ TYPE
 		ref*, mod*: INTEGER;
 		modname*: POINTER TO RECORD s*: IdentStr END;
 		form*, size*, len*, nptr*, alignment*, parblksize*: INTEGER;
-		base*: Type; obj*: Object;
+		base*, adrType*: Type; obj*: Object;
 		fields*: Object
 	END;
 	
@@ -79,11 +79,11 @@ VAR
 	realType*, longrealType*: Type;
 	byteArrayType*, stringType*: Type;
 	
+	LoadLibraryFuncType*: Type;
+	GetProcAddressFuncType*: Type;
+	
 	predefinedTypes*: ARRAY 32 OF Type;
-	preTypeNo*, recTypeNo*: INTEGER;
-
-	stringData: ARRAY 65536 OF CHAR;
-	strPos: INTEGER;
+	preTypeNo*: INTEGER;
 	
 	CplFlag* : RECORD
 		overflowCheck*, divideCheck*, arrayCheck*: BOOLEAN;
@@ -126,6 +126,7 @@ BEGIN
 	typ.form := form;
 	typ.mod := -1;
 	typ.ref := -1;
+	typ.adrType := NIL;
 	typ.nptr := 0
 END NewType;
 
@@ -135,39 +136,42 @@ BEGIN
 	typ.mod := -2;
 	typ.size := size;
 	typ.alignment := size;
-	preTypeNo := preTypeNo + 1;
-	predefinedTypes[preTypeNo] := typ;
+	INC (preTypeNo); predefinedTypes[preTypeNo] := typ;
 	typ.ref := preTypeNo
 END NewPredefinedType;
+
+PROCEDURE NewAddressType* (bas: Type);
+	VAR tp: Type;
+BEGIN
+	NewType (tp, tAddress); tp.size := WordSize; tp.alignment := WordSize;
+	tp.base := bas; bas.adrType := tp
+END NewAddressType;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
 PROCEDURE WriteInt* (VAR f: Sys.FileHandle; n: INTEGER);
-	VAR finish: BOOLEAN; b: BYTE;
+	VAR finish: BOOLEAN; b: INTEGER;
 BEGIN
-	REPEAT
-		b := n MOD 128; finish := (n >= -64) & (n < 64);
-		IF finish THEN b := b + 128 ELSE n := n DIV 128
-		END;
+	REPEAT b := n MOD 128; finish := (n >= -64) & (n < 64);
+		IF finish THEN b := b + 128 ELSE n := n DIV 128 END;
 		Sys.Write_byte (f, b)
 	UNTIL finish
 END WriteInt;
 
 PROCEDURE ReadInt* (VAR f: Sys.FileHandle; VAR n: INTEGER);
-	VAR finish: BOOLEAN; i, b: INTEGER; k: INTEGER;
-BEGIN
-	n := 0; i := 1; k := 1; b := 0; 
-	REPEAT
-		Sys.Read_byte (f, b);
-		IF i < 10 THEN finish := b >= 128; b := b MOD 128; n := n + b * k;
-			k := k * 128; i := i + 1;
-			IF finish & (b >= 64) THEN n := n + (-1 * k)
+	VAR finish: BOOLEAN; i, b, k: INTEGER;
+BEGIN n := 0; i := 1; k := 1;
+	REPEAT Sys.Read_byte (f, b);
+		IF i < 10 THEN
+			finish := b >= 128; b := b MOD 128; n := n + b * k;
+			IF i # 9 THEN k := k * 128 END; INC (i);
+			IF finish & (b >= 64) THEN
+				IF i # 9 THEN n := n + (-1 * k) ELSE n := n + MinInt END
 			END
-		ELSIF i = 10 THEN finish := TRUE;
-			IF b = 127 THEN n := n + MinInt
-			END
-		ELSE ASSERT (FALSE); finish := TRUE
+		ELSIF i = 10 THEN
+			finish := TRUE; IF b = 127 THEN n := n + MinInt END
+		ELSE ASSERT(FALSE)
 		END
 	UNTIL finish
 END ReadInt;
@@ -175,7 +179,7 @@ END ReadInt;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE SetCompilerFlag* (pragma : ARRAY OF CHAR);
+PROCEDURE SetCompilerFlag* (pragma: ARRAY OF CHAR);
 BEGIN
 	IF StrEqual(pragma,'MAIN') THEN CplFlag.main := TRUE
 	ELSIF StrEqual(pragma,'CONSOLE') THEN
@@ -189,21 +193,17 @@ BEGIN
 	CplFlag.arrayCheck := TRUE;
 	CplFlag.typeCheck := TRUE;
 	CplFlag.nilCheck := TRUE;
+	CplFlag.overflowCheck := TRUE;
 	CplFlag.main := FALSE;
 	CplFlag.console := FALSE
 END ResetCompilerFlag;
 	
-PROCEDURE Init*;
-BEGIN
-	strPos := 0
-END Init;
-
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
 BEGIN
 	NEW (guard); guard.class := cHead;
-	preTypeNo := 0; recTypeNo := 0; predefinedTypes[0] := NIL;
+	preTypeNo := 0; predefinedTypes[0] := NIL;
 	
 	NewPredefinedType (intType, tInteger, WordSize);
 	NewPredefinedType (boolType, tBoolean, 1);
@@ -221,5 +221,11 @@ BEGIN
 	
 	NewPredefinedType (byteArrayType, tArray, 1);
 	byteArrayType.base := byteType;
-	byteArrayType.len := 1
+	byteArrayType.len := 1;
+	
+	NewPredefinedType (LoadLibraryFuncType, tProcedure, WordSize);
+	LoadLibraryFuncType.parblksize := WordSize;
+	
+	NewPredefinedType (GetProcAddressFuncType, tProcedure, WordSize);
+	LoadLibraryFuncType.parblksize := WordSize * 2;
 END Base.

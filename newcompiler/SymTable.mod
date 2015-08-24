@@ -1,15 +1,15 @@
 MODULE SymTable;
 
 IMPORT
-	Strings, Console, Sys, Base, Scanner;
+	SYSTEM, Strings, Console, Sys, Base, Scanner;
 
 TYPE
 	ModuleKey* = ARRAY 16 OF BYTE;
 
 	UndefPtrList* = POINTER TO RECORD
-		exported: BOOLEAN; typ: Base.Type;
+		typ: Base.Type;
 		basename: Base.IdentStr;
-		next : UndefPtrList
+		next: UndefPtrList
 	END;
 	
 	TypeArray* = POINTER TO RECORD
@@ -64,7 +64,7 @@ BEGIN topScope := topScope.dsc;
 END CloseScope;
 	
 PROCEDURE IncLevel* (x: INTEGER);
-BEGIN INC (curLev, x)
+BEGIN curLev := curLev + x
 END IncLevel;
 
 (* -------------------------------------------------------------------------- *)
@@ -155,25 +155,26 @@ END RegisterUndefType;
 	
 PROCEDURE CheckUndefList* (obj: Base.Object);
 	VAR p, prev: UndefPtrList;
-BEGIN
-	p := undefPtr;
-	REPEAT
-		IF p.basename # obj.name THEN prev := p
-		ELSE p.typ.base := obj.type;
-			IF p = undefPtr THEN undefPtr := p.next ELSE prev.next := p.next
-			END;
-			p := p.next
-		END
-	UNTIL p = NIL
+BEGIN p := undefPtr;
+	WHILE p # NIL DO
+		IF p.basename = obj.name THEN p.typ.base := obj.type;
+			IF p # undefPtr THEN prev.next := p.next
+			ELSE undefPtr := p.next
+			END
+		ELSE prev := p
+		END;
+		p := p.next
+	END
 END CheckUndefList;
 	
 PROCEDURE CleanupUndefList*;
 	VAR msg: Base.String;
 BEGIN
-	REPEAT msg := 'Record type '; Strings.Append (undefPtr.basename, msg);
+	WHILE undefPtr # NIL DO
+		msg := 'Record type '; Strings.Append (undefPtr.basename, msg);
 		Strings.Append (' is not defined', msg); Scanner.Mark (msg);
 		undefPtr := undefPtr.next
-	UNTIL undefPtr = NIL
+	END
 END CleanupUndefList;
 
 (* -------------------------------------------------------------------------- *)
@@ -195,7 +196,7 @@ BEGIN
 		END
 	ELSIF mod = -3 THEN
 		Sys.Read_string (symfile, modname);
-		IF ref < 0 THEN _Import_type (typ, mod, modname)
+		IF ref < 0 THEN _Import_type (typ, -3, modname)
 		ELSE Find_module (mod0, modname); typ := mod0.types.a[ref]
 		END
 	END
@@ -228,11 +229,27 @@ PROCEDURE Import_type (
 	VAR typ: Base.Type; typmod: INTEGER; modname: Base.IdentStr
 );
 	VAR field: Base.Object; itype: Base.TypeDesc; orgmod: Module;
-		name: Base.IdentStr; form, class: INTEGER;
+		name: Base.IdentStr; form, class, ref: INTEGER;
 BEGIN itype.nptr := 0; 
 	IF typmod = -1 THEN itype.mod := imod.modno ELSE itype.mod := -3 END;
-	Base.ReadInt (symfile, itype.ref);
-	Base.ReadInt (symfile, itype.form);
+	Base.ReadInt (symfile, ref); itype.ref := -ref - 1;
+	Base.ReadInt (symfile, form); itype.form := form;
+	
+	IF typmod = -1 THEN Base.NewType (typ, form); imod.types.a[ref] := typ
+	ELSE
+		IF typmod >= 0 THEN orgmod := imod.importModules.a[typmod]
+		ELSE Find_module (orgmod, modname)
+		END;
+		IF orgmod.modno < 0 THEN
+			IF orgmod.types = NIL THEN NEW (orgmod.types) END;
+			IF orgmod.types.a[ref] = NIL THEN
+				IF typmod = -3 THEN NEW (itype.modname);
+					Base.StrCopy (modname, itype.modname.s)
+				END;
+				Base.NewType (typ, form); orgmod.types.a[ref] := typ
+			END
+		END
+	END;
 	
 	IF form = Base.tRecord THEN
 		Detect_typeI (itype.base);
@@ -270,23 +287,9 @@ BEGIN itype.nptr := 0;
 		itype.alignment := Base.WordSize
 	END;
 	
-	IF (typmod >= 0) OR (typmod = -3) THEN
-		IF typmod >= 0 THEN orgmod := imod.importModules.a[typmod]
-		ELSE Find_module (orgmod, modname)
-		END;
-		IF orgmod.modno < 0 THEN
-			IF orgmod.types = NIL THEN NEW (orgmod.types) END;
-			IF orgmod.types.a[itype.ref] = NIL THEN
-				IF typmod = -3 THEN NEW (itype.modname);
-					Base.StrCopy (modname, itype.modname.s)
-				END;
-				Base.NewType (typ, itype.form); typ^ := itype;
-				orgmod.types.a[itype.ref] := typ
-			ELSE typ := orgmod.types.a[itype.ref]
-			END
-		ELSE typ := orgmod.types.a[itype.ref]
-		END
-	ELSIF typmod = -1 THEN Base.NewType (typ, itype.form); typ^ := itype
+	IF typmod = -1 THEN typ^ := itype
+	ELSE typ := orgmod.types.a[ref];
+		IF typ.mod = -1 THEN typ^ := itype END
 	END;
 END Import_type;
 
@@ -358,7 +361,7 @@ BEGIN
 			Sys.Read_string (symfile, name);
 			New_import (obj, name, Base.cProc);
 			Base.ReadInt (symfile, obj.val);
-			Import_proc (obj.type^)
+			Base.NewType (obj.type, Base.tProcedure); Import_proc (obj.type^)
 		ELSE ASSERT(FALSE)
 		END;
 		Base.ReadInt (symfile, class)
@@ -368,7 +371,7 @@ END Import_symbols_file;
 
 PROCEDURE Import_SYSTEM (mod: Base.Object);
 BEGIN
-	importSystem := TRUE; curLev := -2; OpenScope (0X);
+	importSystem := TRUE; curLev := -2; OpenScope ('');
 	
 	Enter (Base.cType, 0, 'WORD', Base.wordType);
 	Enter (Base.cType, 0, 'DWORD', Base.dwordType);
@@ -376,8 +379,8 @@ BEGIN
 	Enter (Base.cSProc, 100, 'GET', NIL);
 	Enter (Base.cSProc, 101, 'PUT', NIL);
 	Enter (Base.cSProc, 102, 'COPY', NIL);
-	(*Enter2 (Base.cSProc, 103, 'LoadLibraryW', NIL, Base.LoadLibraryW);
-	Enter2 (Base.cSProc, 104, 'GetProcAddress', NIL, Base.GetProcAddress);*)
+	Enter (Base.cSProc, 103, 'LoadLibraryW', NIL);
+	Enter (Base.cSProc, 104, 'GetProcAddress', NIL);
 	
 	Enter (Base.cSFunc, 300, 'ADR', Base.intType);
 	Enter (Base.cSFunc, 301, 'SIZE', Base.intType);
@@ -484,7 +487,6 @@ BEGIN
 	
 	Base.WriteInt (symfile, typ.form);
 	IF typ.form = Base.tRecord THEN
-		typ.obj.export := TRUE;
 		Detect_type (typ.base);
 		Base.WriteInt (symfile, typ.len);
 		Base.WriteInt (symfile, typ.size);
@@ -495,7 +497,8 @@ BEGIN
 		WHILE field # Base.guard DO
 			IF field.export OR (field.type.nptr > 0) THEN
 				Base.WriteInt (symfile, Base.cField);
-				IF ~field.export THEN Console.IntToString (i, s);
+				IF ~field.export THEN
+					Console.IntToString (i, s); INC (i);
 					Sys.Write_string (symfile, s)
 				ELSE Sys.Write_string (symfile, field.name)
 				END;
@@ -606,8 +609,8 @@ BEGIN
 	Enter (Base.cSProc, 3, 'EXCL', NIL);
 	Enter (Base.cSProc, 4, 'NEW', NIL);
 	Enter (Base.cSProc, 5, 'ASSERT', NIL);
-(*	Enter (Base.cSproc, 6, 'PACK', NIL); *)
-(*	Enter (Base.cSproc, 7, 'UNPK', NIL); *)
+	(*Enter (Base.cSproc, 6, 'PACK', NIL);*)
+	(*Enter (Base.cSproc, 7, 'UNPK', NIL);*)
 	
 	Enter (Base.cSFunc, 200, 'ABS', Base.intType);
 	Enter (Base.cSFunc, 201, 'ODD', Base.boolType);

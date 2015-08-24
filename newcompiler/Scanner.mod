@@ -41,10 +41,10 @@ CONST
     comma* = 40; colon* = 41; becomes* = 42; upto* = 43; rparen* = 44;
     rbrak* = 45; rbrace* = 46; then* = 47; of* = 48; do* = 49;
     to* = 50; by* = 51; semicolon* = 52; end* = 53; bar* = 54;
-    else* = 55; elsif* = 56; until* = 57; return* = 58;
+    else* = 55; elsif* = 56; until* = 57;
     array* = 60; record* = 61; pointer* = 62; address* = 63;
-	const* = 70; type* = 71; var* = 72; procedure* = 73; begin* = 74;
-	import* = 75; module* = 76;
+	const* = 70; type* = 71; var* = 72; procedure* = 73; begin* = 74; 
+	return* = 75; import* = 76; module* = 77;
 
 VAR
 	ival*, slen*: INTEGER;
@@ -55,7 +55,7 @@ VAR
 
     ch: CHAR; eof: BOOLEAN;
     errpos: INTEGER;
-    srcfile : Sys.FileHandle;
+    srcfile: Sys.FileHandle;
     k: INTEGER;
     KWX: ARRAY 10 OF INTEGER;
     keyTab: ARRAY NKW OF RECORD sym: INTEGER; id: Base.IdentStr END;
@@ -212,7 +212,7 @@ BEGIN
 				ELSE x := 0.0; Mark('Too large')
 				END
 			END;
-			sym := real; rval := x
+			sym := real; rval := x; ival := SYSTEM.VAL(INTEGER, x);
 		END
     ELSE (* decimal integer *)
 		REPEAT
@@ -258,7 +258,7 @@ BEGIN
 END SkipComment;
 
 PROCEDURE Get*(VAR sym: INTEGER);
-BEGIN
+BEGIN (*Console.WriteInt (Pos()); Console.Write (' ');*)
     REPEAT
 		WHILE ~eof & (ch <= ' ') DO Read END;
 		IF ch < 'A' THEN

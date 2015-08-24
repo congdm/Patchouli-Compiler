@@ -1,7 +1,0 @@
-MODULE Test2;
-VAR
-	x: ARRAY 6 OF CHAR;
-	y: ARRAY 10 OF CHAR;
-BEGIN
-	IF x = y THEN END
-END Test2.

@@ -1,0 +1,11 @@
+..\AyaCompile ..\Strings.mod
+..\AyaCompile ..\WinApi.mod
+..\AyaCompile ..\ProgArgs.mod
+..\AyaCompile ..\Console.mod
+..\AyaCompile ..\Sys.mod
+..\AyaCompile ..\Base.mod
+..\AyaCompile ..\Scanner.mod
+..\AyaCompile ..\SymTable.mod
+..\AyaCompile ..\Generator.mod
+..\AyaCompile ..\Parser.mod
+..\AyaCompile ..\AyaCompile.mod

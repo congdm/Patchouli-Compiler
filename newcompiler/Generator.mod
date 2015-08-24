@@ -67,14 +67,12 @@ CONST
 	MOVSrep = 0A4H;
 	
 	(* Opcodes used with EmitXmmRm *)
-	SeeMOVDQ = 6E0F66H; SeeMOVDQd = 7E0F66H; MOVSS = 100FF3H; MOVSSd = 110FF3H;
+	SeeMOVD = 6E0F66H; SeeMOVDd = 7E0F66H; MOVSS = 100FF3H; MOVSSd = 110FF3H;
 	ADDSS = 580FF3H; MULSS = 590FF3H; SUBSS = 5C0FF3H; DIVSS = 5E0FF3H;
 	ADDPS = 580F00H; MULPS = 590F00H; SUBPS = 5C0F00H; DIVPS = 5E0F00H;
 	ANDPS = 540F00H; ANDNPS = 550F00H; ORPS = 560F00H; XORPS = 570F00H;
 	MOVAPS = 280F00H; MOVAPSd = 290F00H;
 	COMISS = 2F0F00H;
-	
-	(* Opcodes used with EmitSeeRegRm *)
 	CVTSS2SI = 2D0FF3H; CVTSI2SS = 2A0FF3H;
 	
 TYPE
@@ -119,7 +117,7 @@ VAR
 	code: ARRAY 1048576 OF BYTE;
 	metacode: ARRAY 131072 OF Inst;
 	staticsize, staticbase, varsize, varbase: INTEGER;
-	pc*, ip: INTEGER;
+	pc*, ip*: INTEGER;
 	fixupList: FixupList;
 	
 	(* Global variables for code emitter *)
@@ -170,7 +168,7 @@ END Put_byte;
 PROCEDURE Put_2bytes (n: INTEGER);
 BEGIN
 	code[Emit.i] := n MOD 256; n := n DIV 256;
-	code[Emit.i + 1] := n MOD 256; INC (Emit.i, 2)
+	code[Emit.i + 1] := n MOD 256; Emit.i := Emit.i + 2
 END Put_2bytes;
 
 PROCEDURE Put_4bytes (n: INTEGER);
@@ -178,7 +176,7 @@ BEGIN
 	code[Emit.i] := n MOD 256; n := n DIV 256;
 	code[Emit.i + 1] := n MOD 256; n := n DIV 256;
 	code[Emit.i + 2] := n MOD 256; n := n DIV 256;
-	code[Emit.i + 3] := n MOD 256; INC (Emit.i, 4)
+	code[Emit.i + 3] := n MOD 256; Emit.i := Emit.i + 4
 END Put_4bytes;
 
 PROCEDURE Put_8bytes (n: INTEGER);
@@ -190,7 +188,7 @@ BEGIN
 	code[Emit.i + 4] := n MOD 256; n := n DIV 256;
 	code[Emit.i + 5] := n MOD 256; n := n DIV 256;
 	code[Emit.i + 6] := n MOD 256; n := n DIV 256;
-	code[Emit.i + 7] := n MOD 256; INC (Emit.i, 8)
+	code[Emit.i + 7] := n MOD 256; Emit.i := Emit.i + 8
 END Put_8bytes;
 	
 PROCEDURE Emit_REX_prefix (reg, rsize: INTEGER);
@@ -415,13 +413,13 @@ END MoveRI;
 PROCEDURE PushR (rm: INTEGER);
 BEGIN
 	SetRmOperand_reg (rm); Emit_REX_prefix (0, 4); Put_byte (50H + rm MOD 8);
-	INC (ProcState.memstack, 8); Next_inst
+	ProcState.memstack := ProcState.memstack + 8; Next_inst
 END PushR;
 
 PROCEDURE PopR (rm: INTEGER);
 BEGIN
 	SetRmOperand_reg (rm); Emit_REX_prefix (0, 4); Put_byte (58H + rm MOD 8);
-	INC (ProcState.memstack, 8); Next_inst
+	ProcState.memstack := ProcState.memstack - 8; Next_inst
 END PopR;
 
 PROCEDURE Branch (disp: INTEGER);
@@ -454,7 +452,8 @@ PROCEDURE EmitRep (op, rsize, z: INTEGER);
 BEGIN
 	Put_byte (0F2H + z); (* REP prefix *)
 	Emit_16bit_prefix (rsize); Emit_REX_prefix (0, rsize);
-	IF (rsize > 1) & (IntToSet(op) * IntToSet(w_bit) = {}) THEN INC (op, w_bit)
+	IF (rsize > 1) & (IntToSet(op) * IntToSet(w_bit) = {}) THEN
+		op := op + w_bit
 	END;
 	Put_byte (op); Next_inst
 END EmitRep;
@@ -488,8 +487,8 @@ END Write_to_file;
 	
 PROCEDURE Align* (VAR off: INTEGER; alignment: INTEGER);
 BEGIN
-	IF off > 0 THEN INC (off, (-off) MOD alignment)
-	ELSIF off < 0 THEN DEC (off, off MOD alignment)
+	IF off > 0 THEN off := off + (-off) MOD alignment
+	ELSIF off < 0 THEN off := off - off MOD alignment
 	END
 END Align;
 
@@ -498,7 +497,7 @@ PROCEDURE FitInReg* (size: INTEGER) : BOOLEAN;
 END FitInReg;
 
 PROCEDURE Fix_param_adr* (VAR adr: INTEGER);
-BEGIN INC (adr, 16)
+BEGIN adr := adr + 16
 END Fix_param_adr;
 
 PROCEDURE SmallConst (x: Base.Item) : BOOLEAN;
@@ -548,7 +547,8 @@ PROCEDURE Alloc_reg (VAR r: INTEGER);
 	VAR i: INTEGER;
 BEGIN i := reg_stack.allocOrd; r := regAllocOrds[i].ord[reg_stack.rh];
 	IF reg_stack.rh < regAllocOrds[i].numOfRegs THEN
-		INC (reg_stack.rh); INCL (curRegs, r); INCL (ProcState.usedRegs, r)
+		INC (reg_stack.rh); curRegs := curRegs + {r};
+		ProcState.usedRegs := ProcState.usedRegs + {r}
 	ELSE Scanner.Mark ('Compiler limit: Register stack overflow')
 	END
 END Alloc_reg;
@@ -557,14 +557,15 @@ PROCEDURE Free_reg;
 	VAR i, r: INTEGER;
 BEGIN
 	IF reg_stack.rh > 0 THEN DEC (reg_stack.rh); i := reg_stack.allocOrd;
-		r := regAllocOrds[i].ord[reg_stack.rh]; EXCL (curRegs, r)
+		r := regAllocOrds[i].ord[reg_stack.rh]; curRegs := curRegs - {r}
 	ELSE Scanner.Mark ('Fault: Register stack underflow')
 	END
 END Free_reg;
 
 PROCEDURE Alloc_xreg;
 BEGIN
-	INCL (curXregs, xmm_stack); INCL (ProcState.usedXregs, xmm_stack);
+	curXregs := curXregs + {xmm_stack};
+	ProcState.usedXregs := ProcState.usedXregs + {xmm_stack};
 	IF xmm_stack < 16 THEN INC (xmm_stack)
 	ELSE Scanner.Mark ('Compiler limit: XMM register stack overflow')
 	END
@@ -572,7 +573,7 @@ END Alloc_xreg;
 
 PROCEDURE Free_xreg;
 BEGIN
-	IF xmm_stack > 0 THEN DEC (xmm_stack); EXCL (curXregs, xmm_stack)
+	IF xmm_stack > 0 THEN DEC (xmm_stack); curXregs := curXregs - {xmm_stack}
 	ELSE Scanner.Mark ('Fault: XMM register stack underflow')
 	END
 END Free_xreg;
@@ -640,10 +641,10 @@ BEGIN
 	x.mode := Base.cVar; x.lev := 1; x.type := tp; x.a := -ProcState.locblksize
 END Alloc_temp_var;
 
-PROCEDURE Alloc_typedesc* (type: Base.Type);
+PROCEDURE Alloc_typedesc* (type: Base.Type; obj: Base.Object);
 	VAR tdsize, i, n : INTEGER;
 BEGIN tdsize := 8 + 8 * (Base.MaxExtension - 1) + 4 * (type.nptr + 1);
-	Alloc_static_data (tdsize, 8); type.obj.val := -staticsize
+	Alloc_static_data (tdsize, 8); obj.val := -staticsize
 END Alloc_typedesc;
 
 PROCEDURE Get_typedesc (VAR x: Base.Item);
@@ -763,21 +764,28 @@ BEGIN
 		ELSE EmitRegRm (MOVd, reg, 8)
 		END
 	ELSIF x.mode = mReg THEN EmitRR (MOVd, reg, rsize, x.r)
+	ELSIF x.mode = mXreg THEN
+		SetRmOperand_reg (reg); EmitXmmRm (SeeMOVDd, x.r, rsize)
 	END
 END Load_to_reg;
 
 PROCEDURE fpload (VAR x: Base.Item);
 	VAR r: INTEGER;
 BEGIN
-	IF x.mode # mXreg THEN
-		IF x.mode = Base.cRef THEN Ref_to_regI (x) END; Alloc_xreg;
-		IF x.mode # mImm THEN
+	IF x.mode # mXreg THEN Alloc_xreg;
+		IF x.mode = Base.cRef THEN Ref_to_regI (x) END;
+		IF x.mode IN modeMem THEN
 			SetRmOperand (x); EmitXmmRm (MOVSS, xmm_stack - 1, 4);
 			IF x.mode = mRegI THEN Free_reg END
-		ELSIF x.a = 0 THEN SetRmOperand_reg (xmm_stack - 1);
+		ELSIF (x.mode = mImm) & (x.a = 0) THEN
+			SetRmOperand_reg (xmm_stack - 1);
 			EmitXmmRm (XORPS, xmm_stack - 1, 4)
-		ELSE Alloc_reg (r); Load_to_reg (r, 4, x); SetRmOperand_reg (r);
-			EmitXmmRm (SeeMOVDQ, xmm_stack - 1, 4); Free_reg
+		ELSE
+			IF x.mode # mReg THEN Alloc_reg (r); Load_to_reg (r, 4, x)
+			ELSE r := x.r
+			END;
+			SetRmOperand_reg (r); EmitXmmRm (SeeMOVD, xmm_stack - 1, 4);
+			Free_reg
 		END;
 		x.r := xmm_stack - 1; x.mode := mXreg
 	END
@@ -1616,12 +1624,12 @@ PROCEDURE Value_param* (VAR x: Base.Item; VAR c: ProcCall);
 BEGIN i := c.parOff DIV 8 + 1; load (x);
 	IF c.parOff >= 32 THEN SetRmOperand_regI (reg_SP, c.parOff);
 		IF x.mode = Base.mReg THEN EmitRegRm (MOV, x.r, 8); Free_reg
-		ELSE EmitXmmRm (SeeMOVDQd, x.r, 8); Free_xreg
+		ELSE EmitXmmRm (SeeMOVDd, x.r, 8); Free_xreg
 		END
 	ELSIF reg_stack.rh # i THEN reg_stack.rh := i
 	ELSIF xmm_stack # i THEN xmm_stack := i
 	END;
-	INC (c.parOff, 8)
+	c.parOff := c.parOff + 8
 END Value_param;
 
 PROCEDURE Ref_param* (VAR x: Base.Item; VAR c: ProcCall);
@@ -1631,7 +1639,7 @@ BEGIN i := c.parOff DIV 8 + 1; Load_adr (x);
 		SetRmOperand_regI (reg_SP, c.parOff); EmitRegRm (MOV, x.r, 8); Free_reg
 	ELSIF xmm_stack # i THEN xmm_stack := i
 	END;
-	INC (c.parOff, 8)
+	c.parOff := c.parOff + 8
 END Ref_param;
 
 PROCEDURE Record_param* (VAR x: Base.Item; VAR c: ProcCall);
@@ -1651,6 +1659,169 @@ BEGIN array := x; Ref_param (array, c); tp := x.type; ftype := c.fpar.type;
 		Value_param (len, c); ftype := ftype.base; tp := tp.base
 	END
 END Array_param;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+(* Standard procedure *)
+
+PROCEDURE SProc_INC* (VAR x: Base.Item; amount: INTEGER);
+BEGIN IF x.mode = Base.cRef THEN Ref_to_regI (x) END; SetRmOperand (x);
+	EmitRmImm (ADDi, x.type.size, amount); IF x.mode = mRegI THEN Free_reg END 
+END SProc_INC;
+
+PROCEDURE Assert* (VAR x: Base.Item);
+BEGIN
+	(* Implement later *)
+END Assert;
+
+PROCEDURE SProc_GET* (VAR x, y: Base.Item);
+BEGIN load (x); x.mode := mRegI; x.a := 0; x.type := y.type; Store (y, x)
+END SProc_GET;
+	
+PROCEDURE SProc_PUT* (VAR x, y: Base.Item);
+BEGIN load (x); x.mode := mRegI; x.a := 0; x.type := y.type; Store (x, y)
+END SProc_PUT;
+	
+PROCEDURE SProc_COPY* (VAR x, y, z : Base.Item);
+	VAR	rsize: INTEGER;
+BEGIN
+	Load_to_reg (reg_SI, x.type.size, x);
+	Load_to_reg (reg_DI, y.type.size, y);
+	Load_to_reg (reg_C, z.type.size, z);
+	EmitRep (MOVSrep, 1, 1);
+
+	WHILE reg_stack.rh > 0 DO Free_reg END;
+	ProcState.usedRegs := ProcState.usedRegs + {reg_DI, reg_SI}
+END SProc_COPY;
+
+PROCEDURE SProc_PACK (VAR x, y: Base.Item);
+	VAR r: INTEGER;
+BEGIN x.type := Base.dwordType; Alloc_reg (r); Load_to_reg (r, 4, x);
+	load (y); EmitRI (SHLi, y.r, 4, 23); EmitRR (ADDd, r, 4, y.r);
+	SetRmOperand (x); EmitRegRm (MOV, r, 4);
+	WHILE reg_stack.rh > 0 DO Free_reg END
+END SProc_PACK;
+
+PROCEDURE SProc_UNPK (VAR x, y: Base.Item);
+	VAR r, rexp: INTEGER;
+BEGIN x.type := Base.dwordType; Alloc_reg (r); Load_to_reg (r, 4, x);
+	Alloc_reg (rexp); EmitRR (MOVd, rexp, 4, r);
+	EmitRI (SHRi, rexp, 4, 23); EmitRI (SUBi, rexp, 4, 127);
+	SetRmOperand (y); EmitRegRm (MOV, rexp, 4);
+	EmitRI (SHLi, rexp, 4, 23); EmitRR (SUBd, r, 4, rexp);
+	SetRmOperand (x); EmitRegRm (MOV, r, 4)
+END SProc_UNPK;
+
+PROCEDURE SFunc_ADR* (VAR x: Base.Item);
+BEGIN Load_adr (x)
+END SFunc_ADR;
+
+PROCEDURE SFunc_ODD* (VAR x: Base.Item);
+BEGIN
+	IF x.mode = mImm THEN x.a := x.a MOD 2
+	ELSE load (x); EmitRI (ANDi, x.r, 8, 1); Free_reg
+	END;
+	Set_cond (x, ccNZ)
+END SFunc_ODD;
+
+PROCEDURE SFunc_LEN* (VAR x: Base.Item);
+	VAR len: Base.Item;
+BEGIN Get_array_length (len, x); IF x.mode = mRegI THEN Free_reg END;
+	IF len.mode # mImm THEN load (len) END; x := len
+END SFunc_LEN;
+
+PROCEDURE SFunc_SHIFT* (shf: INTEGER; VAR x, y: Base.Item);
+	VAR opR, opI, dst: INTEGER;
+BEGIN
+	IF shf = 0 THEN opR := SHLcl; opI := SHLi
+	ELSIF shf = 1 THEN opR := SARcl; opI := SARi
+	ELSIF shf = 2 THEN opR := RORcl; opI := RORi
+	ELSE ASSERT (FALSE)
+	END;
+	IF (x.mode = mImm) & (y.mode = mImm) THEN
+		IF shf = 0 THEN x.a := LSL(x.a, y.a)
+		ELSIF shf = 1 THEN x.a := ASR(x.a, y.a)
+		ELSE x.a := ROR(x.a, y.a)
+		END
+	ELSE load (x);
+		IF (y.mode = mImm) & (y.a >= 0) & (y.a < 256) THEN
+			IF y.a # 0 THEN EmitRI (opI, x.r, 8, y.a) END
+		ELSE load (y); dst := RegHead(-2);
+			IF x.r = reg_C THEN
+				EmitRR (XCHG, reg_C, 8, y.r); EmitR (opR, y.r, 8);
+				IF dst # y.r THEN EmitRR (MOVd, dst, 8, y.r) END
+			ELSIF y.r = reg_C THEN
+				EmitR (opR, x.r, 8);
+				IF dst # x.r THEN EmitRR (MOVd, dst, 8, x.r) END
+			ELSE
+				IF reg_C IN curRegs THEN PushR (reg_C) END;
+				EmitRR (MOVd, reg_C, 8, y.r); EmitR (opR, x.r, 8);
+				IF reg_C IN curRegs THEN PopR (reg_C) END;
+				IF dst # x.r THEN EmitRR (MOVd, dst, 8, x.r) END
+			END;
+			Free_reg; x.r := dst
+		END
+	END
+END SFunc_SHIFT;
+
+PROCEDURE SFunc_BIT* (VAR x, y: Base.Item);
+BEGIN load (x); x.mode := mRegI; x.a := 0; load (x); load (y);
+	EmitRR (BT, y.r, 8, x.r); Free_reg; Free_reg; Set_cond (x, ccC)
+END SFunc_BIT;
+
+PROCEDURE SFunc_ABS* (VAR x: Base.Item);
+	VAR r, L, xa: INTEGER;
+BEGIN
+	IF x.mode = mImm THEN
+		IF (x.type.form = Base.tInteger) & (x.a < 0) THEN x.a := -x.a
+		ELSIF x.type = Base.realType THEN
+			IF 31 IN SYSTEM.VAL(SET, x.a) THEN x.a := x.a - 80000000H END
+		END
+	ELSIF x.type.form = Base.tInteger THEN load (x); Alloc_reg (r);
+		IF Base.CplFlag.overflowCheck THEN
+			EmitRR (MOVd, r, 8, x.r); EmitRI (SHLi, r, 8, 1);
+			Trap (ccBE, overflow_trap) (* Check for Z and C flag *)
+		END;
+		L := pc; CondBranch (ccAE, 0); EmitR (NEG, x.r, 8);
+		Fix_link (L); Free_reg
+	ELSIF x.type = Base.realType THEN load (x); Alloc_reg (r);
+		Load_to_reg (r, 4, x); EmitRI (BTCi, r, 4, 31);
+		SetRmOperand_reg (r); EmitXmmRm (SeeMOVD, x.r, 4)
+	END
+END SFunc_ABS;
+
+PROCEDURE SFunc_FLOOR* (VAR x: Base.Item);
+	VAR r: INTEGER;
+BEGIN
+	EmitRI (SUBi, reg_SP, 8, 8);
+	SetRmOperand_regI (reg_SP, 0); EmitRm (STMXCSR, 4);
+	SetRmOperand_regI (reg_SP, 0); EmitRmImm (BTSi, 4, 13);
+	SetRmOperand_regI (reg_SP, 0); EmitRm (LDMXCSR, 4);
+	load (x); SetRmOperand_reg (x.r); Alloc_reg (r);
+	EmitXmmRm (CVTSS2SI, r, 8); Free_xreg;
+	x.type := Base.intType; x.mode := mReg; x.r := r;
+	SetRmOperand_regI (reg_SP, 0); EmitRmImm (BTRi, 4, 13);
+	SetRmOperand_regI (reg_SP, 0); EmitRm (LDMXCSR, 4);
+	EmitRI (ADDi, reg_SP, 8, 8)
+END SFunc_FLOOR;
+
+PROCEDURE SFunc_FLT* (VAR x: Base.Item);
+BEGIN load (x); Alloc_xreg;
+	SetRmOperand_reg (x.r); EmitXmmRm (CVTSI2SS, xmm_stack - 1, 8); Free_reg;
+	x.mode := mXreg; x.r := xmm_stack - 1
+END SFunc_FLT;
+
+PROCEDURE SFunc_VAL* (VAR x: Base.Item; castType: Base.Type);
+	VAR r: INTEGER;
+BEGIN
+	IF (x.mode = mXreg) & (castType # Base.realType) THEN
+		Alloc_reg (r); Load_to_reg (r, 4, x); Free_xreg;
+		x.mode := mReg; x.r := r
+	ELSIF (x.mode # mXreg) & (castType = Base.realType) THEN fpload (x)
+	ELSIF x.mode # mImm THEN load (x)
+	END;
+	x.type := castType
+END SFunc_VAL;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -1754,9 +1925,9 @@ BEGIN nXregs := 0; i := 15;
 		WHILE (i < 4) & (obj # Base.guard) DO
 			IF k = 0 THEN k := ParamSize(obj) END;
 			SetRmOperand_regI (reg_BP, 16 + i * 8);
-			IF obj.type # Base.realType THEN
+			IF obj.type.form # Base.tReal THEN
 				EmitRegRm (MOV, regAllocOrds[1].ord[i], 8)
-			ELSE EmitXmmRm (SeeMOVDQd, i, 4)
+			ELSE EmitXmmRm (SeeMOVDd, i, 8)
 			END;
 			i := i + 1; k := k - 8;
 			IF k = 0 THEN obj := obj.next END

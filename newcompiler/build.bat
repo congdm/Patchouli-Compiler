@@ -1,5 +1,6 @@
-..\source\AyaCompile WinApi.mod
 ..\source\AyaCompile Strings.mod
+..\source\AyaCompile WinApi.mod
+..\source\AyaCompile ProgArgs.mod
 ..\source\AyaCompile Console.mod
 ..\source\AyaCompile Sys.mod
 ..\source\AyaCompile Base.mod
@@ -7,5 +8,4 @@
 ..\source\AyaCompile SymTable.mod
 ..\source\AyaCompile Generator.mod
 ..\source\AyaCompile Parser.mod
-..\source\AyaCompile Test.mod
 ..\source\AyaCompile AyaCompile.mod

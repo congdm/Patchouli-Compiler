@@ -79,7 +79,7 @@ CONST
 	VCVTSS2SI = 2D0FF3H; VCVTSI2SS = 2A0FF3H;
 	
 	(* Misc *)
-	enable_emit_adr = FALSE;
+	enable_emit_adr = TRUE;
 	
 TYPE
 	InstructionInfo = RECORD
@@ -250,7 +250,7 @@ BEGIN
 	Emit_16bit_prefix (rsize); Emit_REX_prefix (reg, rsize);
 	org := op; Handle_multibytes_opcode (op);
 	
-	IF (rsize > 1) & ((org < LEA) OR (org = MOVZX) OR (org = IMUL)) THEN
+	IF (rsize > 1) & ((org < LEA) OR (org = MOVZX)) THEN
 		op := op + w_bit
 	END;
 	Put_byte (op); Emit_ModRM (reg);
@@ -411,7 +411,7 @@ END PushR;
 PROCEDURE PopR (rm : INTEGER);
 BEGIN
 	SetRmOperand_reg (rm); Emit_REX_prefix (0, 4); Put_byte (58H + rm MOD 8);
-	INC (ProcState.memstack, 8);
+	DEC (ProcState.memstack, 8);
 	Next_inst
 END PopR;
 

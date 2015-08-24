@@ -168,6 +168,9 @@ VAR
 	(* DLL functions *)
 	GetModuleHandleW* : PROCEDURE (lpModuleName : PChar) : Handle;
 	
+	(* Process and Thread functions *)
+	GetCommandLineW*: PROCEDURE(): PChar;
+	
 	(* File Management functions *)
 	GetFileAttributesW* : PROCEDURE (lpFilename: PChar) : Dword;
 	MoveFileW*: PROCEDURE (lpExistingFileName, lpNewFileName: PChar) : Bool;
@@ -246,6 +249,8 @@ VAR
 	(* Painting and Drawing functions *)
 	BeginPaint* : PROCEDURE (hwnd : Handle; lpPaint : PPaintstruct) : Handle;
 	
+	
+	
 PROCEDURE Make_AsciiStr* (VAR out : ARRAY OF BYTE; in : ARRAY OF CHAR);
 	VAR n, i : INTEGER;
 BEGIN
@@ -271,6 +276,9 @@ BEGIN
 	SYSTEM.GetProcAddress (SetConsoleCP, kernel32, SYSTEM.ADR(str));
 	Make_AsciiStr (str, 'SetConsoleOutputCP');
 	SYSTEM.GetProcAddress (SetConsoleOutputCP, kernel32, SYSTEM.ADR(str));
+	
+	Make_AsciiStr (str, 'GetCommandLineW');
+	SYSTEM.GetProcAddress (GetCommandLineW, kernel32, SYSTEM.ADR(str));
 	
 	Make_AsciiStr (str, 'GetModuleHandleW');
 	SYSTEM.GetProcAddress (GetModuleHandleW, kernel32, SYSTEM.ADR(str));
