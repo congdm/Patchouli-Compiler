@@ -264,7 +264,7 @@ BEGIN
 	Emit_16bit_prefix (rsize); Emit_REX_prefix (reg, rsize);
 	org := op; Handle_multibytes_opcode (op);
 	
-	IF (rsize > 1) & ((org < LEA) OR (org = MOVZX) OR (org = IMUL)) THEN
+	IF (rsize > 1) & ((org < LEA) OR (org = MOVZX)) THEN
 		op := op + w_bit
 	END;
 	Put_byte (op); Emit_ModRM (reg);
@@ -493,7 +493,7 @@ BEGIN
 END Align;
 
 PROCEDURE FitInReg* (size: INTEGER) : BOOLEAN;
-	RETURN (size = 1) & (size = 2) & (size = 4) & (size = 8)
+	RETURN (size = 1) OR (size = 2) OR (size = 4) OR (size = 8)
 END FitInReg;
 
 PROCEDURE Fix_param_adr* (VAR adr: INTEGER);
@@ -589,18 +589,6 @@ BEGIN
 	END
 END Clean_item;
 
-PROCEDURE Make_const* (VAR x: Base.Item; tp: Base.Type; val: INTEGER);
-BEGIN x.mode := Base.cConst; x.type := tp; x.a := val
-END Make_const;
-
-PROCEDURE Make_item* (VAR x: Base.Item; obj: Base.Object);
-BEGIN
-	x.readonly := obj.readonly; x.param := obj.param;
-	x.mode := obj.class; x.lev := obj.lev;
-	x.type := obj.type; x.obj := obj;
-	x.a := obj.val; x.b := obj.val2; x.c := 0
-END Make_item;
-
 PROCEDURE Alloc_static_data (size, alignment: INTEGER);
 BEGIN
 	IF staticsize + size <= LEN(staticBuf) THEN
@@ -609,13 +597,28 @@ BEGIN
 	END
 END Alloc_static_data;
 
-PROCEDURE Make_string* (VAR x: Base.Item);
+PROCEDURE Make_const* (VAR x: Base.Item; tp: Base.Type; val: INTEGER);
+BEGIN x.mode := Base.cConst; x.type := tp; x.a := val
+END Make_const;
+
+PROCEDURE Make_item* (VAR x: Base.Item; obj: Base.Object);
+BEGIN
+	IF (obj.lev = -2) & (obj.val = 0) & (obj.expno # 0) THEN
+		Alloc_static_data (8, 8); obj.val := -staticsize
+	END;
+	x.readonly := obj.readonly; x.param := obj.param;
+	x.mode := obj.class; x.lev := obj.lev;
+	x.type := obj.type; x.obj := obj;
+	x.a := obj.val; x.b := obj.val2; x.c := 0
+END Make_item;
+
+PROCEDURE Make_string* (VAR x: Base.Item; str: ARRAY OF CHAR; slen: INTEGER);
 	CONST chSz = Base.CharSize;
 	VAR i, adr: INTEGER;
-BEGIN x.b := Scanner.slen; Alloc_static_data (x.b * chSz, chSz);
+BEGIN x.b := slen; Alloc_static_data (x.b * chSz, chSz);
 	adr := SYSTEM.ADR(staticBuf) + LEN(staticBuf) - staticsize;
 	x.a := -staticsize; i := 0;
-	WHILE i < x.b DO SYSTEM.PUT (adr + i * chSz, Scanner.str[i]); INC (i) END;
+	WHILE i < slen DO SYSTEM.PUT (adr + i * chSz, str[i]); INC (i) END;
 	x.mode := Base.cVar; x.type := Base.stringType; x.lev := -1
 END Make_string;
 
@@ -642,18 +645,17 @@ BEGIN
 END Alloc_temp_var;
 
 PROCEDURE Alloc_typedesc* (type: Base.Type; obj: Base.Object);
-	VAR tdsize, i, n : INTEGER;
+	VAR tdsize, i, n: INTEGER;
 BEGIN tdsize := 8 + 8 * (Base.MaxExtension - 1) + 4 * (type.nptr + 1);
 	Alloc_static_data (tdsize, 8); obj.val := -staticsize
 END Alloc_typedesc;
 
 PROCEDURE Get_typedesc (VAR x: Base.Item);
-BEGIN
-	IF x.lev = 0 THEN x.mode := Base.cVar
-	ELSIF x.lev = -2 THEN x.mode := Base.cRef
+BEGIN x.type := Base.intType;
+	IF x.lev = 0 THEN x.mode := Base.cVar; x.lev := -1
+	ELSIF x.lev = -2 THEN x.mode := Base.cRef; x.c := 0
 	ELSE ASSERT(FALSE)
-	END;
-	x.type := Base.intType
+	END
 END Get_typedesc;
 
 (* -------------------------------------------------------------------------- *)
@@ -825,7 +827,8 @@ BEGIN
 	IF x.lev = -1 THEN
 		SYSTEM.GET (SYSTEM.ADR(staticBuf) + LEN(staticBuf) + x.a, ch);
 		x.a := ORD(ch); x.mode := mImm; x.type := Base.charType
-	ELSIF x.lev = -2 THEN (* stub *)
+	ELSIF x.lev = -2 THEN
+		x.type := Base.charType; load (x)
 	END
 END Str_to_char;
 
@@ -931,8 +934,12 @@ PROCEDURE Trap (cond, trapno: INTEGER);
 BEGIN
 	IF ~(cond IN {ccAlways, ccNever}) THEN
 		L := pc; CondBranch (cond, 0); Branch (0); Fix_link (L); L := pc - 1;
-		MoveRI (reg_A, 1, trapno); EmitBare (INT3); Fix_link (L)
-	ELSIF cond = ccAlways THEN MoveRI (reg_A, 1, trapno); EmitBare (INT3)
+		MoveRI (reg_A, 1, trapno); MoveRI (reg_C, 4, Scanner.Pos());
+		EmitBare (INT3); Fix_link (L)
+	ELSIF cond = ccAlways THEN
+		MoveRI (reg_A, 1, trapno);
+		MoveRI (reg_C, 4, Scanner.Pos());
+		EmitBare (INT3)
 	END
 END Trap;
 
@@ -1342,8 +1349,30 @@ BEGIN
 	x.type := Base.boolType
 END Member_test;
 
-PROCEDURE Type_test* (VAR x: Base.Item; tp: Base.Type; guard: BOOLEAN);
-	(* stub *)
+PROCEDURE Type_test* (VAR x, y: Base.Item; guard: BOOLEAN);
+	VAR xExtLev, yExtLev, td: INTEGER; td2: Base.Item;
+BEGIN
+	IF x.type.form = Base.tRecord THEN
+		xExtLev := x.type.len; yExtLev := y.type.len
+	ELSE xExtLev := x.type.base.len; yExtLev := y.type.base.len 
+	END;
+	IF xExtLev >= yExtLev THEN
+		IF guard THEN x.type := y.type
+		ELSE
+			IF x.mode IN {mReg, mRegI} THEN Free_reg END;
+			Make_const (x, Base.boolType, 1)
+		END
+	ELSE
+		IF x.type.form = Base.tRecord THEN SetRmOperand_regI (reg_BP, x.a + 8)
+		ELSE load (x); SetRmOperand_regI (x.r, -8)
+		END;
+		Alloc_reg (td); EmitRegRm (MOVd, td, 8); td2 := y; Get_typedesc (td2);
+		Load_adr (td2); SetRmOperand_regI (td, yExtLev * 8);
+		EmitRegRm (CMP, td2.r, 8); Free_reg; Free_reg;
+		IF guard THEN Trap (ccNZ, type_trap); x.type := y.type
+		ELSE IF x.mode IN {mReg, mRegI} THEN Free_reg END; Set_cond (x, ccZ)
+		END;
+	END
 END Type_test;
 
 (* -------------------------------------------------------------------------- *)
@@ -1465,18 +1494,16 @@ BEGIN (* Index *)
 			END
 		END
 	ELSIF len = 0 THEN
-		IF y.mode = mImm THEN
-			IF y.a < 0 THEN Scanner.Mark (arrayIndexError) END; load (y);
-			IF Base.CplFlag.arrayCheck THEN
-				Get_array_length (z, x); SetRmOperand (z);
-				EmitRegRm (CMPd, y.r, 8); Trap (ccAE, array_trap)
-			END;
-			Get_element_size (z, x.type.base, x.b + 8, 1);
-			Multiply (y, z, TRUE);
-			IF x.mode = Base.cRef THEN Ref_to_regI (x) END;
-			EmitRR (ADDd, RegHead(-2), 8, RegHead(-1));
-			x.r := RegHead(-2); x.b := x.b + 8; Free_reg
+		IF (y.mode = mImm) & (y.a < 0) THEN Scanner.Mark (arrayIndexError) END;
+		load (y);
+		IF Base.CplFlag.arrayCheck THEN
+			Get_array_length (z, x); SetRmOperand (z);
+			EmitRegRm (CMPd, y.r, 8); Trap (ccAE, array_trap)
 		END;
+		Get_element_size (z, x.type.base, x.b + 8, 1); Multiply (y, z, TRUE);
+		IF x.mode = Base.cRef THEN Ref_to_regI (x) END;
+		EmitRR (ADDd, RegHead(-2), 8, RegHead(-1));
+		x.r := RegHead(-2); x.b := x.b + 8; Free_reg
 	ELSE ASSERT(FALSE)
 	END;
 	x.type := x.type.base
@@ -1643,8 +1670,14 @@ BEGIN i := c.parOff DIV 8 + 1; Load_adr (x);
 END Ref_param;
 
 PROCEDURE Record_param* (VAR x: Base.Item; VAR c: ProcCall);
-BEGIN (* stub *)
-	Ref_param (x, c)
+	VAR td: Base.Item;
+BEGIN
+	IF x.param & ~x.readonly THEN
+		td := x; td.a := td.a + 8; td.type := Base.intType
+	ELSE Make_item (td, x.type.obj); Get_typedesc (td)
+	END;
+	Ref_param (x, c);
+	Ref_param (td, c)
 END Record_param;
 
 PROCEDURE Array_param* (VAR x: Base.Item; VAR c: ProcCall);
@@ -1670,8 +1703,7 @@ BEGIN IF x.mode = Base.cRef THEN Ref_to_regI (x) END; SetRmOperand (x);
 END SProc_INC;
 
 PROCEDURE Assert* (VAR x: Base.Item);
-BEGIN
-	(* Implement later *)
+BEGIN Load_cond (x); Trap (negated(x.c), assert_trap)
 END Assert;
 
 PROCEDURE SProc_GET* (VAR x, y: Base.Item);
@@ -1711,6 +1743,34 @@ BEGIN x.type := Base.dwordType; Alloc_reg (r); Load_to_reg (r, 4, x);
 	EmitRI (SHLi, rexp, 4, 23); EmitRR (SUBd, r, 4, rexp);
 	SetRmOperand (x); EmitRegRm (MOV, r, 4)
 END SProc_UNPK;
+
+PROCEDURE SProc_NEW* (VAR x: Base.Item);
+	VAR proc, par, td: Base.Item; c: ProcCall;
+BEGIN
+	proc.mode := Base.cProc; proc.type := Base.HeapAllocFuncType;
+	proc.lev := -2; proc.a := Base.HeapAlloc; c.rtype := Base.intType;
+	Prepare_to_call (proc, c);
+	
+	par.mode := Base.cVar; par.lev := -1; par.a := Base.HeapHandle;
+	par.type := Base.intType; Value_param (par, c);
+	Make_const (par, Base.intType, 8); Value_param (par, c);
+	Make_const (par, Base.intType, x.type.base.size + 16); Value_param (par, c);
+	
+	Call (c); Return_value (proc, c.rtype); EmitRI (ADDi, proc.r, 8, 16);
+	Make_item (td, x.type.base.obj); Get_typedesc (td); Load_adr (td);
+	SetRmOperand_regI (proc.r, -8); EmitRegRm (MOV, td.r, 8); Store (x, proc)
+END SProc_NEW;
+
+PROCEDURE SProc_DISPOSE* (VAR c: ProcCall);
+	VAR proc, par, td : Base.Item;
+BEGIN
+	proc.mode := Base.cProc; proc.type := Base.HeapFreeFuncType; proc.lev := -2;
+	proc.a := Base.HeapFree; c.rtype := NIL; Prepare_to_call (proc, c);
+	
+	par.mode := Base.cVar; par.lev := -1; par.a := Base.HeapHandle;
+	par.type := Base.intType; Value_param (par, c);
+	Make_const (par, Base.intType, 0); Value_param (par, c)
+END SProc_DISPOSE;
 
 PROCEDURE SFunc_ADR* (VAR x: Base.Item);
 BEGIN Load_adr (x)
@@ -1949,10 +2009,103 @@ BEGIN nXregs := 0; i := 15;
 END Return;
 
 PROCEDURE Module_init*;
-END Module_init;
+	VAR i, L, r, int64: INTEGER;
+		str: Base.String; imported: BOOLEAN; key: SymTable.ModuleKey;
+		obj, obj2: Base.Object; x, td: Base.Item; tp: Base.Type;
+		importModules: SymTable.ModuleArray; imod: SymTable.Module;
+BEGIN
+	Reset_code_buffer; Reset_reg_stack;
+	ProcState.usedRegs := {}; ProcState.memstack := 0; ProcState.adr := ip;
+	ProcState.locblksize := 0; ProcState.parlist := NIL;
 
-PROCEDURE Module_exit*;
-END Module_exit;
+	IF ~Base.CplFlag.main THEN EmitRI (CMPi, reg_D, 4, 1);
+		L := pc; CondBranch (ccZ, 0); EmitBare (RET); Fix_link (L)
+	END;
+	
+	PushR (reg_SI); PushR (reg_DI); EmitRI (SUBi, reg_SP, 8, 40);
+	SetRmOperand_staticvar (Base.GetProcessHeap); EmitRm (CALL, 4);
+	SetRmOperand_staticvar (Base.HeapHandle); EmitRegRm (MOV, reg_A, 8);
+	
+	(* Import modules, if there are any *)
+	imod := SymTable.moduleList;
+	WHILE imod # NIL DO
+		imported := imod.modno >= 0; obj := imod.dsc;
+		WHILE ~imported & (obj # Base.guard) DO
+			imported := (obj.val # 0) & (obj.expno # 0); obj := obj.next
+		END;
+		IF imported THEN
+			str[0] := 0X; Strings.Append (imod.name, str);
+			Strings.Append ('.dll', str);
+			Make_string (x, str, Strings.Length(str) + 1);
+			SetRmOperand (x); EmitRegRm (LEA, reg_C, 8);
+			SetRmOperand_staticvar (Base.LoadLibraryW); EmitRm (CALL, 4);
+			EmitRR (MOVd, reg_SI, 8, reg_A);
+			
+			(* Check module key *)
+			key := imod.key; int64 := 0;
+			SYSTEM.GET (SYSTEM.ADR(key[0]), int64);
+			MoveRI (reg_A, 8, int64); SetRmOperand_regI (reg_SI, 400H - 16);
+			EmitRegRm (CMPd, reg_A, 8); Trap (ccNZ, modkey_trap);
+			SYSTEM.GET (SYSTEM.ADR(key[8]), int64);
+			MoveRI (reg_A, 8, int64); SetRmOperand_regI (reg_SI, 400H - 8);
+			EmitRegRm (CMPd, reg_A, 8); Trap (ccNZ, modkey_trap);
+		
+			obj := imod.dsc;
+			WHILE obj # Base.guard DO
+				IF (obj.val # 0) & (obj.expno # 0) THEN
+					EmitRR (MOVd, reg_C, 8, reg_SI);
+					MoveRI (reg_D, 4, obj.expno);
+					SetRmOperand_staticvar (Base.GetProcAddress);
+					EmitRm (CALL, 4);
+					SetRmOperand_staticvar (obj.val);
+					EmitRegRm (MOV, reg_A, 8)
+				END;
+				obj := obj.next
+			END	
+		END;
+		imod := imod.next
+	END;
+	
+	(* Fill value into type descriptors *)
+	obj := SymTable.universe.next;
+	WHILE obj # Base.guard DO
+		IF (obj.class = Base.cType) & (obj.val # 0) THEN tp := obj.type;
+			IF tp.form = Base.tPointer THEN tp := tp.base END;
+			IF tp.len = 1 THEN
+				SetRmOperand_staticvar (obj.val); EmitRegRm (LEA, reg_C, 8);
+				SetRmOperand_staticvar (obj.val + 8); EmitRegRm (MOV, reg_C, 8)
+			ELSIF tp.len > 1 THEN
+				SetRmOperand_staticvar (obj.val + 8);
+				EmitRegRm (LEA, reg_DI, 8); obj2 := tp.base.obj;
+				IF obj2.lev # -2 THEN SetRmOperand_staticvar (obj2.val + 8);
+					EmitRegRm (LEA, reg_SI, 8)
+				ELSE SetRmOperand_staticvar (obj2.val);
+					EmitRegRm (MOVd, reg_SI, 8); EmitRI (ADDi, reg_SI, 8, 8)
+				END;
+				MoveRI (reg_C, 4, tp.len - 1); EmitRep (MOVSrep, 8, 1);
+				SetRmOperand_regI (reg_DI, tp.len * (-8));
+				EmitRegRm (LEA, reg_C, 8); SetRmOperand_regI (reg_DI, 0);
+				EmitRegRm (MOV, reg_C, 8)
+			END
+		END;
+		obj := obj.next
+	END;
+	
+	(* Call module main procedure *)
+	CallNear (Linker.entry); Linker.entry := ProcState.adr;
+	
+	(* Exit *)
+	IF Base.CplFlag.main THEN
+		EmitRI (SUBi, reg_SP, 8, 32);
+		EmitRR (XOR, reg_C, 4, reg_C);
+		SetRmOperand_staticvar (Base.ExitProcess); EmitRm (CALL, 4)
+	ELSE
+		MoveRI (reg_A, 4, 1); EmitRI (ADDi, reg_SP, 8, 40);
+		PopR (reg_DI); PopR (reg_SI); EmitBare (RET)
+	END;
+	ProcState.prologsize := 0;
+	Write_to_file (1, pc - 1)
+END Module_init;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -2057,14 +2210,14 @@ END Write_data_section;
 PROCEDURE Write_edata_section;
 	CONST dirsize = 40;
 	VAR obj: Base.Object; name: Base.String;
-		namesize, tablesize, i, rva: INTEGER;
+		namesize, tablesize, i, rva, expno: INTEGER;
 BEGIN name[0] := 0X; Strings.Append (modid, name);
 	IF Base.CplFlag.main THEN Strings.Append ('.exe', name)
 	ELSE Strings.Append ('.dll', name)
 	END;
 	namesize := Strings.Length(name) + 1;
 	
-	tablesize := SymTable.expno * 4;
+	expno := SymTable.expno; tablesize := expno * 4;
 
 	(* Export directory *)
 	Sys.Seek (out, Linker.edata_fadr + 12);
@@ -2075,19 +2228,18 @@ BEGIN name[0] := 0X; Strings.Append (modid, name);
 	Sys.Write_4bytes (out, Linker.edata_rva + dirsize);
 	
 	(* Export address table *)
-	Sys.Seek (out, Linker.edata_fadr + dirsize); obj := SymTable.universe.next;
-	WHILE obj # Base.guard DO
-		IF obj.export THEN rva := obj.val;
-			IF (obj.class = Base.cType) OR (obj.type = Base.stringType) THEN
-				rva := rva + Linker.data_rva + Linker.data_size + staticbase
-			ELSIF obj.class = Base.cVar THEN
-				rva := rva + Linker.data_rva + Linker.data_size + varbase
-			ELSIF obj.class = Base.cProc THEN
-				rva := rva + Linker.code_rva
-			END;
-			Sys.Write_4bytes (out, rva)
+	Sys.Seek (out, Linker.edata_fadr + dirsize); i := 1;
+	WHILE i <= expno DO obj := SymTable.universe.next;
+		WHILE obj.expno # i DO obj := obj.next END; rva := obj.val;
+		IF (obj.class = Base.cType) OR (obj.type = Base.stringType) THEN
+			rva := rva + Linker.data_rva + Linker.data_size + staticbase
+		ELSIF obj.class = Base.cVar THEN
+			rva := rva + Linker.data_rva + Linker.data_size + varbase
+		ELSIF obj.class = Base.cProc THEN
+			rva := rva + Linker.code_rva
+		ELSE ASSERT(FALSE)
 		END;
-		obj := obj.next
+		Sys.Write_4bytes (out, rva); INC (i)
 	END;
 		
 	(* Name string *)

@@ -31,7 +31,8 @@ CONST
 	typeCharacter* = {tChar, tString};
 	typeHasExt* = {tRecord, tPointer};
 	
-	(* System procedures *)
+	(* Win32 specifics *)
+	HeapHandle* = -64;
 	ExitProcess* = -56;
 	LoadLibraryW* = -48;
 	GetProcAddress* = -40;
@@ -81,6 +82,8 @@ VAR
 	
 	LoadLibraryFuncType*: Type;
 	GetProcAddressFuncType*: Type;
+	HeapAllocFuncType*: Type;
+	HeapFreeFuncType*: Type;
 	
 	predefinedTypes*: ARRAY 32 OF Type;
 	preTypeNo*: INTEGER;
@@ -228,4 +231,10 @@ BEGIN
 	
 	NewPredefinedType (GetProcAddressFuncType, tProcedure, WordSize);
 	LoadLibraryFuncType.parblksize := WordSize * 2;
+	
+	NewPredefinedType (HeapAllocFuncType, tProcedure, WordSize);
+	HeapAllocFuncType.parblksize := WordSize * 3;
+	
+	NewPredefinedType (HeapFreeFuncType, tProcedure, WordSize);
+	HeapFreeFuncType.parblksize := WordSize * 3;
 END Base.

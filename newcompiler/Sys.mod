@@ -166,8 +166,7 @@ END Write_8bytes;
 
 PROCEDURE FilePos* (VAR file : FileHandle) : INTEGER;
 	VAR res: WinApi.Bool; byteToMove, newPointer: WinApi.Large_integer;
-BEGIN
-	byteToMove.QuadPart := 0;
+BEGIN byteToMove.QuadPart := 0;
 	res := WinApi.SetFilePointerEx(
 		file.f, byteToMove, SYSTEM.ADR2(newPointer), WinApi.FILE_CURRENT
 	);
@@ -192,5 +191,4 @@ BEGIN
 	)
 END SeekRel;
 
-BEGIN
 END Sys.

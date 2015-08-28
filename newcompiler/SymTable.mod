@@ -5,12 +5,6 @@ IMPORT
 
 TYPE
 	ModuleKey* = ARRAY 16 OF BYTE;
-
-	UndefPtrList* = POINTER TO RECORD
-		typ: Base.Type;
-		basename: Base.IdentStr;
-		next: UndefPtrList
-	END;
 	
 	TypeArray* = POINTER TO RECORD
 		a: ARRAY Base.MaxExportTypes OF Base.Type
@@ -18,8 +12,8 @@ TYPE
 	
 	Module* = POINTER TO ModuleDesc;
 	ModuleArray* = POINTER TO RECORD
-		len: INTEGER;
-		a: ARRAY Base.MaxModules OF Module
+		len*: INTEGER;
+		a*: ARRAY Base.MaxModules OF Module
 	END;
 	ModuleDesc* = RECORD
 		lev*, modno*: INTEGER;
@@ -31,7 +25,6 @@ TYPE
 	
 VAR
 	topScope*, procScope*, universe*: Base.Object;
-	undefPtr*: UndefPtrList;
 	curLev*: INTEGER;
 	
 	refno, expno*, modno: INTEGER;
@@ -115,22 +108,32 @@ END Find_module;
 PROCEDURE New* (VAR obj: Base.Object; name: Base.IdentStr; class: INTEGER);
 BEGIN
 	Base.StrCopy(name, Base.guard.name); obj := topScope;
-	WHILE obj.next.name # name DO obj := obj.next END;
+	IF name[0] # 0X THEN
+		WHILE obj.next.name # name DO obj := obj.next END
+	ELSE
+		WHILE obj.next # Base.guard DO obj := obj.next END
+	END;
 	
 	IF obj.next = Base.guard THEN
 		NEW (obj.next); obj := obj.next;
 		obj.export := FALSE; obj.readonly := FALSE; obj.param := FALSE;
 		Base.StrCopy(name, obj.name); obj.class := class; obj.lev := curLev;
-		obj.next := Base.guard; obj.val := 0; obj.val2 := 0
+		obj.next := Base.guard; obj.val := 0; obj.val2 := 0; obj.expno := 0;
 	ELSE Scanner.Mark ('Duplicated identifer definition'); obj := Base.guard
 	END
 END New;
 
-PROCEDURE New_import (VAR obj: Base.Object; name: Base.IdentStr; cls: INTEGER);
+PROCEDURE New_import_in (
+	mod: Module; VAR obj: Base.Object; name: Base.IdentStr; cls: INTEGER
+);
 BEGIN
-	NEW (obj); obj.readonly := TRUE; obj.param := FALSE;
+	NEW (obj); obj.readonly := TRUE; obj.param := FALSE; obj.export := FALSE;
 	Base.StrCopy(name, obj.name); obj.class := cls; obj.lev := -2;
-	obj.next := imod.dsc; imod.dsc := obj 
+	obj.next := mod.dsc; mod.dsc := obj 
+END New_import_in;
+
+PROCEDURE New_import (VAR obj: Base.Object; name: Base.IdentStr; cls: INTEGER);
+BEGIN New_import_in (imod, obj, name, cls)
 END New_import;
 	
 PROCEDURE Enter (cl, n: INTEGER; name: Base.IdentStr; typ: Base.Type);
@@ -138,44 +141,9 @@ PROCEDURE Enter (cl, n: INTEGER; name: Base.IdentStr; typ: Base.Type);
 BEGIN
 	NEW (obj); obj.readonly := FALSE; obj.param := FALSE;
 	obj.class := cl; obj.val := n; Base.StrCopy(name, obj.name);
-	obj.type := typ; obj.next := topScope.next; topScope.next := obj
+	obj.type := typ; obj.next := topScope.next; topScope.next := obj;
+	IF cl = Base.cType THEN typ.obj := obj END
 END Enter;
-
-(* -------------------------------------------------------------------------- *)
-(* -------------------------------------------------------------------------- *)
-	
-PROCEDURE RegisterUndefType* (
-	typ: Base.Type; basename: Base.IdentStr; export: BOOLEAN
-);
-	VAR undef: UndefPtrList;
-BEGIN
-	NEW (undef); undef.typ := typ; Base.StrCopy(basename, undef.basename);
-	undef.next := undefPtr; undefPtr := undef
-END RegisterUndefType;
-	
-PROCEDURE CheckUndefList* (obj: Base.Object);
-	VAR p, prev: UndefPtrList;
-BEGIN p := undefPtr;
-	WHILE p # NIL DO
-		IF p.basename = obj.name THEN p.typ.base := obj.type;
-			IF p # undefPtr THEN prev.next := p.next
-			ELSE undefPtr := p.next
-			END
-		ELSE prev := p
-		END;
-		p := p.next
-	END
-END CheckUndefList;
-	
-PROCEDURE CleanupUndefList*;
-	VAR msg: Base.String;
-BEGIN
-	WHILE undefPtr # NIL DO
-		msg := 'Record type '; Strings.Append (undefPtr.basename, msg);
-		Strings.Append (' is not defined', msg); Scanner.Mark (msg);
-		undefPtr := undefPtr.next
-	END
-END CleanupUndefList;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -228,11 +196,12 @@ END Import_proc;
 PROCEDURE Import_type (
 	VAR typ: Base.Type; typmod: INTEGER; modname: Base.IdentStr
 );
-	VAR field: Base.Object; itype: Base.TypeDesc; orgmod: Module;
-		name: Base.IdentStr; form, class, ref: INTEGER;
+	VAR field, obj: Base.Object; itype: Base.TypeDesc; orgmod: Module;
+		name: Base.IdentStr; form, class, ref, eno: INTEGER;
 BEGIN itype.nptr := 0; 
 	IF typmod = -1 THEN itype.mod := imod.modno ELSE itype.mod := -3 END;
 	Base.ReadInt (symfile, ref); itype.ref := -ref - 1;
+	Base.ReadInt (symfile, eno);
 	Base.ReadInt (symfile, form); itype.form := form;
 	
 	IF typmod = -1 THEN Base.NewType (typ, form); imod.types.a[ref] := typ
@@ -287,9 +256,18 @@ BEGIN itype.nptr := 0;
 		itype.alignment := Base.WordSize
 	END;
 	
-	IF typmod = -1 THEN typ^ := itype
+	IF typmod = -1 THEN typ^ := itype;
+		IF eno > 0 THEN
+			New_import (obj, '', Base.cType); obj.type := typ;
+			typ.obj := obj; obj.expno := eno; obj.val := 0
+		END
 	ELSE typ := orgmod.types.a[ref];
-		IF typ.mod = -1 THEN typ^ := itype END
+		IF typ.mod = -1 THEN typ^ := itype;
+			IF eno > 0 THEN
+				New_import_in (orgmod, obj, '', Base.cType); obj.type := typ;
+				typ.obj := obj; obj.expno := eno; obj.val := 0
+			END
+		END
 	END;
 END Import_type;
 
@@ -341,7 +319,7 @@ BEGIN
 		ELSIF class = Base.cConst THEN
 			Sys.Read_string (symfile, name);
 			New_import (obj, name, Base.cConst);
-			Base.ReadInt (symfile, obj.val);
+			Base.ReadInt (symfile, obj.val); obj.expno := 0;
 			Detect_typeI (obj.type)
 		ELSIF class = Base.cType THEN
 			Sys.Read_string (symfile, name);
@@ -349,18 +327,18 @@ BEGIN
 			Detect_typeI (obj.type);
 			IF obj.type.obj = NIL THEN obj.type.obj := obj END;
 			IF obj.type.form = Base.tRecord THEN
-				Base.ReadInt (symfile, obj.val)
+				Base.ReadInt (symfile, obj.expno); obj.val := 0
 			END
 		ELSIF class = Base.cVar THEN
 			Sys.Read_string (symfile, name);
 			New_import (obj, name, Base.cRef);
 			Base.ReadInt (symfile, obj.val2);
-			Base.ReadInt (symfile, obj.val);
+			Base.ReadInt (symfile, obj.expno); obj.val := 0;
 			Detect_typeI (obj.type)
 		ELSIF class = Base.cProc THEN
 			Sys.Read_string (symfile, name);
 			New_import (obj, name, Base.cProc);
-			Base.ReadInt (symfile, obj.val);
+			Base.ReadInt (symfile, obj.expno); obj.val := 0;
 			Base.NewType (obj.type, Base.tProcedure); Import_proc (obj.type^)
 		ELSE ASSERT(FALSE)
 		END;
@@ -484,6 +462,12 @@ BEGIN
 	ELSE typ.ref := -typ.ref - 1
 	END;
 	Base.WriteInt (symfile, typ.ref);
+	IF (typ.form # Base.tRecord) OR typ.obj.export THEN
+		Base.WriteInt (symfile, 0)
+	ELSE
+		IF typ.obj.expno = 0 THEN INC (expno); typ.obj.expno := expno END;
+		Base.WriteInt (symfile, typ.obj.expno)
+	END;
 	
 	Base.WriteInt (symfile, typ.form);
 	IF typ.form = Base.tRecord THEN
