@@ -1,7 +1,11 @@
-gpcp /nowarn Sys.cp
-gpcp /nowarn Base.cp
-gpcp /nowarn /unsafe Scanner.cp
-gpcp /nowarn SymTable.cp
-gpcp /nowarn /unsafe Generator3.cp
-gpcp /nowarn Parser.cp
-gpcp /nowarn AyaCompile.cp
+..\bin\AyaCompile Strings.mod
+..\bin\AyaCompile WinApi.mod
+..\bin\AyaCompile ProgArgs.mod
+..\bin\AyaCompile Console.mod
+..\bin\AyaCompile Sys.mod
+..\bin\AyaCompile Base.mod
+..\bin\AyaCompile Scanner.mod
+..\bin\AyaCompile SymTable.mod
+..\bin\AyaCompile Generator.mod
+..\bin\AyaCompile Parser.mod
+..\bin\AyaCompile AyaCompile.mod
