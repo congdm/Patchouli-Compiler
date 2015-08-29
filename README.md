@@ -2,11 +2,11 @@
 
 ## Description
 
-This compiler is based on the Oberon-0 compiler in Prof. Niklaus Wirth "Compiler Construction" book.
+This compiler is based on the Oberon-0 compiler in Prof. Niklaus Wirth "Compiler Construction" book and the Oberon-07 compiler in Project Oberon (2013).
 
 The goal is to implement the recursive descent compiler for Oberon-07 language, Intel 64 architecture.
 
-Written in Component Pascal, compiled by Gardens Point Component Pascal, and require .NET 2.0 to run.
+The old version is written in Component Pascal, compiled by Gardens Point Component Pascal, and require .NET 2.0 to run. The current version is written in Oberon-07 and self-compiled itself.
 
 Binary is also supply with source.
 
