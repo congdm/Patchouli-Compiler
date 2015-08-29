@@ -472,8 +472,7 @@ PROCEDURE StandFunc (VAR x: Base.Item);
 	END SFunc_ORD;
 		
 	PROCEDURE SFunc_CHR (VAR x: Base.Item);
-	BEGIN expression (x); CheckInt (x);
-		IF ~(x.mode IN {Base.cConst, Base.mReg}) THEN Generator.load (x) END
+	BEGIN expression (x); CheckInt (x); Generator.SFunc_CHR (x)
 	END SFunc_CHR;
 		
 	PROCEDURE SFunc_ADR (VAR x: Base.Item);
@@ -781,20 +780,27 @@ PROCEDURE StandProc (VAR x: Base.Item);
 			IF op = Scanner.plus THEN Generator.SProc_INC (x, 1)
 			ELSE Generator.SProc_INC (x, -1)
 			END
-		ELSE (* stub *)
+		ELSE y := x; Generator.Load_to_new_reg (y);
+			Scanner.Get (sym); expression (z); CheckInt (z);
+			Generator.Add (op, y, z); Generator.Store (x, y)
 		END
 	END SProc_INC;
 	
 	PROCEDURE SProc_INCL (op: INTEGER);
-		VAR x, y, z, t: Base.Item;
-	BEGIN (* stub *)
+		VAR x, y, z: Base.Item;
+	BEGIN
+		expression (x); CheckVar (x, FALSE); CheckSet (x);
+		y := x; Generator.Load_to_new_reg (y);
+		Check (Scanner.comma, tooLittleParamError);
+		expression (z); CheckInt (z); Generator.SProc_INCL (op, y, z);
+		Generator.Store (x, y)
 	END SProc_INCL;
 	
 	PROCEDURE SProc_NEW;
 		VAR x: Base.Item;
 	BEGIN expression (x); CheckVar (x, FALSE);
 		IF x.type.form = Base.tPointer THEN
-			IF (x.type.base # Base.intType) (*& (x.type.base.obj # NIL)*) THEN
+			IF (x.type.base # Base.intType) & (x.type.base.obj # NIL) THEN
 				Generator.SProc_NEW (x)
 			ELSE MakeIntConst (x)
 			END
@@ -847,6 +853,25 @@ PROCEDURE StandProc (VAR x: Base.Item);
 		Check (Scanner.comma, tooLittleParamError);
 		Generator.SProc_COPY (x, y, z)
 	END SProc_COPY;
+	
+	PROCEDURE SProc_PACK;
+		VAR x, y, z: Base.Item;
+	BEGIN
+		expression (x); CheckVar (x, FALSE); CheckReal (x);
+		y := x; y.type := Base.dwordType; Generator.Load_to_new_reg (y);
+		Check (Scanner.comma, tooLittleParamError);
+		expression (z); CheckInt (z); Generator.SProc_PACK (x, y, z)
+	END SProc_PACK;
+	
+	PROCEDURE SProc_UNPK;
+		VAR x, y, z: Base.Item;
+	BEGIN
+		expression (x); CheckVar (x, FALSE); CheckReal (x);
+		y := x; y.type := Base.dwordType; Generator.Load_to_new_reg (y);
+		Check (Scanner.comma, tooLittleParamError);
+		expression (z); CheckVar (z, FALSE); CheckInt (z);
+		Generator.SProc_UNPK (x, y, z)
+	END SProc_UNPK;
 		
 	PROCEDURE SProc_LoadLibrary;
 		VAR x, y, proc: Base.Item; c: Generator.ProcCall; tp: Base.Type;
