@@ -44,7 +44,7 @@ CONST
 	TEST = 84H; XCHG = 86H; 
 	_OR = 08H; ORd = 0AH; SUB = 28H; SUBd = 2AH; CMP = 38H; CMPd = 3AH;
 	MOV = 88H; MOVd = 8AH; LEA = 8DH;
-	BT = 0A30FH; BTR = 0B30FH; MOVZX = 0B60FH;
+	BT = 0A30FH; BTR = 0B30FH;
 	BTS = 0AB0FH; IMUL = 0AF0FH;
 	
 	(* Opcodes used with EmitRm *)
@@ -206,7 +206,8 @@ BEGIN
 	THEN rex := rex + X_bit
 	END;
 	IF (rex # 40H)
-	OR (rsize = 1) & ((reg IN {reg_SP .. reg_DI})
+	OR (rsize = 1) &
+		((reg IN {reg_SP .. reg_DI})
 		OR (Emit.mem.mod = 3) & (Emit.mem.rm IN {reg_SP .. reg_DI}))
 	THEN Put_byte (rex)
 	END
@@ -264,9 +265,7 @@ BEGIN
 	Emit_16bit_prefix (rsize); Emit_REX_prefix (reg, rsize);
 	org := op; Handle_multibytes_opcode (op);
 	
-	IF (rsize > 1) & ((org < LEA) OR (org = MOVZX)) THEN
-		op := op + w_bit
-	END;
+	IF (rsize > 1) & (org < LEA) THEN op := op + w_bit END;
 	Put_byte (op); Emit_ModRM (reg);
 	
 	Next_inst
@@ -330,6 +329,36 @@ BEGIN
 	Emit_REX_prefix (xreg, rsize); Handle_multibytes_opcode (op);
 	Put_byte (op MOD 256); Emit_ModRM (xreg); Next_inst
 END EmitXmmRm;
+
+PROCEDURE EmitMOVZX (reg, rmsize: INTEGER);
+	VAR rsize, op: INTEGER;
+BEGIN rsize := 4; op := 0B6H;
+	IF rmsize = 1 THEN
+		IF (Emit.mem.mod = 3) & (Emit.mem.rm IN {reg_SP .. reg_DI})
+		THEN rsize := 8
+		END
+	ELSIF rmsize = 2 THEN INC (op)
+	ELSE ASSERT(FALSE)
+	END;
+	Emit_REX_prefix (reg, rsize);
+	Put_byte (0FH); Put_byte (op);
+	Emit_ModRM (reg);
+	Next_inst
+END EmitMOVZX;
+
+PROCEDURE EmitMOVSX (reg, rmsize: INTEGER);
+	VAR op: INTEGER;
+BEGIN 
+	IF rmsize = 1 THEN op := 0BE0FH
+	ELSIF rmsize = 2 THEN op := 0BF0FH
+	ELSIF rmsize = 4 THEN op := 63H
+	ELSE ASSERT(FALSE)
+	END;
+	Emit_REX_prefix (reg, 8);
+	Handle_multibytes_opcode (op); Put_byte (op);
+	Emit_ModRM (reg);
+	Next_inst
+END EmitMOVSX;
 
 (* -------------------------------------------------------------------------- *)
 
@@ -734,7 +763,8 @@ END negated;
 (* -------------------------------------------------------------------------- *)
 (* Load/Store *)
 (* For consistency purpose, all value with size *)
-(* smaller than 64 bits are zero-extended when load to register *)
+(* smaller than 64 bits are zero-extended or sign-extended *)
+(* when load to register *)
 
 PROCEDURE Ref_to_regI (VAR x: Base.Item);
 BEGIN
@@ -743,29 +773,36 @@ BEGIN
 END Ref_to_regI;
 
 (* Untyped (not safe) load and doesn't modify Item *)
-PROCEDURE Load_to_reg (reg, rsize: INTEGER; x: Base.Item);
+PROCEDURE Load_to_reg (reg, rsize: INTEGER; signed: BOOLEAN; x: Base.Item);
 	VAR op: INTEGER;
 BEGIN
 	IF x.mode IN Base.clsVariable THEN SetRmOperand (x);
 		IF x.mode = Base.cRef THEN
 			EmitRegRm (MOVd, reg, 8); SetRmOperand_regI (reg, x.c)
 		END;
-		IF rsize >= 4 THEN op := MOVd
-		ELSIF rsize = 2 THEN op := MOVZX; rsize := 4
-		ELSIF rsize = 1 THEN op := MOVZX
-		END;
-		EmitRegRm (op, reg, rsize)
+		IF rsize = 8 THEN EmitRegRm (MOVd, reg, 8)
+		ELSIF ~signed THEN
+			IF rsize = 4 THEN EmitRegRm (MOVd, reg, 4)
+			ELSIF rsize = 2 THEN EmitMOVZX (reg, 2)
+			ELSIF rsize = 1 THEN EmitMOVZX (reg, 1)
+			END
+		ELSIF rsize = 4 THEN EmitMOVSX (reg, 4)
+		ELSIF rsize = 2 THEN EmitMOVSX (reg, 2)
+		ELSIF rsize = 1 THEN EmitMOVSX (reg, 1)
+		END
 	ELSIF x.mode = mImm THEN
 		IF x.a = 0 THEN EmitRR (XOR, reg, 4, reg)
-		ELSIF (rsize <= 4) OR (x.a > 0) & (x.a <= 0FFFFFFFFH) THEN
-			MoveRI (reg, 4, x.a)
-		ELSE MoveRI (reg, rsize, x.a)
+		ELSIF (x.a > 0) & (x.a <= 0FFFFFFFFH) THEN MoveRI (reg, 4, x.a)
+		ELSE MoveRI (reg, 8, x.a)
 		END
 	ELSIF x.mode = Base.cProc THEN SetRmOperand (x);
 		IF x.lev >= 0 THEN EmitRegRm (LEA, reg, 8)
 		ELSE EmitRegRm (MOVd, reg, 8)
 		END
-	ELSIF x.mode = mReg THEN EmitRR (MOVd, reg, rsize, x.r)
+	ELSIF x.mode = mReg THEN
+		IF (rsize = 8) OR signed THEN EmitRR (MOVd, reg, 8, x.r)
+		ELSE EmitRR (MOVd, reg, 4, x.r)
+		END
 	ELSIF x.mode = mXreg THEN
 		SetRmOperand_reg (reg); EmitXmmRm (SeeMOVDd, x.r, rsize)
 	END
@@ -803,18 +840,19 @@ BEGIN
 END fpload;
 
 PROCEDURE load* (VAR x: Base.Item);
-	VAR rsize, L: INTEGER;
+	VAR rsize, L: INTEGER; signed: BOOLEAN;
 BEGIN rsize := x.type.size;
 	IF x.type # Base.realType THEN
 		IF x.mode # mReg THEN
 			IF x.mode # mCond THEN
 				IF x.mode # mRegI THEN Alloc_reg (x.r) END;
-				Load_to_reg (x.r, rsize, x)
+				signed := Base.IsSignedType(x.type);
+				Load_to_reg (x.r, rsize, signed, x)
 			ELSE Alloc_reg (x.r);
 				IF (x.a = 0) & (x.b = 0) THEN
 					IF (x.c < 16) & (x.c >= 0) THEN
 						SetRmOperand_reg (x.r); SetccRm (x.c);
-						EmitRR (MOVZX, x.r, 1, x.r)
+						SetRmOperand_reg (x.r); EmitMOVZX (x.r, 1)
 					ELSIF x.c = ccAlways THEN MoveRI (x.r, 4, 1)
 					ELSIF x.c = ccNever THEN EmitRR (XOR, x.r, 4, x.r)
 					END
@@ -832,11 +870,12 @@ BEGIN rsize := x.type.size;
 END load;
 
 PROCEDURE Load_to_new_reg* (VAR x: Base.Item);
-	VAR r: INTEGER;
+	VAR r: INTEGER; signed: BOOLEAN;
 BEGIN
 	IF x.type # Base.realType THEN
-		IF x.mode IN {mReg, mRegI, mXreg} THEN Alloc_reg (r);
-			Load_to_reg (r, x.type.size, x); x.mode := mReg; x.r := r
+		IF x.mode IN {mReg, mRegI, mXreg} THEN
+			Alloc_reg (r); signed := Base.IsSignedType(x.type);
+			Load_to_reg (r, x.type.size, signed, x); x.mode := mReg; x.r := r
 		ELSE load (x)
 		END
 	ELSE
@@ -1253,7 +1292,9 @@ END And2;
 PROCEDURE Int_relation* (rel: INTEGER; VAR x, y: Base.Item);
 	VAR cond, rsize: INTEGER;
 BEGIN
-	IF x.type = y.type THEN rsize := x.type.size ELSE rsize := 8 END;
+	IF (x.type.form = Base.tInteger) OR (x.type # y.type) THEN rsize := 8
+	ELSE rsize := x.type.size
+	END;
 	IF (x.mode = mImm) & (y.mode = mImm) THEN
 		IF rel = Scanner.eql THEN x.a := ORD(x.a = y.a)
 		ELSIF rel = Scanner.neq THEN x.a := ORD(x.a # y.a)
@@ -1754,11 +1795,14 @@ BEGIN load (x); x.mode := mRegI; x.a := 0; x.type := y.type; Store (x, y)
 END SProc_PUT;
 	
 PROCEDURE SProc_COPY* (VAR x, y, z : Base.Item);
-	VAR	rsize: INTEGER;
+	VAR	rsize: INTEGER; signed: BOOLEAN;
 BEGIN
-	Load_to_reg (reg_SI, x.type.size, x);
-	Load_to_reg (reg_DI, y.type.size, y);
-	Load_to_reg (reg_C, z.type.size, z);
+	signed := Base.IsSignedType(x.type);
+	Load_to_reg (reg_SI, x.type.size, signed, x);
+	signed := Base.IsSignedType(y.type);
+	Load_to_reg (reg_DI, y.type.size, signed, y);
+	signed := Base.IsSignedType(z.type);
+	Load_to_reg (reg_C, z.type.size, signed, z);
 	EmitRep (MOVSrep, 1, 1);
 
 	WHILE reg_stack.rh > 0 DO Free_reg END;
@@ -1891,7 +1935,7 @@ BEGIN
 		L := pc; CondBranch (ccAE, 0); EmitR (NEG, x.r, 8);
 		Fix_link (L); Free_reg
 	ELSIF x.type = Base.realType THEN load (x); Alloc_reg (r);
-		Load_to_reg (r, 4, x); EmitRI (BTCi, r, 4, 31);
+		Load_to_reg (r, 4, FALSE, x); EmitRI (BTCi, r, 4, 31);
 		SetRmOperand_reg (r); EmitXmmRm (SeeMOVD, x.r, 4)
 	END
 END SFunc_ABS;
@@ -1918,26 +1962,35 @@ BEGIN load (x); Alloc_xreg;
 END SFunc_FLT;
 
 PROCEDURE SFunc_VAL* (VAR x: Base.Item; castType: Base.Type);
-	VAR r: INTEGER;
-BEGIN
-	IF castType = x.type THEN (* ok *)
-	ELSIF x.mode = mImm THEN
-		IF castType.size < x.type.size THEN
-			IF castType.size = 1 THEN x.a := x.a MOD 100H
-			ELSIF castType.size = 2 THEN x.a := x.a MOD 10000H
-			ELSIF castType.size = 4 THEN x.a := x.a MOD 100000000H
+	VAR r, castSize: INTEGER; signedX, signed: BOOLEAN;
+BEGIN signed := Base.IsSignedType(castType); castSize := castType.size;
+	IF x.mode = mImm THEN
+		IF castSize = 1 THEN x.a := x.a MOD 100H;
+			IF signed & (x.a > 7FH) THEN x.a := x.a - 100H END
+		ELSIF castSize = 2 THEN x.a := x.a MOD 10000H;
+			IF signed & (x.a > 7FFFH) THEN x.a := x.a - 10000H END
+		ELSIF castSize = 4 THEN x.a := x.a MOD 100000000H;
+			IF signed & (x.a > 7FFFFFFFH) THEN x.a := x.a - 100000000H END
+		END
+	ELSE load (x);
+		IF x.type # castType THEN
+			IF castType = Base.realType THEN
+				Alloc_xreg; r := xmm_stack - 1; Load_to_xreg (r, x);
+				x.mode := mXreg; x.r := r; Free_reg
+			ELSIF x.type = Base.realType THEN
+				Alloc_reg (r); Load_to_reg (r, 4, FALSE, x);
+				x.mode := mReg; x.r := r; Free_xreg;
+				IF signed OR (castSize < 4) THEN
+					Load_to_reg (r, castSize, signed, x)
+				END
+			ELSIF castSize < x.type.size THEN
+				Load_to_reg (x.r, castSize, signed, x)
+			ELSIF castSize = x.type.size THEN
+				IF signed # Base.IsSignedType(x.type) THEN
+					Load_to_reg (x.r, castSize, signed, x)
+				END
 			END
 		END
-	ELSIF x.type = Base.realType THEN
-		IF x.mode = mXreg THEN
-			Alloc_reg (r); Load_to_reg (r, 4, x);
-			x.mode := mReg; x.r := r; Free_xreg
-		ELSE x.type := castType; load (x)
-		END
-	ELSIF castType = Base.realType THEN
-		IF ~(x.mode IN modeMem + {mReg}) THEN load (x) END;
-		x.type := castType; fpload (x)
-	ELSE load (x)
 	END;
 	x.type := castType
 END SFunc_VAL;

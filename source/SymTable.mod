@@ -580,9 +580,17 @@ BEGIN
 	universe.next := Base.guard; topScope := universe; procScope := universe;
 	
 	Enter (Base.cType, 0, 'INTEGER', Base.intType);
+	Enter (Base.cType, 0, 'INT8', Base.int8Type);
+	Enter (Base.cType, 0, 'INT16', Base.int16Type);
+	Enter (Base.cType, 0, 'INT32', Base.int32Type);
+	
+	Enter (Base.cType, 0, 'BYTE', Base.byteType);
+	Enter (Base.cType, 0, 'CARD16', Base.card16Type);
+	Enter (Base.cType, 0, 'CARD32', Base.card32Type);
+	
 	Enter (Base.cType, 0, 'BOOLEAN', Base.boolType);
 	Enter (Base.cType, 0, 'SET', Base.setType);
-	Enter (Base.cType, 0, 'BYTE', Base.byteType);
+	
 	Enter (Base.cType, 0, 'CHAR', Base.charType);
 	Enter (Base.cType, 0, 'REAL', Base.realType);
 	Enter (Base.cType, 0, 'LONGREAL', Base.realType);

@@ -67,15 +67,15 @@ TYPE
 	AsciiStr = ARRAY 64 OF BYTE;
 	
 	Handle* = INTEGER;
-	Bool* = SYSTEM.DWORD;
-	Dword* = SYSTEM.DWORD;
-	Word* = SYSTEM.WORD;
+	Bool* = CARD32;
+	Dword* = CARD32;
+	Word* = CARD16;
 	Lpvoid* = INTEGER;
 	Long_ptr* = INTEGER;
 	Ulong_ptr* = INTEGER;
 	
 	PChar* = ADDRESS OF CHAR;
-	PDword* = ADDRESS OF SYSTEM.DWORD;
+	PDword* = ADDRESS OF Dword;
 	
 	WindowProc* = PROCEDURE (
 		hWnd : Handle; uMsg, wParam, lParam : INTEGER

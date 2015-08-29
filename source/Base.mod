@@ -75,7 +75,8 @@ VAR
 	guard* : Object;
 	
 	(* Predefined Types *)
-	intType*, byteType*, wordType*, dwordType*: Type;
+	intType*, int8Type*, int16Type*, int32Type*: Type;
+	byteType*, wordType*, dwordType*, card16Type*, card32Type*: Type;
 	boolType*, setType*, charType*, nilType*: Type;
 	realType*, longrealType*: Type;
 	byteArrayType*, stringType*: Type;
@@ -150,6 +151,10 @@ BEGIN
 	tp.base := bas; bas.adrType := tp
 END NewAddressType;
 
+PROCEDURE IsSignedType* (typ: Type) : BOOLEAN;
+	RETURN (typ = int8Type) OR (typ = int16Type) OR (typ = int32Type)
+END IsSignedType;
+
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
@@ -196,7 +201,7 @@ BEGIN
 	CplFlag.arrayCheck := TRUE;
 	CplFlag.typeCheck := TRUE;
 	CplFlag.nilCheck := TRUE;
-	CplFlag.overflowCheck := TRUE;
+	CplFlag.overflowCheck := FALSE;
 	CplFlag.main := FALSE;
 	CplFlag.console := FALSE
 END ResetCompilerFlag;
@@ -209,9 +214,17 @@ BEGIN
 	preTypeNo := 0; predefinedTypes[0] := NIL;
 	
 	NewPredefinedType (intType, tInteger, WordSize);
+	NewPredefinedType (int8Type, tInteger, 1);
+	NewPredefinedType (int16Type, tInteger, 2);
+	NewPredefinedType (int32Type, tInteger, 4);
+	
+	NewPredefinedType (byteType, tInteger, 1);
+	NewPredefinedType (card16Type, tInteger, 2);
+	NewPredefinedType (card32Type, tInteger, 4);
+	
 	NewPredefinedType (boolType, tBoolean, 1);
 	NewPredefinedType (setType, tSet, WordSize);
-	NewPredefinedType (byteType, tInteger, 1);
+	
 	NewPredefinedType (charType, tChar, CharSize);
 	NewPredefinedType (nilType, tNil, WordSize);
 	NewPredefinedType (realType, tReal, 4);
