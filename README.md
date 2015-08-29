@@ -10,9 +10,13 @@ The old version is written in Component Pascal, compiled by Gardens Point Compon
 
 Binary is also supply with source.
 
-## Why Niklaus Wirth was right after all
+## Why Niklaus Wirth was right after all, or What I had learned from this compiler
 
 https://github.com/congdm/AyaCompiler/wiki/Niklaus-Wirth-was-right-after-all
+
+## What I had learned from this compiler (part 2)
+
+https://github.com/congdm/AyaCompiler/wiki/What-I-had-learned-from-this-compiler-(part-2)
 
 ## Minimal Hello World program on Windows (no runtime)
 
