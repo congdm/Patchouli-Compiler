@@ -10,7 +10,7 @@ The old version is written in Component Pascal, compiled by Gardens Point Compon
 
 Binary is also supply with source.
 
-## Why Niklaus Wirth was right after all, or What I had learned from this compiler
+## Niklaus Wirth was right after all
 
 https://github.com/congdm/AyaCompiler/wiki/Niklaus-Wirth-was-right-after-all
 
