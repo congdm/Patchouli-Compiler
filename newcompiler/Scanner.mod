@@ -140,7 +140,8 @@ END HexString;
 PROCEDURE Ten(e: INTEGER): REAL;
 	VAR x, t: REAL;
 BEGIN
-	x := 1.0; t := 10.0;
+	x := SYSTEM.VAL(REAL, 3F800000H);
+	t := SYSTEM.VAL(REAL, 41200000H);
     WHILE e > 0 DO
 		IF ODD(e) THEN x := t * x END ;
 		t := t * t; e := e DIV 2
@@ -178,7 +179,7 @@ BEGIN
 		IF ch = '.' THEN (* double dot *) ch := 7FX;  (* decimal integer *)
 			REPEAT
 				IF d[i] < 10 THEN
-					IF k2 <= (max-d[i]) DIV 10 THEN k2 := k2 *10 + d[i]
+					IF k2 <= (max-d[i]) DIV 10 THEN k2 := k2 * 10 + d[i]
 					ELSE Mark('Too large'); k2 := 0
 					END
 				ELSE Mark('Bad integer')
@@ -186,11 +187,12 @@ BEGIN
 				INC(i)
 			UNTIL i = n;
 			sym := int; ival := k2
-		ELSE (* real number *) x := 0.0; e := 0;
-			REPEAT (* integer part *) x := x * 10.0 + FLT(d[i]); INC(i)
+		ELSE (* real number *) x := FLT(0); e := 0;
+			REPEAT (* integer part *)
+				x := x * FLT(10) + FLT(d[i]); INC(i)
 			UNTIL i = n;
 			WHILE (ch >= '0') & (ch <= '9') DO (* fraction *)
-				x := x * 10.0 + FLT(ORD(ch) - 30H); DEC(e); Read
+				x := x * FLT(10) + FLT(ORD(ch) - 30H); DEC(e); Read
 			END;
 			IF (ch = 'E') OR (ch = 'D') THEN (* scale factor *)
 				Read; s := 0; 
@@ -206,10 +208,10 @@ BEGIN
 				END
 			END;
 			IF e < 0 THEN
-				IF e >= -maxExp THEN x := x / Ten(-e) ELSE x := 0.0 END
+				IF e >= -maxExp THEN x := x / Ten(-e) ELSE x := FLT(0) END
 			ELSIF e > 0 THEN
 				IF e <= maxExp THEN x := Ten(e) * x
-				ELSE x := 0.0; Mark('Too large')
+				ELSE x := FLT(0); Mark('Too large')
 				END
 			END;
 			sym := real; rval := x; ival := SYSTEM.VAL(INTEGER, x);

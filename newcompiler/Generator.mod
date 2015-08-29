@@ -1877,6 +1877,8 @@ BEGIN
 	IF (x.mode = mXreg) & (castType # Base.realType) THEN
 		Alloc_reg (r); Load_to_reg (r, 4, x); Free_xreg;
 		x.mode := mReg; x.r := r
+	ELSIF (x.type = Base.realType) & (castType # Base.realType) THEN
+		x.type := Base.dwordType; load (x)
 	ELSIF (x.mode # mXreg) & (castType = Base.realType) THEN fpload (x)
 	ELSIF x.mode # mImm THEN load (x)
 	END;
