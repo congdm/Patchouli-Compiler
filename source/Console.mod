@@ -1,16 +1,16 @@
 MODULE Console;
 
 IMPORT
-	SYS := SYSTEM, Win := WinApi, Strings;
+	SYS := SYSTEM, WinBase, Win := WinApi, Strings;
 	
 CONST
 	nilAdr = 0; boolFalse = 0;
 	
 VAR
-	stdin, stdout : Win.Handle;
+	stdin, stdout : WinBase.HANDLE;
 
 PROCEDURE Write* (ch : CHAR);
-	VAR nWritten : Win.Dword; r : Win.Bool;
+	VAR nWritten: WinBase.DWORD; r: WinBase.BOOL;
 BEGIN
 	r := Win.WriteConsoleW(
 		stdout, SYS.ADR(ch), 1, SYS.ADR2(nWritten), nilAdr
@@ -19,7 +19,7 @@ BEGIN
 END Write;
 
 PROCEDURE WriteLn*;
-	VAR str : ARRAY 2 OF CHAR; nWritten : Win.Dword; r : Win.Bool;
+	VAR str: ARRAY 2 OF CHAR; nWritten: WinBase.DWORD; r: WinBase.BOOL;
 BEGIN
 	str[0] := CHR(13); str[1] := CHR(10);
 	r := Win.WriteConsoleW(
@@ -28,15 +28,15 @@ BEGIN
 	ASSERT (r # boolFalse); ASSERT (nWritten = 2)
 END WriteLn;
 
-PROCEDURE WriteString* (str : ARRAY OF CHAR);
-	VAR nWritten : Win.Dword; r : Win.Bool;
+PROCEDURE WriteString* (str: ARRAY OF CHAR);
+	VAR nWritten: WinBase.DWORD; r: WinBase.BOOL;
 BEGIN
 	r := Win.WriteConsoleW(
 		stdout, SYS.ADR(str), Strings.Length(str), SYS.ADR2(nWritten), nilAdr
 	)
 END WriteString;
 
-PROCEDURE IntToString* (x : INTEGER; VAR str : ARRAY OF CHAR);
+PROCEDURE IntToString* (x: INTEGER; VAR str: ARRAY OF CHAR);
 	CONST MIN_INT = -7FFFFFFFFFFFFFFFH - 1;
 	VAR negative : BOOLEAN; s : ARRAY 32 OF CHAR; i, j : INTEGER;
 BEGIN
@@ -62,10 +62,9 @@ BEGIN
 	END
 END IntToString;
 
-PROCEDURE WriteInt* (n : INTEGER);
-	VAR str : ARRAY 32 OF CHAR;
-BEGIN
-	IntToString (n, str); WriteString (str)
+PROCEDURE WriteInt* (n: INTEGER);
+	VAR str: ARRAY 32 OF CHAR;
+BEGIN IntToString (n, str); WriteString (str)
 END WriteInt;
 
 PROCEDURE IntToHexString* (x: INTEGER; VAR str: ARRAY OF CHAR);
@@ -125,13 +124,12 @@ BEGIN str[0] := 0X;
 END RealToString;
 
 PROCEDURE WriteReal* (r : REAL);
-	VAR str : ARRAY 32 OF CHAR;
-BEGIN
-	RealToString (r, str); WriteString (str)
+	VAR str: ARRAY 32 OF CHAR;
+BEGIN RealToString (r, str); WriteString (str)
 END WriteReal;
 
 PROCEDURE Read* (VAR ch : CHAR);
-	VAR nRead : Win.Dword; r : Win.Bool;
+	VAR nRead: WinBase.DWORD; r: WinBase.BOOL;
 BEGIN
 	r := Win.ReadConsoleW(
 		stdin, SYS.ADR(ch), 1, SYS.ADR2(nRead), NIL
@@ -140,13 +138,12 @@ BEGIN
 END Read;
 
 PROCEDURE Init;
-	VAR res : Win.Bool;
+	VAR res: WinBase.BOOL;
 BEGIN
 	res := Win.AllocConsole();
-	stdin := Win.GetStdHandle(Win.STD_INPUT_HANDLE);
-	stdout := Win.GetStdHandle(Win.STD_OUTPUT_HANDLE)
+	stdin := Win.GetStdHandle(WinBase.STD_INPUT_HANDLE);
+	stdout := Win.GetStdHandle(WinBase.STD_OUTPUT_HANDLE)
 END Init;
 
-BEGIN
-	Init
+BEGIN Init
 END Console.

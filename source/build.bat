@@ -1,4 +1,5 @@
 ..\bin\AyaCompile Strings.mod
+..\bin\AyaCompile WinBase.mod
 ..\bin\AyaCompile WinApi.mod
 ..\bin\AyaCompile ProgArgs.mod
 ..\bin\AyaCompile Console.mod

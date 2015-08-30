@@ -1,18 +1,18 @@
 MODULE Sys;
 
 IMPORT
-	SYSTEM, Strings, WinApi, Console;
+	SYSTEM, Strings, WinBase, WinApi, Console;
 	
 TYPE
 	FileHandle* = RECORD
-		f : WinApi.Handle
+		f: WinBase.HANDLE
 	END;
 	
-PROCEDURE File_existed* (filename : ARRAY OF CHAR) : BOOLEAN;
-	VAR res : WinApi.Dword;
+PROCEDURE File_existed* (filename: ARRAY OF CHAR): BOOLEAN;
+	VAR res: WinBase.DWORD;
 BEGIN
 	res := WinApi.GetFileAttributesW(SYSTEM.STRADR(filename));
-	RETURN res # ORD(WinApi.INVALID_FILE_ATTRIBUTES)
+	RETURN res # ORD(WinBase.INVALID_FILE_ATTRIBUTES)
 END File_existed;
 	
 PROCEDURE Open* (VAR file : FileHandle; filename : ARRAY OF CHAR);
@@ -20,8 +20,8 @@ BEGIN
 	IF File_existed(filename) THEN
 		file.f := WinApi.CreateFileW(
 			SYSTEM.STRADR (filename),
-			ORD(WinApi.GENERIC_READ + WinApi.GENERIC_WRITE), 0, NIL,
-			WinApi.OPEN_EXISTING, 0, 0
+			ORD(WinBase.GENERIC_READ + WinBase.GENERIC_WRITE), 0, NIL,
+			WinBase.OPEN_EXISTING, 0, 0
 		)
 	ELSE Console.WriteString ('File not existed!'); Console.WriteLn
 	END
@@ -31,13 +31,13 @@ PROCEDURE Rewrite* (VAR file : FileHandle; filename : ARRAY OF CHAR);
 BEGIN
 	file.f := WinApi.CreateFileW(
 		SYSTEM.STRADR (filename),
-		ORD(WinApi.GENERIC_READ + WinApi.GENERIC_WRITE), 0, NIL,
-		WinApi.CREATE_ALWAYS, 0, 0
+		ORD(WinBase.GENERIC_READ + WinBase.GENERIC_WRITE), 0, NIL,
+		WinBase.CREATE_ALWAYS, 0, 0
 	)
 END Rewrite;
 
 PROCEDURE Close* (VAR file : FileHandle);
-	VAR res: WinApi.Bool;
+	VAR res: WinBase.BOOL;
 BEGIN
 	IF file.f # 0 THEN
 		res := WinApi.CloseHandle(file.f); file.f := 0
@@ -45,13 +45,13 @@ BEGIN
 END Close;
 
 PROCEDURE Rename_file* (oldname, newname : ARRAY OF CHAR);
-	VAR res: WinApi.Bool;
+	VAR res: WinBase.BOOL;
 BEGIN
 	res := WinApi.MoveFileW(SYSTEM.STRADR(oldname), SYSTEM.STRADR(newname))
 END Rename_file;
 
 PROCEDURE Delete_file* (filename : ARRAY OF CHAR);
-	VAR res: WinApi.Bool;
+	VAR res: WinBase.BOOL;
 BEGIN
 	res := WinApi.DeleteFileW(SYSTEM.STRADR(filename))
 END Delete_file;
@@ -59,7 +59,7 @@ END Delete_file;
 (* -------------------------------------------------------------------------- *)
 
 PROCEDURE Read_byte* (VAR file : FileHandle; VAR n : INTEGER);
-	VAR res: WinApi.Bool; buf: BYTE; byteRead: WinApi.Dword;
+	VAR res: WinBase.BOOL; buf: BYTE; byteRead: WinBase.DWORD;
 BEGIN
 	res := WinApi.ReadFile(
 		file.f, SYSTEM.ADR(buf), 1, SYSTEM.ADR2(byteRead), NIL
@@ -69,7 +69,7 @@ BEGIN
 END Read_byte;
 	
 PROCEDURE Read_2bytes* (VAR file : FileHandle; VAR n : INTEGER);
-	VAR res: WinApi.Bool; buf: WinApi.Word; byteRead: WinApi.Dword;
+	VAR res: WinBase.BOOL; buf: CARD16; byteRead: WinBase.DWORD;
 BEGIN
 	res := WinApi.ReadFile(
 		file.f, SYSTEM.ADR(buf), 2, SYSTEM.ADR2(byteRead), NIL
@@ -88,7 +88,7 @@ BEGIN
 END Read_string;
 	
 PROCEDURE Read_4bytes* (VAR file : FileHandle; VAR n : INTEGER);
-	VAR res: WinApi.Bool; buf, byteRead: WinApi.Dword;
+	VAR res: WinBase.BOOL; buf, byteRead: WinBase.DWORD;
 BEGIN
 	res := WinApi.ReadFile(
 		file.f, SYSTEM.ADR(buf), 4, SYSTEM.ADR2(byteRead), NIL
@@ -98,7 +98,7 @@ BEGIN
 END Read_4bytes;
 	
 PROCEDURE Read_8bytes* (VAR file : FileHandle; VAR n : INTEGER);
-	VAR res: WinApi.Bool; buf: INTEGER; byteRead: WinApi.Dword;
+	VAR res: WinBase.BOOL; buf: INTEGER; byteRead: WinBase.DWORD;
 BEGIN
 	res := WinApi.ReadFile(
 		file.f, SYSTEM.ADR(buf), 8, SYSTEM.ADR2(byteRead), NIL
@@ -110,7 +110,7 @@ END Read_8bytes;
 (* -------------------------------------------------------------------------- *)
 	
 PROCEDURE Write_byte* (VAR file : FileHandle; n : INTEGER);
-	VAR res: WinApi.Bool; buf: BYTE; byteWritten: WinApi.Dword;
+	VAR res: WinBase.BOOL; buf: BYTE; byteWritten: WinBase.DWORD;
 BEGIN
 	buf := n;
 	res := WinApi.WriteFile(
@@ -129,7 +129,7 @@ BEGIN
 END Write_ansi_str;
 	
 PROCEDURE Write_2bytes* (VAR file : FileHandle; n : INTEGER);
-	VAR res: WinApi.Bool; buf: WinApi.Word; byteWritten: WinApi.Dword;
+	VAR res: WinBase.BOOL; buf: CARD16; byteWritten: WinBase.DWORD;
 BEGIN
 	buf := n;
 	res := WinApi.WriteFile(
@@ -148,7 +148,7 @@ BEGIN
 END Write_string;
 	
 PROCEDURE Write_4bytes* (VAR file : FileHandle; n : INTEGER);
-	VAR res: WinApi.Bool; buf, byteWritten: WinApi.Dword;
+	VAR res: WinBase.BOOL; buf, byteWritten: WinBase.DWORD;
 BEGIN
 	buf := n;
 	res := WinApi.WriteFile(
@@ -157,7 +157,7 @@ BEGIN
 END Write_4bytes;
 	
 PROCEDURE Write_8bytes* (VAR file : FileHandle; n : INTEGER);
-	VAR res: WinApi.Bool; byteWritten: WinApi.Dword;
+	VAR res: WinBase.BOOL; byteWritten: WinBase.DWORD;
 BEGIN
 	res := WinApi.WriteFile(
 		file.f, SYSTEM.ADR(n), 8, SYSTEM.ADR2(byteWritten), NIL
@@ -165,29 +165,29 @@ BEGIN
 END Write_8bytes;
 
 PROCEDURE FilePos* (VAR file : FileHandle) : INTEGER;
-	VAR res: WinApi.Bool; byteToMove, newPointer: WinApi.Large_integer;
+	VAR res: WinBase.BOOL; byteToMove, newPointer: WinBase.LARGE_INTEGER;
 BEGIN byteToMove.QuadPart := 0;
 	res := WinApi.SetFilePointerEx(
-		file.f, byteToMove, SYSTEM.ADR2(newPointer), WinApi.FILE_CURRENT
+		file.f, byteToMove, SYSTEM.ADR2(newPointer), WinBase.FILE_CURRENT
 	);
 	RETURN newPointer.QuadPart
 END FilePos;
 
 PROCEDURE Seek* (VAR file : FileHandle; pos : INTEGER);
-	VAR res: WinApi.Bool; byteToMove, newPointer: WinApi.Large_integer;
+	VAR res: WinBase.BOOL; byteToMove, newPointer: WinBase.LARGE_INTEGER;
 BEGIN
 	byteToMove.QuadPart := pos;
 	res := WinApi.SetFilePointerEx(
-		file.f, byteToMove, SYSTEM.ADR2(newPointer), WinApi.FILE_BEGIN
+		file.f, byteToMove, SYSTEM.ADR2(newPointer), WinBase.FILE_BEGIN
 	)
 END Seek;
 
 PROCEDURE SeekRel* (VAR file : FileHandle; offset : INTEGER);
-	VAR res: WinApi.Bool; byteToMove, newPointer: WinApi.Large_integer;
+	VAR res: WinBase.BOOL; byteToMove, newPointer: WinBase.LARGE_INTEGER;
 BEGIN
 	byteToMove.QuadPart := offset;
 	res := WinApi.SetFilePointerEx(
-		file.f, byteToMove, SYSTEM.ADR2(newPointer), WinApi.FILE_CURRENT
+		file.f, byteToMove, SYSTEM.ADR2(newPointer), WinBase.FILE_CURRENT
 	)
 END SeekRel;
 

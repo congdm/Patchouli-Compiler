@@ -375,7 +375,7 @@ BEGIN exit := FALSE;
 					Scanner.Get (sym)
 				ELSE Scanner.Mark (noIdentError)
 				END
-			ELSE Scanner.Mark (notPointerOrRecordError)
+			ELSE Scanner.Mark (notPointerOrRecordError); Scanner.Get (sym)
 			END
 		ELSIF sym = Scanner.lbrak THEN
 			IF (x.mode IN Base.clsValue) & (x.type.form = Base.tAddress) THEN
@@ -392,7 +392,7 @@ BEGIN exit := FALSE;
 					END
 				END;
 				Check (Scanner.rbrak, 'No ]')
-			ELSE Scanner.Mark ('Not an array')
+			ELSE Scanner.Mark ('Not an array'); Scanner.Get (sym)
 			END
 		ELSIF sym = Scanner.arrow THEN
 			IF (x.mode IN Base.clsValue)
