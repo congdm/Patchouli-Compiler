@@ -928,10 +928,12 @@ PROCEDURE StandProc (VAR x: Base.Item);
 		
 		Check (Scanner.comma, tooLittleParamError);
 		expression (z); CheckValue (z); tp := z.type;
-		IF (tp.form # Base.tInteger)
-			& ((tp.form # Base.tAddress) OR (tp.base # Base.byteType))
-		THEN Scanner.Mark ('Not an integer or ADDRESS OF BYTE');
-			z.type := Base.intType
+		IF tp = Base.string8Type THEN Generator.Ref_param (z, c)
+		ELSIF (tp.form = Base.tInteger)
+		OR (tp.form = Base.tAddress) & (tp.base = Base.byteType) THEN
+			Generator.Value_param (z, c)
+		ELSE Scanner.Mark ('Not an integer or ADDRESS OF BYTE');
+			MakeIntConst (z); Generator.Value_param (z, c)
 		END;
 		Generator.Value_param (z, c); Generator.Call (c);
 		Generator.Return_value (proc, c.rtype); Generator.Store (x, proc)

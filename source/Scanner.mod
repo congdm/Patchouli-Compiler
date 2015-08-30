@@ -110,8 +110,8 @@ BEGIN
 		END;
 		Read
 	END;
-	IF ch = '@' THEN Read; ansiStr := TRUE ELSE ansiStr := FALSE END;
-	str[i] := 0X; Read; slen := i + 1
+	str[i] := 0X; Read; slen := i + 1;
+	IF ch = '@' THEN Read; ansiStr := TRUE ELSE ansiStr := FALSE END
 END String;
 
 PROCEDURE HexString;

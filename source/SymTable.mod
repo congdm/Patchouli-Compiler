@@ -589,6 +589,7 @@ BEGIN
 	Enter (Base.cType, 0, 'SET', Base.setType);
 	
 	Enter (Base.cType, 0, 'CHAR', Base.charType);
+	Enter (Base.cType, 0, 'CHAR8', Base.char8Type);
 	Enter (Base.cType, 0, 'REAL', Base.realType);
 	Enter (Base.cType, 0, 'LONGREAL', Base.realType);
 	

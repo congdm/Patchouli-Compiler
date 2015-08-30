@@ -25,38 +25,25 @@ MODULE Test;
 (*$MAIN*)
 
 IMPORT
-	SYSTEM;
+    SYSTEM;	
+CONST
+	mess = 'Oberon for Win64';
+	title = 'Hello, World!';
 TYPE
-	AsciiStr = ARRAY 64 OF BYTE;
-	Handle = INTEGER;
-	Uint = CARD32;
-	PChar = ADDRESS OF CHAR;
+    Handle = INTEGER;
+    Uint = CARD32;
+    PChar = ADDRESS OF CHAR;
 VAR
-	MessageBoxW: PROCEDURE (hwnd: Handle; lpText, lpCaption: PChar; uType: Uint);
-	
-PROCEDURE Make_AsciiStr (VAR out : ARRAY OF BYTE; in : ARRAY OF CHAR);
-	VAR n, i : INTEGER;
-BEGIN
-	n := LEN(out); IF n > LEN(in) THEN n := LEN(in) END;
-	i := 0; WHILE i < n DO out[i] := ORD(in[i]); i := i + 1 END
-END Make_AsciiStr;
+    MessageBoxW: PROCEDURE (
+		hwnd: Handle;
+		lpText, lpCaption: PChar;
+		uType: Uint
+	);
+	user32: Handle;
 
-PROCEDURE Init;
-	VAR user32: Handle; str: AsciiStr; 
 BEGIN
-	SYSTEM.LoadLibraryW (user32, 'USER32.DLL');
-	Make_AsciiStr (str, 'MessageBoxW');
-	SYSTEM.GetProcAddress (MessageBoxW, user32, SYSTEM.ADR(str))
-END Init;
-
-PROCEDURE Main;
-	CONST mess = 'Oberon for Win64'; title = 'Hello, World!';
-BEGIN
+    SYSTEM.LoadLibraryW (user32, 'USER32.DLL');
+	SYSTEM.GetProcAddress (MessageBoxW, user32, 'MessageBoxW'@);
 	MessageBoxW (0, SYSTEM.STRADR(mess), SYSTEM.STRADR(title), 0)
-END Main;
-	
-BEGIN
-	Init;
-	Main
 END Test.
 ```

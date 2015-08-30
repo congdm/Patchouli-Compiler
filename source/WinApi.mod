@@ -211,7 +211,7 @@ VAR
 	CloseHandle*: PROCEDURE (hObject: Handle) : Bool;
 	
 	(* Window Class functions *)
-	RegisterClassW* : PROCEDURE (lpWndClass : PWndclassw) : SYSTEM.WORD;
+	RegisterClassW* : PROCEDURE (lpWndClass : PWndclassw) : Word;
 	
 	(* Window functions *)
 	CreateWindowExW* : PROCEDURE (
