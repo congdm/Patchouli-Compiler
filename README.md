@@ -10,9 +10,13 @@ The old version is written in Component Pascal, compiled by Gardens Point Compon
 
 Binary is also supply with source.
 
-## Why Niklaus Wirth was right after all
+## Niklaus Wirth was right after all
 
 https://github.com/congdm/AyaCompiler/wiki/Niklaus-Wirth-was-right-after-all
+
+## What I had learned from this compiler (part 2)
+
+https://github.com/congdm/AyaCompiler/wiki/What-I-had-learned-from-this-compiler-(part-2)
 
 ## Minimal Hello World program on Windows (no runtime)
 
@@ -25,7 +29,7 @@ IMPORT
 TYPE
 	AsciiStr = ARRAY 64 OF BYTE;
 	Handle = INTEGER;
-	Uint = SYSTEM.DWORD;
+	Uint = CARD32;
 	PChar = ADDRESS OF CHAR;
 VAR
 	MessageBoxW: PROCEDURE (hwnd: Handle; lpText, lpCaption: PChar; uType: Uint);
@@ -56,5 +60,3 @@ BEGIN
 	Main
 END Test.
 ```
-
-
