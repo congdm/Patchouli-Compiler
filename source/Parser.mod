@@ -136,9 +136,9 @@ END CheckBool;
 PROCEDURE CheckChar (VAR x: Base.Item);
 BEGIN
 	IF x.mode IN Base.clsValue THEN
-		IF (x.type = Base.stringType) & (x.b <= 2) THEN
+		IF (x.type.form = Base.tString) & (x.b <= 2) THEN
 			Generator.Str_to_char (x)
-		ELSIF x.type # Base.charType THEN
+		ELSIF x.type.form # Base.tChar THEN
 			Scanner.Mark ('Not a CHAR'); MakeConst (x, Base.charType)
 		END
 	ELSE Scanner.Mark ('Not a CHAR'); MakeConst (x, Base.charType)
@@ -204,7 +204,7 @@ BEGIN
 	IF xtype.form = Base.tInteger THEN CheckInt (y)
 	ELSIF xtype.form = Base.tReal THEN CheckReal (y)
 	ELSIF xtype = Base.setType THEN CheckSet (y)
-	ELSIF xtype = Base.charType THEN CheckChar (y)
+	ELSIF xtype.form = Base.tChar THEN CheckChar (y)
 	ELSIF xtype = Base.boolType THEN CheckBool (y)
 	ELSIF xtype.form = Base.tPointer THEN CheckValue (y);
 		IF y.type.form = Base.tPointer THEN
@@ -266,11 +266,13 @@ BEGIN expression (x); INC (c.nofact);
 				END
 			ELSIF (ftype.form = Base.tArray) & (ftype.len = 0)
 				& ((x.type.form = Base.tArray) & CompArray (ftype, x.type)
-				OR (x.type = Base.stringType) & (ftype.base = Base.charType))
+				OR (x.type = Base.stringType) & (ftype.base = Base.charType)
+				OR (x.type = Base.string8Type) & (ftype.base = Base.char8Type))
 			THEN Generator.Array_param (x, c)
 			ELSIF (x.type = ftype)
-			OR (ftype.form = Base.tArray) & (ftype.base = Base.charType)
-				& (x.type = Base.stringType)
+			OR (ftype.form = Base.tArray)
+				& ((ftype.base = Base.charType) & (x.type = Base.stringType)
+				OR (ftype.base = Base.char8Type) & (x.type = Base.string8Type))
 			OR (x.type.form = Base.tAddress) & (ftype.form = Base.tAddress)
 				& CompAddress(x.type, ftype)
 			THEN Generator.Ref_param (x, c)
@@ -461,10 +463,9 @@ PROCEDURE StandFunc (VAR x: Base.Item);
 		
 	PROCEDURE SFunc_ORD (VAR x: Base.Item);
 		CONST validTypes = {Base.tChar, Base.tSet, Base.tBoolean};
-		VAR noError: BOOLEAN;
 	BEGIN expression (x); CheckValue (x);
 		IF x.type.form IN validTypes THEN (* Do nothing *)
-		ELSIF (x.type = Base.stringType) & (x.b <= 2) THEN
+		ELSIF (x.type.form = Base.tString) & (x.b <= 2) THEN
 			Generator.Str_to_char (x)
 		ELSE Scanner.Mark ('Expect CHAR, SET, or BOOLEAN'); MakeIntConst (x)
 		END;
@@ -600,7 +601,11 @@ BEGIN
 	ELSIF sym = Scanner.nil THEN
 		Generator.Make_const (x, Base.nilType, 0); Scanner.Get (sym)
 	ELSIF sym = Scanner.string THEN
-		Generator.Make_string (x, Scanner.str, Scanner.slen); Scanner.Get (sym)
+		IF ~Scanner.ansiStr THEN
+			Generator.Make_string (x, Scanner.str, Scanner.slen)
+		ELSE Generator.Make_string2 (x, Scanner.str, Scanner.slen)
+		END;
+		Scanner.Get (sym)
 	ELSIF sym = Scanner.lparen THEN
 		Scanner.Get (sym); expression (x); Check (Scanner.rparen, 'no )')
 	ELSIF sym = Scanner.lbrace THEN set (x)
@@ -703,7 +708,7 @@ BEGIN SimpleExpression (x);
 			IF x.type.form = Base.tInteger THEN CheckInt (y)
 			ELSIF x.type.form = Base.tReal THEN CheckReal (y);
 				relType := realRel
-			ELSIF x.type = Base.charType THEN CheckChar (y)
+			ELSIF x.type.form = Base.tChar THEN CheckChar (y)
 			ELSIF x.type = Base.setType THEN CheckSet (y);
 				IF rel > Scanner.neq THEN relType := setRel END
 			ELSIF x.type = Base.boolType THEN CheckBool (y)
@@ -711,9 +716,22 @@ BEGIN SimpleExpression (x);
 			OR (x.type = Base.stringType) THEN CheckValue (y);
 				IF (y.type = Base.stringType)
 				OR (y.type.form = Base.tArray)
-					& (y.type.base = Base.charType) THEN relType := strRel
-				ELSIF (y.type = Base.charType) & (x.type = Base.stringType)
-					& (x.b <= 2) THEN Generator.Str_to_char (x)
+					& (y.type.base = Base.charType)
+				THEN relType := strRel
+				ELSIF (y.type.form = Base.tChar)
+					& (x.type = Base.stringType) & (x.b <= 2)
+				THEN Generator.Str_to_char (x)
+				ELSE Scanner.Mark (notStrError); relType := noRel
+				END
+			ELSIF (x.type.form = Base.tArray) & (x.type.base = Base.char8Type)
+			OR (x.type = Base.string8Type) THEN CheckValue (y);
+				IF (y.type = Base.string8Type)
+				OR (y.type.form = Base.tArray)
+					& (y.type.base = Base.char8Type)
+				THEN relType := strRel
+				ELSIF (y.type.form = Base.tChar)
+					& (x.type = Base.string8Type) & (x.b <= 2)
+				THEN Generator.Str_to_char (x)
 				ELSE Scanner.Mark (notStrError); relType := noRel
 				END
 			ELSIF x.type.form = Base.tPointer THEN CheckValue (y);
@@ -961,6 +979,8 @@ BEGIN
 					CheckScalarAssignment (x.type, y); Generator.Store (x, y)
 				ELSIF (y.type = Base.stringType) & (x.type.form = Base.tArray)
 					& (x.type.base = Base.charType)
+				OR (y.type = Base.string8Type) & (x.type.form = Base.tArray)
+					& (x.type.base = Base.char8Type)
 				THEN
 					IF y.b > x.type.len + 1 THEN
 						Scanner.Mark (stringTooLongError); y.b := x.type.len

@@ -491,7 +491,7 @@ PROCEDURE Write_to_file* (from, to: INTEGER);
 	VAR	p, i, k: INTEGER;
 		
 	PROCEDURE Fixup_disp (p, i: INTEGER);
-		VAR disp: SYSTEM.DWORD;
+		VAR disp: CARD32;
 	BEGIN
 		disp := 0; i := i + metacode[p].dispPos;
 		SYSTEM.GET (SYSTEM.ADR(code[i]), disp);
@@ -651,6 +651,15 @@ BEGIN x.b := slen; Alloc_static_data (x.b * chSz, chSz);
 	x.mode := Base.cVar; x.type := Base.stringType; x.lev := -1
 END Make_string;
 
+PROCEDURE Make_string2* (VAR x: Base.Item; str: ARRAY OF CHAR; slen: INTEGER);
+	VAR i, adr: INTEGER; ch: BYTE;
+BEGIN x.b := slen; Alloc_static_data (x.b, 1);
+	adr := SYSTEM.ADR(staticBuf) + LEN(staticBuf) - staticsize;
+	x.a := -staticsize; i := 0;
+	WHILE i < slen DO ch := ORD(str[i]); SYSTEM.PUT (adr + i, ch); INC (i) END;
+	x.mode := Base.cVar; x.type := Base.string8Type; x.lev := -1
+END Make_string2;
+
 PROCEDURE Get_array_length (VAR len: Base.Item; array: Base.Item);
 	VAR n: INTEGER;
 BEGIN
@@ -691,8 +700,8 @@ END Get_typedesc;
 (* -------------------------------------------------------------------------- *)
 (* Fixup & Branch cond *)
 
-PROCEDURE Fix_link_with (L, dst: SYSTEM.DWORD);
-	VAR i, dispPos, size: INTEGER; n: SYSTEM.DWORD;
+PROCEDURE Fix_link_with (L, dst: CARD32);
+	VAR i, dispPos, size: INTEGER; n: CARD32;
 BEGIN
 	WHILE L # 0 DO
 		size := metacode[L].size; dispPos := metacode[L].dispPos;
@@ -707,8 +716,8 @@ PROCEDURE Fix_link* (L: INTEGER);
 BEGIN Fix_link_with (L, ip)
 END Fix_link;
 
-PROCEDURE merged (L0, L1: SYSTEM.DWORD) : INTEGER;
-	VAR L2, L3: SYSTEM.DWORD; size, i, dispPos: INTEGER;
+PROCEDURE merged (L0, L1: CARD32) : INTEGER;
+	VAR L2, L3: CARD32; size, i, dispPos: INTEGER;
 BEGIN 
 	IF L0 # 0 THEN L3 := L0;
 		REPEAT L2 := L3; size := metacode[L2].size;
@@ -888,13 +897,18 @@ BEGIN
 END Load_to_new_reg;
 
 PROCEDURE Str_to_char* (VAR x: Base.Item);
-	VAR ch: CHAR;
+	VAR adr: INTEGER; ch: CHAR; ch8: BYTE;
 BEGIN
-	IF x.lev = -1 THEN
-		SYSTEM.GET (SYSTEM.ADR(staticBuf) + LEN(staticBuf) + x.a, ch);
-		x.a := ORD(ch); x.mode := mImm; x.type := Base.charType
+	IF x.lev = -1 THEN adr := SYSTEM.ADR(staticBuf) + LEN(staticBuf) + x.a;
+		IF x.type = Base.stringType THEN
+			SYSTEM.GET (adr, ch); x.a := ORD(ch);
+			x.mode := mImm; x.type := Base.charType
+		ELSIF x.type = Base.string8Type THEN
+			SYSTEM.GET (adr, ch8); x.a := ch8;
+			x.mode := mImm; x.type := Base.char8Type
+		END
 	ELSIF x.lev = -2 THEN
-		x.type := Base.charType; load (x)
+		x.type := x.type.base; load (x)
 	END
 END Str_to_char;
 
@@ -929,7 +943,7 @@ PROCEDURE Store* (VAR x, y: Base.Item);
 BEGIN load (y);
 	IF x.mode = Base.cRef THEN Ref_to_regI (x) END; SetRmOperand (x);
 	IF x.type # Base.realType THEN EmitRegRm (MOV, y.r, x.type.size)
-	ELSE EmitXmmRm (MOVSSd, y.r, x.type.size)
+	ELSE EmitXmmRm (MOVSSd, y.r, 4)
 	END;
 	IF x.mode = mRegI THEN Free_reg END;
 	IF y.mode = mReg THEN Free_reg ELSE Free_xreg END
@@ -954,8 +968,9 @@ BEGIN
 END Store_struct;
 
 PROCEDURE Store_string* (VAR x, y: Base.Item);
-BEGIN
-	IF y.b <= x.type.len THEN Multibytes_store (x, y, y.b * Base.CharSize)
+	VAR chSz: INTEGER;
+BEGIN chSz := x.type.base.size;
+	IF y.b <= x.type.len THEN Multibytes_store (x, y, y.b * chSz)
 	ELSIF y.b = x.type.len + 1 THEN Multibytes_store (x, y, x.type.size)
 	ELSE Scanner.Mark ('String too long')
 	END
@@ -1292,7 +1307,8 @@ END And2;
 PROCEDURE Int_relation* (rel: INTEGER; VAR x, y: Base.Item);
 	VAR cond, rsize: INTEGER;
 BEGIN
-	IF (x.type.form = Base.tInteger) OR (x.type # y.type) THEN rsize := 8
+	IF x.type.form = Base.tInteger THEN rsize := 8
+	ELSIF x.type.form = Base.tChar THEN rsize := Base.CharSize
 	ELSE rsize := x.type.size
 	END;
 	IF (x.mode = mImm) & (y.mode = mImm) THEN
@@ -1353,8 +1369,8 @@ BEGIN
 END Set_relation;
 
 PROCEDURE String_relation* (rel: INTEGER; VAR x, y: Base.Item);
-	CONST chSz = Base.CharSize;
 	VAR xlen, ylen: Base.Item; rc, reg, L, L1, L2, L3, cond: INTEGER;
+		chSz: INTEGER;
 	
 	PROCEDURE Compare_length (rc: INTEGER; len: Base.Item);
 	BEGIN
@@ -1366,6 +1382,7 @@ PROCEDURE String_relation* (rel: INTEGER; VAR x, y: Base.Item);
 	END Compare_length;
 	
 BEGIN (* String_relation *)
+	chSz := x.type.base.size;
 	ProcState.usedRegs := ProcState.usedRegs + {reg_DI, reg_SI};
 	Get_array_length (xlen, x); Get_array_length (ylen, y);
 	Load_adr_to_reg (reg_DI, x); Load_adr_to_reg (reg_SI, y);

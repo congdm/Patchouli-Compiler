@@ -351,9 +351,6 @@ PROCEDURE Import_SYSTEM (mod: Base.Object);
 BEGIN
 	importSystem := TRUE; curLev := -2; OpenScope ('');
 	
-	Enter (Base.cType, 0, 'WORD', Base.wordType);
-	Enter (Base.cType, 0, 'DWORD', Base.dwordType);
-	
 	Enter (Base.cSProc, 100, 'GET', NIL);
 	Enter (Base.cSProc, 101, 'PUT', NIL);
 	Enter (Base.cSProc, 102, 'COPY', NIL);
@@ -603,6 +600,7 @@ BEGIN
 	Enter (Base.cSProc, 5, 'ASSERT', NIL);
 	(*Enter (Base.cSproc, 6, 'PACK', NIL);*)
 	(*Enter (Base.cSproc, 7, 'UNPK', NIL);*)
+	Enter (Base.cSProc, 8, 'DISPOSE', NIL);
 	
 	Enter (Base.cSFunc, 200, 'ABS', Base.intType);
 	Enter (Base.cSFunc, 201, 'ODD', Base.boolType);

@@ -77,9 +77,9 @@ VAR
 	(* Predefined Types *)
 	intType*, int8Type*, int16Type*, int32Type*: Type;
 	byteType*, wordType*, dwordType*, card16Type*, card32Type*: Type;
-	boolType*, setType*, charType*, nilType*: Type;
+	boolType*, setType*, charType*, char8Type*, nilType*: Type;
 	realType*, longrealType*: Type;
-	byteArrayType*, stringType*: Type;
+	byteArrayType*, stringType*, string8Type*: Type;
 	
 	LoadLibraryFuncType*: Type;
 	GetProcAddressFuncType*: Type;
@@ -226,14 +226,17 @@ BEGIN
 	NewPredefinedType (setType, tSet, WordSize);
 	
 	NewPredefinedType (charType, tChar, CharSize);
+	NewPredefinedType (char8Type, tChar, 1);
+	
 	NewPredefinedType (nilType, tNil, WordSize);
+	
 	NewPredefinedType (realType, tReal, 4);
 	NewPredefinedType (longrealType, tReal, 8);
 	
-	NewPredefinedType (wordType, tInteger, 2);
-	NewPredefinedType (dwordType, tInteger, 4);
-	
 	NewPredefinedType (stringType, tString, CharSize);
+	stringType.base := charType;
+	NewPredefinedType (string8Type, tString, 1);
+	string8Type.base := char8Type;
 	
 	NewPredefinedType (byteArrayType, tArray, 1);
 	byteArrayType.base := byteType;
@@ -249,5 +252,5 @@ BEGIN
 	HeapAllocFuncType.parblksize := WordSize * 3;
 	
 	NewPredefinedType (HeapFreeFuncType, tProcedure, WordSize);
-	HeapFreeFuncType.parblksize := WordSize * 3;
+	HeapFreeFuncType.parblksize := WordSize * 3
 END Base.

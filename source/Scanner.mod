@@ -50,7 +50,7 @@ VAR
 	ival*, slen*: INTEGER;
     rval*: REAL;
     id*: Base.IdentStr;
-    str*: Base.String;
+    str*: Base.String; ansiStr*: BOOLEAN;
     errcnt*: INTEGER;
 
     ch: CHAR; eof: BOOLEAN;
@@ -110,6 +110,7 @@ BEGIN
 		END;
 		Read
 	END;
+	IF ch = '@' THEN Read; ansiStr := TRUE ELSE ansiStr := FALSE END;
 	str[i] := 0X; Read; slen := i + 1
 END String;
 
