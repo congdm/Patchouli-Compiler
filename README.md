@@ -29,7 +29,7 @@ IMPORT
 TYPE
 	AsciiStr = ARRAY 64 OF BYTE;
 	Handle = INTEGER;
-	Uint = SYSTEM.DWORD;
+	Uint = CARD32;
 	PChar = ADDRESS OF CHAR;
 VAR
 	MessageBoxW: PROCEDURE (hwnd: Handle; lpText, lpCaption: PChar; uType: Uint);
@@ -60,5 +60,3 @@ BEGIN
 	Main
 END Test.
 ```
-
-
