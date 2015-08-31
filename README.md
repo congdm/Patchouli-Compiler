@@ -10,6 +10,11 @@ The old version is written in Component Pascal, compiled by Gardens Point Compon
 
 Binary is also supply with source.
 
+## Personal ranting
+
+* [Niklaus Wirth was right after all](https://github.com/congdm/AyaCompiler/wiki/Niklaus-Wirth-was-right-after-all)
+* [What I had learned from this compiler](https://github.com/congdm/AyaCompiler/wiki/What-I-had-learned-from-this-compiler-(part-2))
+
 ## Documentation
 
 This compiler follows the latest [Oberon-07 Report](http://www.inf.ethz.ch/personal/wirth/Oberon/Oberon07.Report.pdf) faithfully (hope so), with the following extensions (more exactly, complications):
@@ -62,13 +67,11 @@ TYPE
 
 ### Standard procedure DISPOSE
 
-## Niklaus Wirth was right after all
+**Reason for introducing:** The native Win32 environment doesn't have Garbage Collection (GC).
 
-https://github.com/congdm/AyaCompiler/wiki/Niklaus-Wirth-was-right-after-all
+**Note:** The progammer can introduce his own GC module later and refrain from using DISPOSE.
 
-## What I had learned from this compiler
-
-https://github.com/congdm/AyaCompiler/wiki/What-I-had-learned-from-this-compiler-(part-2)
+### Multiple CHAR types
 
 ## Minimal Hello World program on Windows (no runtime)
 
