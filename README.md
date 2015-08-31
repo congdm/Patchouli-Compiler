@@ -27,6 +27,20 @@ small integer types over INTEGER type. The programmer should use only INTEGER ty
 
 ### ADDRESS types
 
+**Reason for introducing:** In order to interface with Win32 API.
+
+**Note:** The ADDRESS types is same as POINTER in Modula-2 and PASCAL. You can declare ADDRESS of any suitable base type:
+```oberon
+TYPE PINTEGER = ADDRESS OF INTEGER;
+```
+And use the SYSTEM.ADR2 function to get the address of any variable:
+```oberon
+adr := SYSTEM.ADR2(x) (* If x type is T, then type of adr must be ADDRESS OF T *)
+```
+Finally, there also exists SYSTEM.STRADR function, which accepts an ARRAY OF CHAR or string variable, and outputs the address of that variable as ADDRESS OF CHAR.
+
+**Note:** In order to use ADDRESS type, you must import SYSTEM module.
+
 ### RECORD UNION
 
 ### Standard procedure DISPOSE
