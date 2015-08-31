@@ -682,10 +682,44 @@ BEGIN
 	x.mode := Base.cVar; x.lev := 1; x.type := tp; x.a := -ProcState.locblksize
 END Alloc_temp_var;
 
+PROCEDURE Fill_pointer_offset (
+	offset: INTEGER; VAR adr: INTEGER; type: Base.Type
+);
+	VAR field: Base.Object; size, k, ptrcnt: INTEGER; n: CARD32;
+BEGIN ptrcnt := type.nptr;
+	IF type.form = Base.tRecord THEN
+		field := type.fields;
+		REPEAT k := field.type.nptr;
+			IF k > 0 THEN ptrcnt := ptrcnt - k; n := offset + field.val;
+				IF field.type.form = Base.tPointer THEN
+					SYSTEM.PUT (adr, n); adr := adr + 4
+				ELSE Fill_pointer_offset (n, adr, field.type)
+				END
+			END;
+			field := field.next
+		UNTIL ptrcnt <= 0; ASSERT (ptrcnt = 0)
+	ELSIF type.form = Base.tArray THEN type := type.base;
+		IF type.form = Base.tPointer THEN n := offset;
+			REPEAT
+				SYSTEM.PUT (adr, n); adr := adr + 4;
+				DEC (ptrcnt); n := n + 8
+			UNTIL ptrcnt <= 0; ASSERT (ptrcnt = 0)
+		ELSE k := type.nptr; size := type.size; Align (size, type.alignment);
+			REPEAT
+				Fill_pointer_offset (offset, adr, type);
+				ptrcnt := ptrcnt - k; offset := offset + size
+			UNTIL ptrcnt <= 0; ASSERT (ptrcnt = 0)
+		END
+	ELSE ASSERT(FALSE)
+	END
+END Fill_pointer_offset;
+
 PROCEDURE Alloc_typedesc* (type: Base.Type; obj: Base.Object);
-	VAR tdsize, i, n: INTEGER;
-BEGIN tdsize := 8 + 8 * (Base.MaxExtension - 1) + 4 * (type.nptr + 1);
-	Alloc_static_data (tdsize, 8); obj.val := -staticsize
+	VAR tdsize, n, adr: INTEGER;
+BEGIN n := 8 + 8 * (Base.MaxExtension - 1); tdsize := n + 4 * (type.nptr + 1);
+	Alloc_static_data (tdsize, 8); obj.val := -staticsize;
+	adr := SYSTEM.ADR(staticBuf) + LEN(staticBuf) - staticsize + n;
+	Fill_pointer_offset (0, adr, type)
 END Alloc_typedesc;
 
 PROCEDURE Get_typedesc (VAR x: Base.Item);
@@ -2292,35 +2326,6 @@ BEGIN
 	Sys.Seek (out, Linker.idata_fadr + hint_rva + (160 + 2));
 	Sys.Write_ansi_str (out, 'HeapFree')
 END Write_idata_section;
-
-PROCEDURE Fill_pointer_offset (offset: INTEGER; type: Base.Type);
-	VAR field: Base.Object; n, k, ptrcnt: INTEGER;
-BEGIN ptrcnt := type.nptr;
-	IF type.form = Base.tRecord THEN
-		field := type.fields;
-		REPEAT k := field.type.nptr;
-			IF k > 0 THEN ptrcnt := ptrcnt - k; n := offset + field.val;
-				IF field.type.form = Base.tPointer THEN
-					Sys.Write_4bytes (out, n)
-				ELSE Fill_pointer_offset (n, field.type)
-				END
-			END;
-			field := field.next
-		UNTIL ptrcnt <= 0; ASSERT (ptrcnt = 0)
-	ELSIF type.form = Base.tArray THEN type := type.base;
-		IF type.form = Base.tPointer THEN
-			REPEAT Sys.Write_4bytes (out, offset);
-				DEC (ptrcnt); offset := offset + 8
-			UNTIL ptrcnt <= 0; ASSERT (ptrcnt = 0)
-		ELSE k := type.base.nptr;
-			REPEAT
-				Fill_pointer_offset (offset, type); ptrcnt := ptrcnt - k;
-				offset := offset + type.size
-			UNTIL ptrcnt <= 0; ASSERT (ptrcnt = 0)
-		END
-	ELSE ASSERT(FALSE)
-	END
-END Fill_pointer_offset;
 
 PROCEDURE Write_data_section;
 	VAR basefadr, i, n: INTEGER; b: BYTE;
