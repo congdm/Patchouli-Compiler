@@ -10,6 +10,27 @@ The old version is written in Component Pascal, compiled by Gardens Point Compon
 
 Binary is also supply with source.
 
+## Documentation
+
+This compiler follows the latest [Oberon-07 Report](http://www.inf.ethz.ch/personal/wirth/Oberon/Oberon07.Report.pdf) faithfully (hope so), with the following extensions (more exactly, complications):
+
+### INT8, INT16, INT32, CARD16, CARD32 types
+
+**Reason for introducing:** Same as BYTE type, in order to economise the use of memory.
+
+**Note:** There is no type inclusion. All the integer types: BYTE, INT8, CARD16, INT16, CARD32, INT32 and INTEGER are interchangable. All integer variables when loaded to register are signed extended to 64-bit INTEGER type. All integer calculation results are 64-bit INTEGER. That means BYTE + BYTE = INTEGER. Therefore, there is no speed benefit for using 
+small integer types over INTEGER type. The programmer should use only INTEGER type for most of cases, which is good programming practice.
+
+**Note:** There is no range checking in assignments between integer types!
+
+**Note:** The 64-bit CARDINAL is not introduced, because 64-bit INTEGER is big enough, and also because of you cannot loselessly convert CARDINAL to INTEGER.
+
+### ADDRESS types
+
+### RECORD UNION
+
+### Standard procedure DISPOSE
+
 ## Niklaus Wirth was right after all
 
 https://github.com/congdm/AyaCompiler/wiki/Niklaus-Wirth-was-right-after-all
