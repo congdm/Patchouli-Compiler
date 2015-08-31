@@ -39,9 +39,26 @@ adr := SYSTEM.ADR2(x) (* If x type is T, then type of adr must be ADDRESS OF T *
 ```
 Finally, there also exists SYSTEM.STRADR function, which accepts an ARRAY OF CHAR or string variable, and outputs the address of that variable as ADDRESS OF CHAR.
 
-**Note:** In order to use ADDRESS type, you must import SYSTEM module.
+**Note:** In order to use ADDRESS keyword, you must import SYSTEM module.
 
-### RECORD UNION
+### UNION in RECORD
+
+**Reason for introducing:** In order to interface with Win32 API.
+
+**Note:** Usage example:
+```oberon
+TYPE
+	OVERLAPPED* = RECORD
+		Internal*, InternalHigh*: ULONG_PTR;
+		UNION
+			Offset*, OffsetHigh*: DWORD |
+			Pointer*: PVOID
+		END;
+		hEvent*: HANDLE
+	END;
+```
+
+**Note:** In order to use UNION keyword, you must import SYSTEM module.
 
 ### Standard procedure DISPOSE
 
@@ -49,7 +66,7 @@ Finally, there also exists SYSTEM.STRADR function, which accepts an ARRAY OF CHA
 
 https://github.com/congdm/AyaCompiler/wiki/Niklaus-Wirth-was-right-after-all
 
-## What I had learned from this compiler (part 2)
+## What I had learned from this compiler
 
 https://github.com/congdm/AyaCompiler/wiki/What-I-had-learned-from-this-compiler-(part-2)
 
