@@ -349,7 +349,8 @@ END Import_symbols_file;
 
 PROCEDURE Import_SYSTEM (mod: Base.Object);
 BEGIN
-	importSystem := TRUE; curLev := -2; OpenScope ('');
+	importSystem := TRUE; Scanner.ImportSystem;
+	curLev := -2; OpenScope ('');
 	
 	Enter (Base.cSProc, 100, 'GET', NIL);
 	Enter (Base.cSProc, 101, 'PUT', NIL);

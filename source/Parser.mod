@@ -13,6 +13,7 @@ CONST
 	notConstError = 'Not a constant value';
 	superflousCommaError = 'Superflous ,';
 	superflousSemicolonError = 'Superflous ;';
+	superflousBarError = 'Superflous |';
 	noColonError = 'No :';
 	noPeriodError = 'No .';
 	noEqualError = 'No =';
@@ -56,6 +57,7 @@ VAR
 	defobj: Base.Object; defobjId: Base.IdentStr;
 	expression: PROCEDURE (VAR x: Base.Item);
 	type: PROCEDURE (VAR tp: Base.Type);
+	Union: PROCEDURE (tp: Base.Type; VAR first: Base.Object);
 	
 	anonTypes: AnonRecordType;
 	undefPtr: UndefPtrList;
@@ -1082,19 +1084,64 @@ BEGIN
 	END
 END IdentList;
 
-PROCEDURE FieldList (tp: Base.Type);
-	VAR fieldTp: Base.Type; field, bfield: Base.Object;
-BEGIN IdentList (Base.cField, field);
+PROCEDURE FieldList (tp: Base.Type; VAR first: Base.Object);
+	VAR fieldTp: Base.Type; field: Base.Object;
+BEGIN
+	IdentList (Base.cField, first); field := first;
 	Check (Scanner.colon, noColonError); type (fieldTp);
 	IF fieldTp.alignment > tp.alignment THEN
 		tp.alignment := fieldTp.alignment
 	END;
 	WHILE field # Base.guard DO field.type := fieldTp;
-		Generator.Align (tp.size, fieldTp.alignment); field.val := tp.size;
-		tp.size := tp.size + fieldTp.size; tp.nptr := tp.nptr + fieldTp.nptr;
-		field := field.next
+		Generator.Align (tp.size, fieldTp.alignment);
+		field.val := tp.size; tp.size := tp.size + fieldTp.size;
+		tp.nptr := tp.nptr + fieldTp.nptr; field := field.next
 	END
 END FieldList;
+
+PROCEDURE FieldListSequence (tp: Base.Type; VAR first: Base.Object);
+	VAR field: Base.Object;
+BEGIN
+	IF sym = Scanner.ident THEN FieldList (tp, first)
+	ELSE Union (tp, first)
+	END;
+	WHILE sym = Scanner.semicolon DO Scanner.Get (sym);
+		IF sym = Scanner.ident THEN FieldList (tp, field)
+		ELSIF sym = Scanner.union THEN Union (tp, field)
+		ELSE Scanner.Mark (superflousSemicolonError)
+		END
+	END
+END FieldListSequence;
+
+PROCEDURE Union0 (tp: Base.Type; VAR first: Base.Object);
+	VAR size, off, align, tpAlign: INTEGER;
+		field: Base.Object;
+BEGIN Scanner.Get (sym);
+	IF (sym = Scanner.ident) OR (sym = Scanner.union) THEN
+		off := tp.size; tpAlign := tp.alignment;
+		tp.size := 0; tp.alignment := 1;
+		FieldListSequence (tp, first);
+		size := tp.size; align := tp.alignment;
+		WHILE sym = Scanner.bar DO Scanner.Get (sym);
+			IF (sym = Scanner.ident) OR (sym = Scanner.union) THEN
+				tp.size := 0; tp.alignment := 1;
+				FieldListSequence (tp, field);
+				IF size < tp.size THEN size := tp.size END;
+				IF align < tp.alignment THEN align := tp.alignment END
+			ELSE Scanner.Mark (superflousBarError)
+			END
+		END;
+		Generator.Align (off, align); field := first;
+		WHILE field # Base.guard DO
+			field.val := field.val + off; field := field.next
+		END;
+		tp.size := off + size;
+		IF align > tpAlign THEN tp.alignment := align
+		ELSE tp.alignment := tpAlign
+		END
+	END;
+	Check (Scanner.end, noEndError)
+END Union0;
 
 PROCEDURE FormalType (VAR tp: Base.Type);
 	VAR obj: Base.Object;
@@ -1278,7 +1325,7 @@ BEGIN tp := Base.intType;
 			NEW (anonType); anonType.tp := tp;
 			anonType.next := anonTypes; anonTypes := anonType
 		END;
-		Scanner.Get (sym);		
+		Scanner.Get (sym);
 		IF sym = Scanner.lparen THEN
 			RecordBaseType (tp); Check (Scanner.rparen, noRParenError)
         END;
@@ -1290,12 +1337,8 @@ BEGIN tp := Base.intType;
 				bfield := bfield.next
 			END
 		END;
-		IF sym = Scanner.ident THEN FieldList (tp);
-			WHILE sym = Scanner.semicolon DO Scanner.Get (sym);
-				IF sym = Scanner.ident THEN FieldList (tp)
-				ELSE Scanner.Mark (superflousSemicolonError)
-				END
-			END
+		IF (sym = Scanner.ident) OR (sym = Scanner.union) THEN
+			FieldListSequence (tp, obj)
 		END;
 		tp.fields := SymTable.topScope.next; SymTable.CloseScope;
 		Check (Scanner.end, noEndError)
@@ -1503,5 +1546,5 @@ BEGIN
 END Module;
 
 BEGIN
-	expression := expression0; type := type0
+	expression := expression0; type := type0; Union := Union0
 END Parser.

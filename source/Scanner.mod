@@ -26,7 +26,7 @@ IMPORT
   
 CONST
 	MaxIdLen = Base.MaxIdentLen;
-    NKW = 35;  (* Number of keywords *)
+    NKW = 36;  (* Number of keywords *)
     maxExp = 38; stringBufSize = 256;
   
     (* Symbols *)
@@ -42,7 +42,7 @@ CONST
     rbrak* = 45; rbrace* = 46; then* = 47; of* = 48; do* = 49;
     to* = 50; by* = 51; semicolon* = 52; end* = 53; bar* = 54;
     else* = 55; elsif* = 56; until* = 57;
-    array* = 60; record* = 61; pointer* = 62; address* = 63;
+    array* = 60; record* = 61; union* = 62; pointer* = 63; address* = 64;
 	const* = 70; type* = 71; var* = 72; procedure* = 73; begin* = 74; 
 	return* = 75; import* = 76; module* = 77;
 
@@ -53,12 +53,16 @@ VAR
     str*: Base.String; ansiStr*: BOOLEAN;
     errcnt*: INTEGER;
 
-    ch: CHAR; eof: BOOLEAN;
+    ch: CHAR; eof, importSystem: BOOLEAN;
     errpos: INTEGER;
     srcfile: Sys.FileHandle;
     k: INTEGER;
     KWX: ARRAY 10 OF INTEGER;
     keyTab: ARRAY NKW OF RECORD sym: INTEGER; id: Base.IdentStr END;
+	
+PROCEDURE ImportSystem*;
+BEGIN importSystem := TRUE
+END ImportSystem;
   
 PROCEDURE Pos*() : INTEGER;
 	RETURN Sys.FilePos(srcfile)
@@ -95,7 +99,12 @@ BEGIN
 	id[i] := 0X; 
 	IF i < 10 THEN k2 := KWX[i-1];  (* search for keyword *)
 		WHILE (id # keyTab[k2].id) & (k2 < KWX[i]) DO INC(k2) END;
-		IF k2 < KWX[i] THEN sym := keyTab[k2].sym ELSE sym := ident END
+		IF k2 < KWX[i] THEN sym := keyTab[k2].sym;
+			IF ~importSystem & ((sym = address) OR (sym = union)) THEN
+				sym := ident
+			END
+		ELSE sym := ident
+		END
 	ELSE sym := ident
 	END
 END Identifier;
@@ -321,7 +330,7 @@ BEGIN (*Console.WriteInt (Pos()); Console.Write (' ');*)
 END Get;
 
 PROCEDURE Init* (VAR file: Sys.FileHandle; pos: INTEGER);
-BEGIN
+BEGIN importSystem := FALSE;
 	srcfile := file; errpos := pos; errcnt := 0; Sys.Seek (file, pos); Read
 END Init;
 
@@ -360,6 +369,7 @@ BEGIN
 	EnterKW(const, 'CONST');
 	EnterKW(until, 'UNTIL');
 	EnterKW(while, 'WHILE');
+	EnterKW(union, 'UNION');
 	KWX[5] := k;
 	EnterKW(record, 'RECORD');
 	EnterKW(repeat, 'REPEAT');

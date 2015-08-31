@@ -1,5 +1,8 @@
 MODULE WinBase;
 
+IMPORT
+	SYSTEM;
+
 CONST
 	STD_INPUT_HANDLE* = -10;
 	STD_OUTPUT_HANDLE* = -11;
@@ -172,13 +175,20 @@ TYPE
 	
 	OVERLAPPED* = RECORD
 		Internal*, InternalHigh*: ULONG_PTR;
-		Offset*, OffsetHigh*: DWORD;
+		UNION
+			Offset*, OffsetHigh*: DWORD |
+			Pointer*: PVOID
+		END;
 		hEvent*: HANDLE
 	END;
 	LPOVERLAPPED* = ADDRESS OF OVERLAPPED;
 	
 	LARGE_INTEGER* = RECORD
-		QuadPart*: INTEGER
+		UNION
+			LowPart*: DWORD; HighPart*: LONG |
+			u*: RECORD LowPart*: DWORD; HighPart*: LONG END |
+			QuadPart*: INTEGER
+		END
 	END;
 	PLARGE_INTEGER* = ADDRESS OF LARGE_INTEGER;
 
