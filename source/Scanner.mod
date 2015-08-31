@@ -101,7 +101,7 @@ BEGIN
 		WHILE (id # keyTab[k2].id) & (k2 < KWX[i]) DO INC(k2) END;
 		IF k2 < KWX[i] THEN sym := keyTab[k2].sym;
 			IF ~importSystem & ((sym = address) OR (sym = union)) THEN
-				sym := ident
+				Mark ('The uses of ADDRESS and UNION are not allowed')
 			END
 		ELSE sym := ident
 		END
