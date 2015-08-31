@@ -488,7 +488,7 @@ PROCEDURE StandFunc (VAR x: Base.Item);
 		IF x.mode = Base.cType THEN size := x.type.size
 		ELSE Scanner.Mark (notTypeError); size := Base.WordSize
 		END;
-		MakeIntConst (x); x.a := size
+		Generator.Align (size, x.type.alignment); MakeIntConst (x); x.a := size
 	END SFunc_SIZE;
 	
 	PROCEDURE SFunc_BIT (VAR x: Base.Item);
