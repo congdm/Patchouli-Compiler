@@ -73,7 +73,22 @@ TYPE
 
 ### Multiple CHAR types
 
-## Minimal Hello World program on Windows (no runtime)
+**Reason for introducing:** There are many character encodings: ANSI, UTF-8, UCS-2, UTF-16, etc.
+
+**Note:** The main CHAR type is 16-bit. The other char type is CHAR8, which is 8-bit character. CHAR and CHAR8 are compatible with each other, just like BYTE and INTEGER. There is no CHAR32 type, because UTF-32 encoding have little usage in real world.
+
+**Note:** There are two types of string, the default one is 16-bit string and the other one is 8-bit:
+```oberon
+VAR
+	str16: ARRAY 256 OF CHAR;
+	str8: ARRAY 256 OF CHAR8;
+BEGIN
+	str16 := 'Hello, world!'; (* This is string const of type CHAR *)
+	str8 := 'Hello, world!'@ (* This is string const of type CHAR8 *)
+END Proc;
+```
+
+## Minimal Hello World program on Windows
 
 ```oberon
 MODULE Test;
