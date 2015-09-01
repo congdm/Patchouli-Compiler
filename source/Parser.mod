@@ -278,6 +278,10 @@ BEGIN expression (x); INC (c.nofact);
 			OR (x.type.form = Base.tAddress) & (ftype.form = Base.tAddress)
 				& CompAddress(x.type, ftype)
 			THEN Generator.Ref_param (x, c)
+			ELSIF (ftype.form = Base.tArray) & (ftype.len = 0)
+				& (ftype.base = Base.byteType) & SymTable.importSystem THEN
+				Base.byteArrayType.len := x.type.size;
+				x.type := Base.byteArrayType; Generator.Array_param (x, c)
 			ELSE Scanner.Mark (notCompTypeError); MakeIntConst (x)
 			END
 		END;
@@ -931,14 +935,10 @@ PROCEDURE StandProc (VAR x: Base.Item);
 		Check (Scanner.comma, tooLittleParamError);
 		expression (z); CheckValue (z); tp := z.type;
 		IF tp = Base.string8Type THEN Generator.Ref_param (z, c)
-		ELSIF (tp.form = Base.tInteger)
-		OR (tp.form = Base.tAddress) & (tp.base = Base.byteType) THEN
-			Generator.Value_param (z, c)
-		ELSE Scanner.Mark ('Not an integer or ADDRESS OF BYTE');
-			MakeIntConst (z); Generator.Value_param (z, c)
+		ELSE CheckInt (z); Generator.Value_param (z, c)
 		END;
-		Generator.Value_param (z, c); Generator.Call (c);
-		Generator.Return_value (proc, c.rtype); Generator.Store (x, proc)
+		Generator.Call (c); Generator.Return_value (proc, c.rtype);
+		Generator.Store (x, proc)
 	END SProc_GetProcAddress;
 
 BEGIN (* StandProc *)
