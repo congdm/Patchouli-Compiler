@@ -111,6 +111,7 @@ TYPE
 
 VAR
 	out: Sys.FileHandle;
+	startTime, endTime: INTEGER;
 	modid: Base.IdentStr;
 
 	staticBuf: ARRAY 1048576 OF BYTE;
@@ -2276,6 +2277,7 @@ END Module_init;
 
 PROCEDURE Init* (modname: Base.IdentStr);
 BEGIN
+	startTime := Sys.GetTickCount();
 	ip := 0; varbase := 0; staticsize := 128; Base.StrCopy (modname, modid);
 	Sys.Rewrite (out, tempOutputName); Sys.Seek (out, 400H)
 END Init;
@@ -2560,6 +2562,9 @@ BEGIN
 		Console.WriteInt (varsize); Console.WriteLn;
 		Console.WriteString ('Static data size: ');
 		Console.WriteInt (staticsize); Console.WriteLn;
+		endTime := Sys.GetTickCount(); Console.WriteString ('Compile time: ');
+		Console.WriteInt (endTime - startTime);
+		Console.WriteString (' miliseconds'); Console.WriteLn;
 		
 		(* Rename files *)
 		str[0] := 0X; Strings.Append (modid, str);

@@ -191,4 +191,8 @@ BEGIN
 	)
 END SeekRel;
 
+PROCEDURE GetTickCount*() : INTEGER;
+	RETURN WinApi.GetTickCount()
+END GetTickCount;
+
 END Sys.

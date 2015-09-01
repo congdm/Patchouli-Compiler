@@ -4,6 +4,9 @@ IMPORT
 	S := SYSTEM, T := WinBase;
 	
 VAR
+	(* Time functions *)
+	GetTickCount*: PROCEDURE (): T.DWORD;
+
 	(* Console functions *)
 	AllocConsole*: PROCEDURE (): T.BOOL;
 	GetStdHandle*: PROCEDURE (nStdHandle: T.DWORD): T.HANDLE;
@@ -125,6 +128,8 @@ PROCEDURE Init;
 BEGIN
 	S.LoadLibraryW (kernel32, 'KERNEL32.DLL');
 	S.LoadLibraryW (user32, 'USER32.DLL');
+	
+	S.GetProcAddress (GetTickCount, kernel32, 'GetTickCount'@);
 	
 	S.GetProcAddress (AllocConsole, kernel32, 'AllocConsole'@);
 	S.GetProcAddress (GetStdHandle, kernel32, 'GetStdHandle'@);
