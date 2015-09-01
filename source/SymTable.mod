@@ -352,6 +352,8 @@ BEGIN
 	importSystem := TRUE; Scanner.ImportSystem;
 	curLev := -2; OpenScope ('');
 	
+	Enter (Base.cType, 0, 'BYTE', Base.sysByteType);
+	
 	Enter (Base.cSProc, 100, 'GET', NIL);
 	Enter (Base.cSProc, 101, 'PUT', NIL);
 	Enter (Base.cSProc, 102, 'COPY', NIL);

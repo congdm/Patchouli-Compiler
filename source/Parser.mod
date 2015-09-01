@@ -279,7 +279,7 @@ BEGIN expression (x); INC (c.nofact);
 				& CompAddress(x.type, ftype)
 			THEN Generator.Ref_param (x, c)
 			ELSIF (ftype.form = Base.tArray) & (ftype.len = 0)
-				& (ftype.base = Base.byteType) & SymTable.importSystem THEN
+				& (ftype.base = Base.sysByteType) THEN
 				Base.byteArrayType.len := x.type.size;
 				x.type := Base.byteArrayType; Generator.Array_param (x, c)
 			ELSE Scanner.Mark (notCompTypeError); MakeIntConst (x)

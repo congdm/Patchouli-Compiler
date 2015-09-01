@@ -48,11 +48,10 @@ TYPE
 	Object* = POINTER TO ObjectDesc;
 	
 	TypeDesc* = RECORD
-		ref*, mod*: INTEGER;
-		modname*: POINTER TO RECORD s*: IdentStr END;
+		ref*, mod*: INTEGER; modname*: POINTER TO RECORD s*: IdentStr END;
 		form*, size*, len*, nptr*, alignment*, parblksize*: INTEGER;
-		base*, adrType*: Type; obj*: Object;
-		fields*: Object
+		base*, adrType*: Type;
+		obj*, fields*: Object
 	END;
 	
 	ObjectDesc* = RECORD
@@ -79,7 +78,8 @@ VAR
 	byteType*, wordType*, dwordType*, card16Type*, card32Type*: Type;
 	boolType*, setType*, charType*, char8Type*, nilType*: Type;
 	realType*, longrealType*: Type;
-	byteArrayType*, stringType*, string8Type*: Type;
+	stringType*, string8Type*: Type;
+	sysByteType*, byteArrayType*: Type;
 	
 	LoadLibraryFuncType*: Type;
 	GetProcAddressFuncType*: Type;
@@ -238,9 +238,9 @@ BEGIN
 	NewPredefinedType (string8Type, tString, 1);
 	string8Type.base := char8Type;
 	
+	NewPredefinedType (sysByteType, tInteger, 1);
 	NewPredefinedType (byteArrayType, tArray, 1);
-	byteArrayType.base := byteType;
-	byteArrayType.len := 1;
+	byteArrayType.base := sysByteType;
 	
 	NewPredefinedType (LoadLibraryFuncType, tProcedure, WordSize);
 	LoadLibraryFuncType.parblksize := WordSize;
