@@ -874,7 +874,6 @@ PROCEDURE StandProc (VAR x: Base.Item);
 		expression (y); CheckInt (y); LoadVolatile (y);
 		Check (Scanner.comma, tooLittleParamError);
 		expression (z); CheckInt (z); LoadVolatile (z);
-		Check (Scanner.comma, tooLittleParamError);
 		Generator.SProc_COPY (x, y, z)
 	END SProc_COPY;
 	
