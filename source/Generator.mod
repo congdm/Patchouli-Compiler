@@ -1641,7 +1641,7 @@ END For1;
 
 PROCEDURE For2* (x, z: Base.Item; inc: INTEGER; VAR L2: INTEGER);
 	VAR c: Base.Item; cond: INTEGER;
-BEGIN c := x; load (c); SetRmOperand (z); EmitRegRm (CMPd, c.r, 8);
+BEGIN c := x; load (c); SetRmOperand (z); EmitRegRm (CMPd, c.r, 8); Free_reg;
 	IF inc >= 0 THEN cond := ccG ELSE cond := ccL END;
 	L2 := pc; CondBranch (cond, 0)
 END For2;

@@ -280,7 +280,11 @@ BEGIN expression (x); INC (c.nofact);
 			THEN Generator.Ref_param (x, c)
 			ELSIF (ftype.form = Base.tArray) & (ftype.len = 0)
 				& (ftype.base = Base.sysByteType) THEN
-				Base.byteArrayType.len := x.type.size;
+				IF x.type.form # Base.tString THEN
+					Base.byteArrayType.len := x.type.size
+				ELSE
+					Base.byteArrayType.len := x.b * x.type.base.size
+				END;
 				x.type := Base.byteArrayType; Generator.Array_param (x, c)
 			ELSE Scanner.Mark (notCompTypeError); MakeIntConst (x)
 			END
@@ -446,7 +450,7 @@ PROCEDURE StandFunc (VAR x: Base.Item);
 		
 	PROCEDURE SFunc_LEN (VAR x: Base.Item);
 	BEGIN expression (x); CheckVar (x, TRUE);
-		IF (x.type = Base.stringType) OR (x.type.form = Base.tArray) THEN
+		IF (x.type.form = Base.tString) OR (x.type.form = Base.tArray) THEN
 			Generator.SFunc_LEN (x)
 		ELSE Scanner.Mark ('Not an array'); MakeIntConst (x); x.a := 1
 		END
@@ -1384,7 +1388,7 @@ BEGIN
 		WHILE sym = Scanner.ident DO Base.StrCopy (Scanner.id, id);
 			Scanner.Get (sym); CheckExport (exported);
 			Check (Scanner.eql, noEqualError); expression (x);
-			IF (x.mode # Base.cConst) & (x.type # Base.stringType) THEN
+			IF (x.mode # Base.cConst) & (x.type.form # Base.tString) THEN
 				Scanner.Mark (notConstError); MakeIntConst (x)
 			END;
 			SymTable.New (obj, id, Base.cConst); obj.export := exported;
