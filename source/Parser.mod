@@ -360,7 +360,9 @@ BEGIN
 			END;
 			Generator.Type_test (x, y, guard)
 		ELSE
-			Scanner.Mark (notCompTypeError);
+			IF y.mode = Base.cType THEN Scanner.Mark (notCompTypeError)
+			ELSE Scanner.Mark (notTypeError)
+			END;
 			MakeIntConst (y); MakeConst (x, Base.boolType)
 		END
 	ELSE MakeIntConst (y)
@@ -967,8 +969,32 @@ BEGIN (* StandProc *)
 END StandProc;
 
 PROCEDURE StatementSequence;
-	VAR x, y, z, t: Base.Item; L, L2: INTEGER; obj: Base.Object;
-BEGIN
+	VAR x, y, z, t: Base.Item; obj: Base.Object; orgtype: Base.Type;
+		L, L2: INTEGER;
+		
+	PROCEDURE TypeCase (VAR x: Base.Item; VAR obj: Base.Object);
+		VAR y: Base.Item; tp: Base.Type;
+	BEGIN
+		IF sym = Scanner.ident THEN
+			Generator.Make_item (x, obj); expression (y); tp := y.type;
+			IF y.mode # Base.cType THEN
+				MakeIntConst (y); Scanner.Mark (notTypeError);
+				y.type := x.type
+			END;
+			IF y.type.form # x.type.form THEN
+				Scanner.Mark (notCompTypeError); y.type := x.type
+			END;
+			IF ~IsExt(x.type, y.type) & ~IsExt(y.type, x.type) THEN
+				Scanner.Mark (notExtError); y.type := x.type
+			END;
+			tp := y.type; obj.type := tp;
+			Generator.Type_test (x, y, FALSE); Generator.CFJump (x);
+			Check (Scanner.colon, noColonError); StatementSequence
+		ELSE Generator.Make_const (x, Base.boolType, 1); Generator.CFJump (x)
+		END
+	END TypeCase;
+		
+BEGIN (* StatementSequence *)
 	REPEAT
 		IF (sym # Scanner.ident) & ((sym < Scanner.if) OR (sym > Scanner.for))
 			& (sym < Scanner.semicolon)
@@ -1058,10 +1084,23 @@ BEGIN
 			L := Generator.pc; Generator.For2 (x, z, t.a, L2);
 			Check (Scanner.do, noDoError); StatementSequence;
 			Check (Scanner.end, noEndError); Generator.For3 (x, t.a, L, L2)
-		ELSIF sym = Scanner.case THEN
-			Scanner.Mark ('CASE statement not supported yet!');
-			Scanner.Get (sym)
-			(* Implement later *)
+		ELSIF sym = Scanner.case THEN Scanner.Get (sym);
+			IF sym = Scanner.ident THEN qualident (obj);
+				IF (obj.class IN {Base.cVar, Base.cRef})
+					& ((obj.type.form = Base.tPointer)
+					OR (obj.type.form = Base.tRecord)
+						& obj.param & ~obj.readonly)
+				THEN Check (Scanner.of, noOfError);
+					orgtype := obj.type; TypeCase (x, obj); L := 0;
+					WHILE sym = Scanner.bar DO Scanner.Get (sym);
+						Generator.FJump (L); Generator.Fixup (x);
+						obj.type := orgtype; TypeCase (x, obj)
+					END;
+					Generator.Fixup (x); Generator.Fix_link (L)
+				ELSE Scanner.Mark ('Need pointer or record var param')
+				END
+			ELSE Scanner.Mark (noIdentError)
+			END
 		END;
 		IF sym = Scanner.semicolon THEN Scanner.Get(sym)
 		ELSIF sym < Scanner.semicolon THEN Scanner.Mark (noSemicolonError)
