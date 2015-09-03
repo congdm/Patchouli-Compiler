@@ -1,10 +1,10 @@
 MODULE SymTable;
 
 IMPORT
-	SYSTEM, Strings, Console, Sys, Base, Scanner;
+	Strings, Console, Sys, Base, Scanner, Crypt;
 
 TYPE
-	ModuleKey* = ARRAY 16 OF BYTE;
+	ModuleKey* = ARRAY 2 OF INTEGER;
 	
 	TypeArray* = POINTER TO RECORD
 		a: ARRAY Base.MaxExportTypes OF Base.Type
@@ -272,15 +272,13 @@ BEGIN itype.nptr := 0;
 END Import_type;
 
 PROCEDURE Read_module_key (VAR key: ModuleKey);
-	VAR i, n: INTEGER;
-BEGIN n := 0; i := 0;
-	WHILE i < 16 DO Sys.Read_byte (symfile, n); key[i] := n; INC (i) END
+BEGIN
+	Sys.Read_8bytes (symfile, key[0]);
+	Sys.Read_8bytes (symfile, key[1])
 END Read_module_key;
 
 PROCEDURE Different_key (key1, key2: ModuleKey) : BOOLEAN;
-	VAR i: INTEGER; result: BOOLEAN;
-BEGIN i := 0; WHILE (i < 16) & (key1[i] = key2[i]) DO INC (i) END;
-	RETURN i < 16
+	RETURN (key1[0] # key2[0]) OR (key1[0] # key2[0])
 END Different_key;
 	
 PROCEDURE Import_symbols_file* (filename: ARRAY OF CHAR);
@@ -508,12 +506,14 @@ BEGIN
 END Export_type;
 
 PROCEDURE Write_module_key (key: ModuleKey);
-	VAR i : INTEGER;
-BEGIN i := 0; WHILE i < 16 DO Sys.Write_byte (symfile, key[i]); INC (i) END
+BEGIN
+	Sys.Write_8bytes (symfile, key[0]);
+	Sys.Write_8bytes (symfile, key[1])
 END Write_module_key;
 
 PROCEDURE Write_symbols_file*;
-	VAR obj: Base.Object; i, k: INTEGER; mod: Module;
+	VAR obj: Base.Object; i, k, n, size: INTEGER; mod: Module;
+		hash: Crypt.MD5Hash; chunk: ARRAY 64 OF BYTE;
 BEGIN
 	refno := 0; expno := 0;
 	Sys.Rewrite (symfile, 'sym.temp_'); Sys.Seek (symfile, 16);
@@ -562,8 +562,19 @@ BEGIN
 		obj := obj.next
 	END;
 	Base.WriteInt (symfile, Base.cHead);
-	Sys.Seek (symfile, 0); (*Sys.Calculate_MD5_hash (symfile, module.key);*)
-	Sys.Seek (symfile, 0); Write_module_key (module.key);
+	
+	size := Sys.FilePos(symfile); Sys.Seek (symfile, 0);
+	Crypt.InitMD5Hash (hash); i := 0;
+	REPEAT k := 0;
+		REPEAT Sys.Read_byte (symfile, n); chunk[k] := n; INC (i); INC (k)
+		UNTIL (i = size) OR (k = 64);
+		Crypt.MD5ComputeChunk (hash, chunk, k * 8)
+	UNTIL i = size;
+	
+	Sys.Seek (symfile, 0);
+	module.key[0] := Crypt.MD5GetLowResult(hash);
+	module.key[1] := Crypt.MD5GetHighResult(hash);
+	Write_module_key (module.key);
 	Sys.Close (symfile)
 END Write_symbols_file;
 

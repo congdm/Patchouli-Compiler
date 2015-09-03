@@ -2206,11 +2206,10 @@ BEGIN
 			EmitRR (MOVd, reg_SI, 8, reg_A);
 			
 			(* Check module key *)
-			key := imod.key; int64 := 0;
-			SYSTEM.GET (SYSTEM.ADR(key[0]), int64);
+			key := imod.key; int64 := key[0];
 			MoveRI (reg_A, 8, int64); SetRmOperand_regI (reg_SI, 400H - 16);
 			EmitRegRm (CMPd, reg_A, 8); Trap (ccNZ, modkey_trap);
-			SYSTEM.GET (SYSTEM.ADR(key[8]), int64);
+			int64 := key[1];
 			MoveRI (reg_A, 8, int64); SetRmOperand_regI (reg_SI, 400H - 8);
 			EmitRegRm (CMPd, reg_A, 8); Trap (ccNZ, modkey_trap);
 		
@@ -2522,7 +2521,7 @@ BEGIN
 	IF Scanner.errcnt = 0 THEN
 		SymTable.Write_symbols_file;
 		Sys.Seek (out, 400H - 16); modkey := SymTable.module.key; i := 0;
-		WHILE i < 16 DO Sys.Write_byte (out, modkey[i]); INC (i) END;
+		Sys.Write_8bytes (out, modkey[0]); Sys.Write_8bytes (out, modkey[1]);
 
 		IF Base.CplFlag.main THEN Linker.imagebase := 400000H
 		ELSE Linker.imagebase := 10000000H
