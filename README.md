@@ -23,7 +23,7 @@ This compiler follows the latest [Oberon-07 Report](http://www.inf.ethz.ch/perso
 
 **Reason for introducing:** Same as BYTE type, in order to economise the use of memory.
 
-**Note:** There is no type inclusion. All the integer types: BYTE, INT8, CARD16, INT16, CARD32, INT32 and INTEGER are interchangable. All integer variables when loaded to register are signed extended to 64-bit INTEGER type. All integer calculation results are 64-bit INTEGER. That means BYTE + BYTE = INTEGER. Therefore, there is no speed benefit for using 
+**Note:** Type inclusion is not the same as in Oberon-2/Component Pascal. All the integer types: BYTE, INT8, CARD16, INT16, CARD32, INT32 and INTEGER are interchangable. All integer variables when loaded to register are signed extended to 64-bit INTEGER type. All integer calculation results are 64-bit INTEGER. That means BYTE + BYTE = INTEGER. Therefore, there is no speed benefit for using 
 small integer types over INTEGER type. The programmer should use only INTEGER type for most of cases, which is good programming practice.
 
 **Note:** There is no range checking in assignments between integer types!
