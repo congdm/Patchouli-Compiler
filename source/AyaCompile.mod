@@ -19,6 +19,6 @@ BEGIN
 		Console.WriteString ('AyaCompiler v0.6a for Oberon-07 language');
 		Console.WriteLn; 
  		Console.WriteString ('Usage: AyaCompile <inputfile>');
-		Console.WriteLn 
+		Console.WriteLn
 	END
 END AyaCompile.

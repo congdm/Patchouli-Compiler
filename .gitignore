@@ -1,7 +1,6 @@
-*.o
-*.ppu
-*.il
-*.lst
-*.pdb
-*.cps
-old/
+source/*.exe
+source/*.dll
+source/*.sym
+test/*.exe
+test/*.dll
+test/*.sym

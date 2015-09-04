@@ -1870,7 +1870,7 @@ END SProc_PACK;
 PROCEDURE SProc_UNPK* (VAR x, y, z: Base.Item);
 	VAR e: Base.Item; r: INTEGER;
 BEGIN
-	e.mode := mReg; e.type := Base.dwordType; Alloc_reg (r); e.r := r;
+	e.mode := mReg; e.type := Base.card32Type; Alloc_reg (r); e.r := r;
 	EmitRR (MOVd, r, 4, y.r); EmitRI (SHRi, r, 4, 23);
 	EmitRI (SUBi, r, 4, 127); Store (z, e);
 	EmitRI (SHLi, r, 4, 23); EmitRR (SUBd, y.r, 4, r); Store (x, y)
@@ -1987,7 +1987,7 @@ BEGIN
 		L := pc; CondBranch (ccAE, 0); EmitR (NEG, x.r, 8);
 		Fix_link (L); Free_reg
 	ELSIF x.type = Base.realType THEN load (x); Alloc_reg (r);
-		Load_to_reg (r, 4, FALSE, x); EmitRI (BTCi, r, 4, 31);
+		Load_to_reg (r, 4, FALSE, x); EmitRI (BTRi, r, 4, 31);
 		SetRmOperand_reg (r); EmitXmmRm (SeeMOVD, x.r, 4)
 	END
 END SFunc_ABS;

@@ -887,7 +887,7 @@ PROCEDURE StandProc (VAR x: Base.Item);
 		VAR x, y, z: Base.Item;
 	BEGIN
 		expression (x); CheckVar (x, FALSE); CheckReal (x);
-		y := x; y.type := Base.dwordType; Generator.Load_to_new_reg (y);
+		x.type := Base.card32Type; y := x; Generator.Load_to_new_reg (y);
 		Check (Scanner.comma, tooLittleParamError);
 		expression (z); CheckInt (z); Generator.SProc_PACK (x, y, z)
 	END SProc_PACK;
@@ -896,7 +896,7 @@ PROCEDURE StandProc (VAR x: Base.Item);
 		VAR x, y, z: Base.Item;
 	BEGIN
 		expression (x); CheckVar (x, FALSE); CheckReal (x);
-		y := x; y.type := Base.dwordType; Generator.Load_to_new_reg (y);
+		x.type := Base.card32Type; y := x; Generator.Load_to_new_reg (y);
 		Check (Scanner.comma, tooLittleParamError);
 		expression (z); CheckVar (z, FALSE); CheckInt (z);
 		Generator.SProc_UNPK (x, y, z)
@@ -954,6 +954,8 @@ BEGIN (* StandProc *)
 	ELSIF procno = 3 THEN SProc_INCL (Scanner.minus)
 	ELSIF procno = 4 THEN SProc_NEW
 	ELSIF procno = 5 THEN SProc_ASSERT
+	ELSIF procno = 6 THEN SProc_PACK
+	ELSIF procno = 7 THEN SProc_UNPK
 	ELSIF procno = 8 THEN SProc_DISPOSE
 	ELSIF procno = 100 THEN SProc_GET
 	ELSIF procno = 101 THEN SProc_PUT

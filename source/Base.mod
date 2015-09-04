@@ -75,7 +75,7 @@ VAR
 	
 	(* Predefined Types *)
 	intType*, int8Type*, int16Type*, int32Type*: Type;
-	byteType*, wordType*, dwordType*, card16Type*, card32Type*: Type;
+	byteType*, card16Type*, card32Type*: Type;
 	boolType*, setType*, charType*, char8Type*, nilType*: Type;
 	realType*, longrealType*: Type;
 	stringType*, string8Type*: Type;

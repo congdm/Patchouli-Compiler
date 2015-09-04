@@ -479,9 +479,7 @@ BEGIN
 		WHILE field # Base.guard DO
 			IF field.export OR (field.type.nptr > 0) THEN
 				Base.WriteInt (symfile, Base.cField);
-				IF ~field.export THEN
-					Console.IntToString (i, s); INC (i);
-					Sys.Write_string (symfile, s)
+				IF ~field.export THEN s[0] := 0X; Sys.Write_string (symfile, s)
 				ELSE Sys.Write_string (symfile, field.name)
 				END;
 				Detect_type (field.type);
@@ -613,8 +611,8 @@ BEGIN
 	Enter (Base.cSProc, 3, 'EXCL', NIL);
 	Enter (Base.cSProc, 4, 'NEW', NIL);
 	Enter (Base.cSProc, 5, 'ASSERT', NIL);
-	(*Enter (Base.cSproc, 6, 'PACK', NIL);*)
-	(*Enter (Base.cSproc, 7, 'UNPK', NIL);*)
+	Enter (Base.cSProc, 6, 'PACK', NIL);
+	Enter (Base.cSProc, 7, 'UNPK', NIL);
 	Enter (Base.cSProc, 8, 'DISPOSE', NIL);
 	
 	Enter (Base.cSFunc, 200, 'ABS', Base.intType);
