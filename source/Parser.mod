@@ -1106,7 +1106,8 @@ BEGIN (* StatementSequence *)
 					END;
 					Generator.Fixup (x); Generator.Fix_link (L)
 				ELSE Scanner.Mark ('Need pointer or record var param')
-				END
+				END;
+				Check (Scanner.end, noEndError)
 			ELSE Scanner.Mark (noIdentError)
 			END
 		END;

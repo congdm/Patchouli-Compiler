@@ -2070,7 +2070,8 @@ BEGIN (* Code generation is delayed *)
 		IF proc # Base.guard THEN ProcState.parlist := proc.type.fields;
 			IF proc.val # ip THEN (* This procedure have nested procedures *)
 				IF proc.lev = 0 THEN (* Need fixup *)
-					NEW (fix); fix.loc := proc.val + 1; fix.val := ip - 5;
+					NEW (fix); fix.loc := proc.val + 1;
+					fix.val := ip - 5 - proc.val;
 					fix.next := fixupList; fixupList := fix
 				END;
 				proc.val := ip
@@ -2511,10 +2512,9 @@ END Write_PEHeader;
 PROCEDURE Perform_fixup;
 	VAR i: INTEGER; p: FixupList;
 BEGIN p := fixupList;
-	WHILE p # NIL DO p.loc := p.loc + Linker.code_fadr;
-		Sys.Seek (out, p.loc); Sys.Read_4bytes (out, i);
-		Sys.Seek (out, p.loc); Sys.Write_4bytes (out, i + p.val);
-		p := p.next
+	WHILE p # NIL DO
+		p.loc := p.loc + Linker.code_fadr; Sys.Seek (out, p.loc);
+		Sys.Write_4bytes (out, p.val); p := p.next
 	END
 END Perform_fixup;
 

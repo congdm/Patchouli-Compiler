@@ -45,9 +45,13 @@ END NewCircle;
 
 PROCEDURE StaticPrint (shape: Shape);
 BEGIN
-	IF shape IS Rectangle THEN Console.WriteString ('This is a rectangle')
-	ELSIF shape IS Circle THEN Console.WriteString ('This is a circle')
+	CASE shape OF
+		Rectangle: Console.WriteString ('This is a rectangle') |
+		Circle: Console.WriteString ('This is a circle')
 	END;
+	(*IF shape IS Rectangle THEN Console.WriteString ('This is a rectangle')
+	ELSIF shape IS Circle THEN Console.WriteString ('This is a circle')
+	END;*)
 	Console.WriteLn
 END StaticPrint;
 
