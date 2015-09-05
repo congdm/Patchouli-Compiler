@@ -1473,10 +1473,10 @@ END Member_test;
 PROCEDURE Type_test* (VAR x, y: Base.Item; guard: BOOLEAN);
 	VAR xExtLev, yExtLev, td: INTEGER; td2: Base.Item;
 BEGIN
-	IF x.type.form = Base.tRecord THEN
-		xExtLev := x.type.len; yExtLev := y.type.len
-	ELSE xExtLev := x.type.base.len; yExtLev := y.type.base.len 
+	IF x.type.form = Base.tRecord THEN xExtLev := x.type.len
+	ELSE xExtLev := x.type.base.len
 	END;
+	yExtLev := y.type.len;
 	IF xExtLev >= yExtLev THEN
 		IF guard THEN x.type := y.type
 		ELSE
@@ -1491,7 +1491,9 @@ BEGIN
 		Load_adr (td2); SetRmOperand_regI (td, yExtLev * 8);
 		EmitRegRm (CMP, td2.r, 8); Free_reg; Free_reg;
 		IF guard THEN Trap (ccNZ, type_trap); x.type := y.type
-		ELSE IF x.mode IN {mReg, mRegI} THEN Free_reg END; Set_cond (x, ccZ)
+		ELSE
+			IF x.mode IN {mReg, mRegI} THEN Free_reg END;
+			Set_cond (x, ccZ); x.type := Base.boolType
 		END;
 	END
 END Type_test;
@@ -1722,9 +1724,11 @@ BEGIN
 END Restore_reg_stacks;
 
 PROCEDURE Prepare_to_call* (VAR x: Base.Item; VAR c: ProcCall);
-BEGIN Save_reg_stacks (c);
+BEGIN
 	c.proc := x; c.parOff := 0; c.parblksize := x.type.parblksize;
-	IF x.mode # Base.cProc THEN load (x); PushR (x.r); Free_reg END;
+	IF x.mode # Base.cProc THEN load (x); Free_reg END;
+	Save_reg_stacks (c);
+	IF x.mode = mReg THEN PushR (x.r) END;
 	
 	IF c.parblksize < 32 THEN c.parblksize := 32 END;
 	ProcState.memstack := ProcState.memstack + c.parblksize;

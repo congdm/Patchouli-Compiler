@@ -358,6 +358,9 @@ BEGIN
 			IF ~IsExt(x.type, y.type) & ~IsExt(y.type, x.type) THEN
 				Scanner.Mark (notExtError); y.type := x.type
 			END;
+			IF y.type.form = Base.tPointer THEN
+				Generator.Make_item (y, y.type.base.obj)
+			END;
 			Generator.Type_test (x, y, guard)
 		ELSE
 			IF y.mode = Base.cType THEN Scanner.Mark (notCompTypeError)
@@ -990,6 +993,9 @@ PROCEDURE StatementSequence;
 				Scanner.Mark (notExtError); y.type := x.type
 			END;
 			tp := y.type; obj.type := tp;
+			IF tp.form = Base.tPointer THEN
+				Generator.Make_item (y, tp.base.obj)
+			END;
 			Generator.Type_test (x, y, FALSE); Generator.CFJump (x);
 			Check (Scanner.colon, noColonError); StatementSequence
 		ELSE Generator.Make_const (x, Base.boolType, 1); Generator.CFJump (x)
@@ -1370,7 +1376,7 @@ BEGIN tp := Base.intType;
 			anonType.next := anonTypes; anonTypes := anonType
 		END;
 		Scanner.Get (sym);
-		IF sym = Scanner.lparen THEN
+		IF sym = Scanner.lparen THEN Scanner.Get (sym);
 			RecordBaseType (tp); Check (Scanner.rparen, noRParenError)
         END;
 		SymTable.OpenScope ('');
@@ -1451,12 +1457,9 @@ BEGIN
 			type (obj.type); tp := obj.type; defobj := NIL;
 			Base.StrCopy (id, obj.name);
 			IF tp.obj = NIL THEN tp.obj := obj END;
-			IF tp.form = Base.tRecord THEN CheckUndefList (obj);
+			IF tp.form = Base.tRecord THEN
+				CheckUndefList (obj);
 				IF obj.lev = 0 THEN Generator.Alloc_typedesc (tp, obj) END
-			ELSIF tp.form = Base.tPointer THEN
-				IF (tp.base # Base.intType) & (tp.base.obj = NIL) THEN
-					Generator.Alloc_typedesc (tp.base, obj); tp.base.obj := obj
-				END
 			END;
 			Check (Scanner.semicolon, noSemicolonError)
 		END;
