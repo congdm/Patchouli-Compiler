@@ -1571,7 +1571,7 @@ BEGIN
 	IF x.mode = Base.cRef THEN x.c := x.c + field.val
 	ELSE x.a := x.a + field.val
 	END;
-	x.param := FALSE; x.type := field.type
+	x.param := FALSE; x.tagged := FALSE; x.type := field.type
 END Field;
 
 PROCEDURE Index* (VAR x, y: Base.Item);
@@ -1629,7 +1629,7 @@ BEGIN (* Index *)
 		x.r := RegHead(-2); x.b := x.b + 8; Free_reg
 	ELSE ASSERT(FALSE)
 	END;
-	x.type := x.type.base
+	x.param := FALSE; x.type := x.type.base
 END Index;
 
 (* -------------------------------------------------------------------------- *)
@@ -1797,8 +1797,7 @@ END Ref_param;
 PROCEDURE Record_param* (VAR x: Base.Item; VAR c: ProcCall);
 	VAR td: Base.Item;
 BEGIN
-	IF x.param & ~x.readonly THEN
-		td := x; td.a := td.a + 8; td.type := Base.intType
+	IF x.tagged THEN td := x; td.a := td.a + 8; td.type := Base.intType
 	ELSE Make_item (td, x.type.obj); Get_typedesc (td)
 	END;
 	Ref_param (x, c);
@@ -1898,7 +1897,7 @@ BEGIN
 END SProc_NEW;
 
 PROCEDURE SProc_DISPOSE* (VAR c: ProcCall);
-	VAR proc, par, td : Base.Item;
+	VAR proc, par, td: Base.Item;
 BEGIN
 	proc.mode := Base.cProc; proc.type := Base.HeapFreeFuncType; proc.lev := -2;
 	proc.a := Base.HeapFree; c.rtype := NIL; Prepare_to_call (proc, c);
@@ -1907,6 +1906,11 @@ BEGIN
 	par.type := Base.intType; Value_param (par, c);
 	Make_const (par, Base.intType, 0); Value_param (par, c)
 END SProc_DISPOSE;
+
+PROCEDURE SProc_DISPOSE2* (VAR c: ProcCall; VAR x: Base.Item);
+BEGIN
+	Value_param (x, c); EmitRI (SUBi, reg_R8, 8, 16); Call (c)
+END SProc_DISPOSE2;
 
 PROCEDURE SFunc_ADR* (VAR x: Base.Item);
 BEGIN Load_adr (x)
@@ -2166,7 +2170,7 @@ BEGIN nXregs := 0; i := 15;
 	obj := SymTable.procScope;
 	IF obj # SymTable.universe THEN obj := obj.next;
 		WHILE obj # Base.guard DO
-			IF (obj.class = Base.cVar) & ~ obj.param THEN
+			IF (obj.class = Base.cVar) & ~obj.param THEN
 				Set_pointer_to_zero (obj.val, obj.type)
 			END;
 			obj := obj.next

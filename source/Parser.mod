@@ -261,7 +261,7 @@ BEGIN expression (x); INC (c.nofact);
 		ELSE CheckVar (x, fpar.readonly);
 			IF (ftype.form = Base.tRecord) & (x.type.form = Base.tRecord) THEN
 				IF IsExt(x.type, ftype) THEN
-					IF ~fpar.readonly THEN Generator.Record_param (x, c)
+					IF fpar.tagged THEN Generator.Record_param (x, c)
 					ELSE Generator.Ref_param (x, c)
 					END
 				ELSE Scanner.Mark (notExtError); MakeIntConst (x)
@@ -418,7 +418,7 @@ BEGIN exit := FALSE;
 			Scanner.Get (sym)
 		ELSIF (sym = Scanner.lparen) & (x.mode IN Base.clsValue) &
 			((x.type.form = Base.tPointer)
-			OR (x.type.form = Base.tRecord) & x.param & ~x.readonly)
+			OR (x.type.form = Base.tRecord) & x.tagged)
 		THEN TypeTest (x, TRUE); Check (Scanner.rparen, noRParenError)
 		ELSE exit := TRUE
 		END
@@ -789,7 +789,7 @@ BEGIN SimpleExpression (x);
 		SimpleExpression (y); CheckSet (y); Generator.Member_test (x, y)
 	ELSIF sym = Scanner.is THEN CheckValue (x);
 		IF (x.type.form # Base.tPointer) &
-			((x.type.form # Base.tRecord) OR ~x.param OR x.readonly)
+			((x.type.form # Base.tRecord) OR ~x.tagged)
 		THEN
 			Scanner.Mark ('Type test not applicable');
 			MakeConst (x, Base.boolType)
@@ -850,7 +850,7 @@ PROCEDURE StandProc (VAR x: Base.Item);
 		VAR x: Base.Item; c: Generator.ProcCall;
 	BEGIN Generator.SProc_DISPOSE (c); expression (x); CheckValue (x);
 		IF x.type.form # Base.tPointer THEN Scanner.Mark (notPointerError) END;
-		Generator.Value_param (x, c); Generator.Call (c)
+		Generator.SProc_DISPOSE2 (c, x)
 	END SProc_DISPOSE;
 		
 	PROCEDURE SProc_GET;
@@ -1096,8 +1096,7 @@ BEGIN (* StatementSequence *)
 			IF sym = Scanner.ident THEN qualident (obj);
 				IF (obj.class IN {Base.cVar, Base.cRef})
 					& ((obj.type.form = Base.tPointer)
-					OR (obj.type.form = Base.tRecord)
-						& obj.param & ~obj.readonly)
+					OR (obj.type.form = Base.tRecord) & obj.tagged)
 				THEN Check (Scanner.of, noOfError);
 					orgtype := obj.type; TypeCase (x, obj); L := 0;
 					WHILE sym = Scanner.bar DO Scanner.Get (sym);
@@ -1214,7 +1213,7 @@ END FormalType;
 
 PROCEDURE FPSection (VAR parblksize, nofpar: INTEGER);
 	VAR cls, parSize: INTEGER; first, obj: Base.Object;
-		readOnly, openArray: BOOLEAN; tp: Base.Type;
+		readOnly, openArray, taggedRecord: BOOLEAN; tp: Base.Type;
 BEGIN
 	IF sym # Scanner.var THEN cls := Base.cVar
 	ELSE Scanner.Get (sym); cls := Base.cRef
@@ -1235,20 +1234,24 @@ BEGIN
 	END;
 	
 	Check (Scanner.colon, noColonError); FormalType (tp);
-	parSize := Base.WordSize; readOnly := FALSE; openArray := FALSE;
+	parSize := Base.WordSize; readOnly := FALSE;
+	openArray := FALSE; taggedRecord := FALSE;
 	IF tp.form IN Base.typeScalar THEN (* no change *)
 	ELSIF (tp.form = Base.tArray) & (tp.len = 0) THEN
 		parSize := tp.size; openArray := TRUE;
 		IF cls = Base.cVar THEN readOnly := TRUE; cls := Base.cRef END
 	ELSIF cls = Base.cVar THEN readOnly := TRUE;
 		IF ~Generator.FitInReg(tp.size) THEN cls := Base.cRef END
-	ELSIF (cls = Base.cRef) & (tp.form = Base.tRecord) THEN
-		parSize := Base.WordSize * 2
+	ELSIF cls = Base.cRef THEN
+		IF (tp.form = Base.tRecord) & tp.extensible THEN
+			parSize := Base.WordSize * 2; taggedRecord := TRUE
+		END
 	END;
 		
 	WHILE first # Base.guard DO first.val := parblksize;
 		Generator.Fix_param_adr (first.val); first.type := tp;
-		first.class := cls; first.param := TRUE; first.readonly := readOnly;
+		first.class := cls; first.param := TRUE;
+		first.readonly := readOnly; first.tagged := taggedRecord;
 		IF openArray THEN first.val2 := first.val + Base.WordSize END;
 		parblksize := parblksize + parSize; INC (nofpar); first := first.next
 	END
@@ -1337,6 +1340,9 @@ BEGIN
 			tp.size := tp.base.size; tp.alignment := tp.base.alignment;
 			IF tp.len >= Base.MaxExtension THEN
 				Scanner.Mark ('Extension level too deep')
+			END;
+			IF ~tp.base.extensible THEN
+				Scanner.Mark ('Not extensible record')
 			END
 		END
 	ELSE Scanner.Mark (notTypeError)
@@ -1369,9 +1375,13 @@ BEGIN tp := Base.intType;
 		tp.alignment := tp.base.alignment; size := tp.base.size;
 		Generator.Align (size, tp.alignment); tp.size := tp.len * size;
 		tp.nptr := tp.len * tp.base.nptr
-	ELSIF sym = Scanner.record THEN
+	ELSIF (sym = Scanner.record) OR (sym = Scanner.extensible) THEN
 		Base.NewType (tp, Base.tRecord); identExport := FALSE;
 		tp.len := 0; tp.size := 0; tp.alignment := 0;
+		IF sym = Scanner.extensible THEN
+			Scanner.Get (sym); Check (Scanner.record, 'RECORD expected');
+			tp.extensible := TRUE
+		END;
 		IF (SymTable.curLev = 0) & ((defobj = NIL) OR (defobj.type # tp)) THEN
 			NEW (anonType); anonType.tp := tp;
 			anonType.next := anonTypes; anonTypes := anonType

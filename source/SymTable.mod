@@ -116,7 +116,8 @@ BEGIN
 	
 	IF obj.next = Base.guard THEN
 		NEW (obj.next); obj := obj.next;
-		obj.export := FALSE; obj.readonly := FALSE; obj.param := FALSE;
+		obj.export := FALSE; obj.readonly := FALSE;
+		obj.param := FALSE; obj.tagged := FALSE;
 		Base.StrCopy(name, obj.name); obj.class := class; obj.lev := curLev;
 		obj.next := Base.guard; obj.val := 0; obj.val2 := 0; obj.expno := 0;
 	ELSE Scanner.Mark ('Duplicated identifer definition'); obj := Base.guard
@@ -186,6 +187,7 @@ BEGIN
 		Sys.Read_string (symfile, name);
 		New (field, name, class); field.param := TRUE;
 		Base.ReadInt (symfile, n); field.readonly := n = ORD(TRUE);
+		Base.ReadInt (symfile, n); field.tagged := n = ORD(TRUE);
 		Detect_typeI (field.type);
 		Base.ReadInt (symfile, class)
 	END;
@@ -197,7 +199,7 @@ PROCEDURE Import_type (
 	VAR typ: Base.Type; typmod: INTEGER; modname: Base.IdentStr
 );
 	VAR field, obj: Base.Object; itype: Base.TypeDesc; orgmod: Module;
-		name: Base.IdentStr; form, class, ref, eno: INTEGER;
+		name: Base.IdentStr; form, class, ref, eno, n: INTEGER;
 BEGIN itype.nptr := 0; 
 	IF typmod = -1 THEN itype.mod := imod.modno ELSE itype.mod := -3 END;
 	Base.ReadInt (symfile, ref); itype.ref := -ref - 1;
@@ -226,6 +228,7 @@ BEGIN itype.nptr := 0;
 		Base.ReadInt (symfile, itype.size);
 		Base.ReadInt (symfile, itype.nptr);
 		Base.ReadInt (symfile, itype.alignment);
+		Base.ReadInt (symfile, n); itype.extensible := n = ORD(TRUE);
 		
 		OpenScope ('');
 		Base.ReadInt (symfile, class);
@@ -444,6 +447,7 @@ BEGIN
 		Base.WriteInt (symfile, field.class);
 		Sys.Write_string (symfile, field.name);
 		Base.WriteInt (symfile, ORD(field.readonly));
+		Base.WriteInt (symfile, ORD(field.tagged));
 		Detect_type (field.type);
 		field := field.next
 	END;
@@ -474,6 +478,7 @@ BEGIN
 		Base.WriteInt (symfile, typ.size);
 		Base.WriteInt (symfile, typ.nptr);
 		Base.WriteInt (symfile, typ.alignment);
+		Base.WriteInt (symfile, ORD(typ.extensible));
 		
 		i := 0; field := typ.fields;
 		WHILE field # Base.guard DO

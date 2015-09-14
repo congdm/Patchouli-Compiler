@@ -48,14 +48,16 @@ TYPE
 	Object* = POINTER TO ObjectDesc;
 	
 	TypeDesc* = RECORD
-		ref*, mod*: INTEGER; modname*: POINTER TO RECORD s*: IdentStr END;
+		ref*, mod*: INTEGER;
+		modname*: POINTER TO RECORD s*: IdentStr END;
+		extensible*: BOOLEAN;
 		form*, size*, len*, nptr*, alignment*, parblksize*: INTEGER;
 		base*, adrType*: Type;
 		obj*, fields*: Object
 	END;
 	
 	ObjectDesc* = RECORD
-		param*, readonly*, export*: BOOLEAN;
+		tagged*, param*, readonly*, export*: BOOLEAN;
 		name*: IdentStr;
 		class*, lev*, expno*: INTEGER;
 		type*: Type;
@@ -64,7 +66,7 @@ TYPE
 	END;
 	
 	Item* = RECORD
-		readonly*, param* : BOOLEAN;
+		readonly*, param*, tagged* : BOOLEAN;
 		mode*, lev* : INTEGER;
 		obj* : Object; type* : Type;
 		r*, a*, b*, c* : INTEGER

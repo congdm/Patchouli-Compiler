@@ -26,7 +26,7 @@ IMPORT
   
 CONST
 	MaxIdLen = Base.MaxIdentLen;
-    NKW = 36;  (* Number of keywords *)
+    NKW = 37;  (* Number of keywords *)
     maxExp = 38; stringBufSize = 256;
   
     (* Symbols *)
@@ -45,6 +45,7 @@ CONST
     array* = 60; record* = 61; union* = 62; pointer* = 63; address* = 64;
 	const* = 70; type* = 71; var* = 72; procedure* = 73; begin* = 74; 
 	return* = 75; import* = 76; module* = 77;
+	extensible* = 80;
 
 VAR
 	ival*, slen*: INTEGER;
@@ -57,7 +58,7 @@ VAR
     errpos: INTEGER;
     srcfile: Sys.FileHandle;
     k: INTEGER;
-    KWX: ARRAY 10 OF INTEGER;
+    KWX: ARRAY 11 OF INTEGER;
     keyTab: ARRAY NKW OF RECORD sym: INTEGER; id: Base.IdentStr END;
 	
 PROCEDURE ImportSystem*;
@@ -382,5 +383,7 @@ BEGIN
 	KWX[7] := k;
 	KWX[8] := k;
 	EnterKW(procedure, 'PROCEDURE');
-	KWX[9] := k
+	KWX[9] := k;
+	EnterKW(extensible, 'EXTENSIBLE');
+	KWX[10] := k
 END Scanner.
