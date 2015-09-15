@@ -16,7 +16,7 @@ TYPE
 		a*: ARRAY Base.MaxModules OF Module
 	END;
 	ModuleDesc* = RECORD
-		lev*, modno*: INTEGER;
+		lev*, modno*: INTEGER; isLibrary*: BOOLEAN;
 		name*: Base.IdentStr; key*: ModuleKey;
 		dsc*: Base.Object; types*: TypeArray;
 		importModules*: ModuleArray;
@@ -188,6 +188,7 @@ BEGIN
 		New (field, name, class); field.param := TRUE;
 		Base.ReadInt (symfile, n); field.readonly := n = ORD(TRUE);
 		Base.ReadInt (symfile, n); field.tagged := n = ORD(TRUE);
+		Base.ReadInt (symfile, n); field.nilable := n = ORD(TRUE);
 		Detect_typeI (field.type);
 		Base.ReadInt (symfile, class)
 	END;
@@ -293,6 +294,7 @@ BEGIN
 	Sys.Open (symfile, filename);
 	Sys.Seek (symfile, 16); (* Skip module key *)
 	Base.ReadInt (symfile, class); (* Skip module level *)
+	Base.ReadInt (symfile, class); (* Skip module or library flag *)
 	
 	Base.ReadInt (symfile, class);
 	IF class = Base.cModule THEN NEW (imod.importModules) END;
@@ -401,9 +403,8 @@ BEGIN
 END Import_modules;
 
 PROCEDURE Find_module_symfile* (mod: Base.Object; symName: Base.IdentStr);
-	VAR filename: Base.String;
+	VAR filename: Base.String; i, modlev: INTEGER; isLibrary: BOOLEAN;
 		importModules: ModuleArray; key: ModuleKey; newmod: Module;
-		i, modlev: INTEGER;
 BEGIN importModules := module.importModules;
 	IF symName = 'SYSTEM' THEN Import_SYSTEM (mod)
 	ELSIF importModules.len < LEN(importModules.a) THEN
@@ -412,7 +413,9 @@ BEGIN importModules := module.importModules;
 		IF Sys.File_existed(filename) THEN
 			Sys.Open (symfile, filename);
 			Read_module_key (key); Base.ReadInt (symfile, modlev);
+			Base.ReadInt (symfile, i); isLibrary := i = ORD(TRUE);
 			New_module (newmod, symName, key, modlev);
+			newmod.isLibrary := isLibrary;
 			Sys.Close (symfile);
 			i := importModules.len; importModules.a[i] := newmod;
 			mod.val := i; INC (importModules.len);
@@ -448,6 +451,7 @@ BEGIN
 		Sys.Write_string (symfile, field.name);
 		Base.WriteInt (symfile, ORD(field.readonly));
 		Base.WriteInt (symfile, ORD(field.tagged));
+		Base.WriteInt (symfile, ORD(field.nilable));
 		Detect_type (field.type);
 		field := field.next
 	END;
@@ -514,13 +518,14 @@ BEGIN
 	Sys.Write_8bytes (symfile, key[1])
 END Write_module_key;
 
-PROCEDURE Write_symbols_file*;
+PROCEDURE Write_symbols_file* (isLibrary: BOOLEAN);
 	VAR obj: Base.Object; i, k, n, size: INTEGER; mod: Module;
 		hash: Crypt.MD5Hash; chunk: ARRAY 64 OF BYTE;
 BEGIN
 	refno := 0; expno := 0;
 	Sys.Rewrite (symfile, 'sym.temp_'); Sys.Seek (symfile, 16);
 	Base.WriteInt (symfile, module.lev);
+	Base.WriteInt (symfile, ORD(isLibrary));
 	
 	mod := moduleList;
 	WHILE mod # NIL DO
@@ -584,7 +589,7 @@ END Write_symbols_file;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 	
-PROCEDURE Init* (modname : Base.IdentStr);
+PROCEDURE Init* (modname: Base.IdentStr; isLibrary: BOOLEAN);
 BEGIN
 	module.lev := 0; Base.StrCopy (modname, module.name);
 	NEW (module.importModules); NEW (module.types);
@@ -610,26 +615,39 @@ BEGIN
 	Enter (Base.cType, 0, 'REAL', Base.realType);
 	Enter (Base.cType, 0, 'LONGREAL', Base.realType);
 	
-	Enter (Base.cSProc, 0, 'INC', NIL);
-	Enter (Base.cSProc, 1, 'DEC', NIL);
-	Enter (Base.cSProc, 2, 'INCL', NIL);
-	Enter (Base.cSProc, 3, 'EXCL', NIL);
-	Enter (Base.cSProc, 4, 'NEW', NIL);
-	Enter (Base.cSProc, 5, 'ASSERT', NIL);
-	Enter (Base.cSProc, 6, 'PACK', NIL);
-	Enter (Base.cSProc, 7, 'UNPK', NIL);
-	Enter (Base.cSProc, 8, 'DISPOSE', NIL);
-	
-	Enter (Base.cSFunc, 200, 'ABS', Base.intType);
-	Enter (Base.cSFunc, 201, 'ODD', Base.boolType);
-	Enter (Base.cSFunc, 202, 'LEN', Base.intType);
-	Enter (Base.cSFunc, 203, 'LSL', Base.intType);
-	Enter (Base.cSFunc, 204, 'ASR', Base.intType);
-	Enter (Base.cSFunc, 205, 'ROR', Base.intType);
-	Enter (Base.cSFunc, 206, 'FLOOR', Base.intType);
-	Enter (Base.cSFunc, 207, 'FLT', Base.realType);
-	Enter (Base.cSFunc, 208, 'ORD', Base.intType);
-	Enter (Base.cSFunc, 209, 'CHR', Base.charType)
+	IF ~isLibrary THEN
+		Enter (Base.cSProc, 0, 'INC', NIL);
+		Enter (Base.cSProc, 1, 'DEC', NIL);
+		Enter (Base.cSProc, 2, 'INCL', NIL);
+		Enter (Base.cSProc, 3, 'EXCL', NIL);
+		Enter (Base.cSProc, 4, 'NEW', NIL);
+		Enter (Base.cSProc, 5, 'ASSERT', NIL);
+		Enter (Base.cSProc, 6, 'PACK', NIL);
+		Enter (Base.cSProc, 7, 'UNPK', NIL);
+		Enter (Base.cSProc, 8, 'DISPOSE', NIL);
+		
+		Enter (Base.cSFunc, 200, 'ABS', Base.intType);
+		Enter (Base.cSFunc, 201, 'ODD', Base.boolType);
+		Enter (Base.cSFunc, 202, 'LEN', Base.intType);
+		Enter (Base.cSFunc, 203, 'LSL', Base.intType);
+		Enter (Base.cSFunc, 204, 'ASR', Base.intType);
+		Enter (Base.cSFunc, 205, 'ROR', Base.intType);
+		Enter (Base.cSFunc, 206, 'FLOOR', Base.intType);
+		Enter (Base.cSFunc, 207, 'FLT', Base.realType);
+		Enter (Base.cSFunc, 208, 'ORD', Base.intType);
+		Enter (Base.cSFunc, 209, 'CHR', Base.charType);
+	ELSE
+		Enter (Base.cSFunc, 200, 'ABS', Base.intType);
+		Enter (Base.cSFunc, 201, 'ODD', Base.boolType);
+		Enter (Base.cSFunc, 203, 'LSL', Base.intType);
+		Enter (Base.cSFunc, 204, 'ASR', Base.intType);
+		Enter (Base.cSFunc, 205, 'ROR', Base.intType);
+		Enter (Base.cSFunc, 206, 'FLOOR', Base.intType);
+		Enter (Base.cSFunc, 207, 'FLT', Base.realType);
+		Enter (Base.cSFunc, 208, 'ORD', Base.intType);
+		Enter (Base.cSFunc, 209, 'CHR', Base.charType);
+		Enter (Base.cSFunc, 301, 'SIZE', Base.intType)
+	END
 END Init;
 	
 BEGIN

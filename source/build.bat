@@ -10,4 +10,5 @@
 ..\bin\AyaCompile SymTable.mod
 ..\bin\AyaCompile Generator.mod
 ..\bin\AyaCompile Parser.mod
+..\bin\AyaCompile Parser2.mod
 ..\bin\AyaCompile AyaCompile.mod

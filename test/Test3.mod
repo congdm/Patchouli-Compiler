@@ -5,7 +5,7 @@ IMPORT
 	Console;
 	
 TYPE
-	Shape = POINTER TO RECORD
+	Shape = POINTER TO EXTENSIBLE RECORD
 		x: INTEGER;
 		Print: PROCEDURE (shape: Shape)
 	END;

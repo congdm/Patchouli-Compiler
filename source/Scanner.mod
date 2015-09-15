@@ -26,7 +26,7 @@ IMPORT
   
 CONST
 	MaxIdLen = Base.MaxIdentLen;
-    NKW = 37;  (* Number of keywords *)
+    NKW = 38;  (* Number of keywords *)
     maxExp = 38; stringBufSize = 256;
   
     (* Symbols *)
@@ -45,7 +45,7 @@ CONST
     array* = 60; record* = 61; union* = 62; pointer* = 63; address* = 64;
 	const* = 70; type* = 71; var* = 72; procedure* = 73; begin* = 74; 
 	return* = 75; import* = 76; module* = 77;
-	extensible* = 80;
+	extensible* = 80; library* = 81;
 
 VAR
 	ival*, slen*: INTEGER;
@@ -98,7 +98,7 @@ BEGIN
 	UNTIL (ch < '0') OR (ch > '9') & (ch < 'A')
 		OR (ch # '_') & (ch > 'Z') & (ch < 'a') OR (ch > 'z');
 	id[i] := 0X; 
-	IF i < 10 THEN k2 := KWX[i-1];  (* search for keyword *)
+	IF i < 11 THEN k2 := KWX[i-1];  (* search for keyword *)
 		WHILE (id # keyTab[k2].id) & (k2 < KWX[i]) DO INC(k2) END;
 		IF k2 < KWX[i] THEN sym := keyTab[k2].sym;
 			IF ~importSystem & ((sym = address) OR (sym = union)) THEN
@@ -380,6 +380,7 @@ BEGIN
 	KWX[6] := k;
 	EnterKW(pointer, 'POINTER');
 	EnterKW(address, 'ADDRESS');
+	EnterKW(library, 'LIBRARY');
 	KWX[7] := k;
 	KWX[8] := k;
 	EnterKW(procedure, 'PROCEDURE');

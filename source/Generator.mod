@@ -1817,6 +1817,21 @@ BEGIN array := x; Ref_param (array, c); tp := x.type; ftype := c.fpar.type;
 	END
 END Array_param;
 
+PROCEDURE ByteArray_param* (VAR x: Base.Item; VAR c: ProcCall);
+	VAR size: Base.Item;
+BEGIN
+	IF x.type.form = Base.tString THEN
+		Make_const (size, Base.intType, x.b * x.type.base.size)
+	ELSIF (x.type.form = Base.tArray) & (x.type.len = 0) THEN
+		(* stub *) ASSERT(FALSE)
+	ELSE
+		Make_const (size, Base.intType, x.type.size);
+		Align (size.a, x.type.alignment)
+	END;
+	Ref_param (x, c);
+	Value_param (size, c)
+END ByteArray_param;
+
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 (* Standard procedure *)
@@ -2212,25 +2227,35 @@ BEGIN
 			Make_string (x, str, Strings.Length(str) + 1);
 			SetRmOperand (x); EmitRegRm (LEA, reg_C, 8);
 			SetRmOperand_staticvar (Base.LoadLibraryW); EmitRm (CALL, 4);
+			EmitRR (TEST, reg_A, 8, reg_A); Trap (ccZ, modkey_trap);
 			EmitRR (MOVd, reg_SI, 8, reg_A);
 			
 			(* Check module key *)
-			key := imod.key; int64 := key[0];
-			MoveRI (reg_A, 8, int64); SetRmOperand_regI (reg_SI, 400H - 16);
-			EmitRegRm (CMPd, reg_A, 8); Trap (ccNZ, modkey_trap);
-			int64 := key[1];
-			MoveRI (reg_A, 8, int64); SetRmOperand_regI (reg_SI, 400H - 8);
-			EmitRegRm (CMPd, reg_A, 8); Trap (ccNZ, modkey_trap);
+			IF ~imod.isLibrary THEN key := imod.key;
+				MoveRI (reg_A, 8, key[0]); SetRmOperand_regI (reg_SI, 400H-16);
+				EmitRegRm (CMPd, reg_A, 8); Trap (ccNZ, modkey_trap);
+				MoveRI (reg_A, 8, key[1]); SetRmOperand_regI (reg_SI, 400H-8);
+				EmitRegRm (CMPd, reg_A, 8); Trap (ccNZ, modkey_trap)
+			END;
 		
 			obj := imod.dsc;
 			WHILE obj # Base.guard DO
 				IF (obj.val # 0) & (obj.expno # 0) THEN
-					EmitRR (MOVd, reg_C, 8, reg_SI);
-					MoveRI (reg_D, 4, obj.expno);
-					SetRmOperand_staticvar (Base.GetProcAddress);
-					EmitRm (CALL, 4);
-					SetRmOperand_staticvar (obj.val);
-					EmitRegRm (MOV, reg_A, 8)
+					IF ~imod.isLibrary THEN
+						EmitRR (MOVd, reg_C, 8, reg_SI);
+						MoveRI (reg_D, 4, obj.expno);
+						SetRmOperand_staticvar (Base.GetProcAddress);
+						EmitRm (CALL, 4); SetRmOperand_staticvar (obj.val);
+						EmitRegRm (MOV, reg_A, 8)
+					ELSE
+						EmitRR (MOVd, reg_C, 8, reg_SI);
+						str[0] := 0X; Strings.Append (obj.name, str);
+						Make_string2 (x, str, Strings.Length(str) + 1);
+						SetRmOperand (x); EmitRegRm (LEA, reg_D, 8);
+						SetRmOperand_staticvar (Base.GetProcAddress);
+						EmitRm (CALL, 4); SetRmOperand_staticvar (obj.val);
+						EmitRegRm (MOV, reg_A, 8)
+					END
 				END;
 				obj := obj.next
 			END	
@@ -2522,12 +2547,12 @@ BEGIN p := fixupList;
 	END
 END Perform_fixup;
 
-PROCEDURE Finish*;
+PROCEDURE Finish* (isLibrary: BOOLEAN);
 	VAR i, n, padding, filesize, k: INTEGER;
 		str: Base.String; modkey: SymTable.ModuleKey;
 BEGIN
 	IF Scanner.errcnt = 0 THEN
-		SymTable.Write_symbols_file;
+		SymTable.Write_symbols_file (isLibrary);
 		Sys.Seek (out, 400H - 16); modkey := SymTable.module.key; i := 0;
 		Sys.Write_8bytes (out, modkey[0]); Sys.Write_8bytes (out, modkey[1]);
 
@@ -2574,11 +2599,13 @@ BEGIN
 		Console.WriteString (' miliseconds'); Console.WriteLn;
 		
 		(* Rename files *)
-		str[0] := 0X; Strings.Append (modid, str);
-		IF Base.CplFlag.main THEN Strings.Append ('.exe', str)
-		ELSE Strings.Append ('.dll', str)
-		END;
-		Sys.Delete_file (str); Sys.Rename_file (tempOutputName, str);
+		IF ~isLibrary THEN str[0] := 0X; Strings.Append (modid, str);
+			IF Base.CplFlag.main THEN Strings.Append ('.exe', str)
+			ELSE Strings.Append ('.dll', str)
+			END;
+			Sys.Delete_file (str); Sys.Rename_file (tempOutputName, str)
+		ELSE Sys.Delete_file (tempOutputName)
+		END;	
 		str[0] := 0X; Strings.Append (modid, str); Strings.Append ('.sym', str);
 		Sys.Delete_file (str); Sys.Rename_file (tempSymName, str)
 	ELSE

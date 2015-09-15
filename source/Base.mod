@@ -57,7 +57,7 @@ TYPE
 	END;
 	
 	ObjectDesc* = RECORD
-		tagged*, param*, readonly*, export*: BOOLEAN;
+		nilable*, tagged*, param*, readonly*, export*: BOOLEAN;
 		name*: IdentStr;
 		class*, lev*, expno*: INTEGER;
 		type*: Type;
