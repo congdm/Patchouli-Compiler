@@ -374,7 +374,7 @@ BEGIN
 END Import_SYSTEM;
 
 PROCEDURE Import_modules*;
-	VAR filename: Base.String; i, min, minlev, n: INTEGER;
+	VAR filename, errmsg: Base.String; i, min, minlev, n: INTEGER;
 		importModules: ModuleArray; mod: Module; obj: Base.Object;
 BEGIN
 	(* Find the lowest level module to import first *)
@@ -388,6 +388,12 @@ BEGIN
 		END;
 		IF min # -1 THEN
 			imod := importModules.a[min]; imod.modno := min;
+			IF imod.isDefMod & ~importSystem THEN
+				errmsg := 'Cannot import definition module ';
+				Strings.Append (imod.name, errmsg);
+				Strings.Append (' without importing SYSTEM', errmsg);
+				Scanner.Mark (errmsg)
+			END;
 			filename[0] := 0X; Strings.Append (imod.name, filename);
 			Strings.Append ('.sym', filename);
 			Import_symbols_file (filename); obj := universe.next;

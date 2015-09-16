@@ -57,7 +57,6 @@ VAR
 	defobj: Base.Object; defobjId: Base.IdentStr;
 	expression: PROCEDURE (VAR x: Base.Item);
 	type: PROCEDURE (VAR tp: Base.Type);
-	Union: PROCEDURE (tp: Base.Type; VAR first: Base.Object);
 	
 	anonTypes: AnonRecordType;
 	undefPtr: UndefPtrList;
@@ -1125,8 +1124,8 @@ BEGIN
 	END
 END IdentList;
 
-PROCEDURE FieldList (tp: Base.Type; VAR first: Base.Object);
-	VAR fieldTp: Base.Type; field: Base.Object;
+PROCEDURE FieldList (tp: Base.Type);
+	VAR fieldTp: Base.Type; first, field: Base.Object;
 BEGIN
 	IdentList (Base.cField, first); field := first;
 	Check (Scanner.colon, noColonError); type (fieldTp);
@@ -1139,50 +1138,6 @@ BEGIN
 		tp.nptr := tp.nptr + fieldTp.nptr; field := field.next
 	END
 END FieldList;
-
-PROCEDURE FieldListSequence (tp: Base.Type; VAR first: Base.Object);
-	VAR field: Base.Object;
-BEGIN
-	IF sym = Scanner.ident THEN FieldList (tp, first)
-	ELSE Union (tp, first)
-	END;
-	WHILE sym = Scanner.semicolon DO Scanner.Get (sym);
-		IF sym = Scanner.ident THEN FieldList (tp, field)
-		ELSIF sym = Scanner.union THEN Union (tp, field)
-		ELSE Scanner.Mark (superflousSemicolonError)
-		END
-	END
-END FieldListSequence;
-
-PROCEDURE Union0 (tp: Base.Type; VAR first: Base.Object);
-	VAR size, off, align, tpAlign: INTEGER;
-		field: Base.Object;
-BEGIN Scanner.Get (sym);
-	IF (sym = Scanner.ident) OR (sym = Scanner.union) THEN
-		off := tp.size; tpAlign := tp.alignment;
-		tp.size := 0; tp.alignment := 1;
-		FieldListSequence (tp, first);
-		size := tp.size; align := tp.alignment;
-		WHILE sym = Scanner.bar DO Scanner.Get (sym);
-			IF (sym = Scanner.ident) OR (sym = Scanner.union) THEN
-				tp.size := 0; tp.alignment := 1;
-				FieldListSequence (tp, field);
-				IF size < tp.size THEN size := tp.size END;
-				IF align < tp.alignment THEN align := tp.alignment END
-			ELSE Scanner.Mark (superflousBarError)
-			END
-		END;
-		Generator.Align (off, align); field := first;
-		WHILE field # Base.guard DO
-			field.val := field.val + off; field := field.next
-		END;
-		tp.size := off + size;
-		IF align > tpAlign THEN tp.alignment := align
-		ELSE tp.alignment := tpAlign
-		END
-	END;
-	Check (Scanner.end, noEndError)
-END Union0;
 
 PROCEDURE FormalType (VAR tp: Base.Type);
 	VAR obj: Base.Object; len: INTEGER;
@@ -1312,7 +1267,7 @@ BEGIN
 	END
 END CleanupUndefList;
 
-PROCEDURE RecordBaseType (VAR tp: Base.Type);
+PROCEDURE RecordBaseType (tp: Base.Type);
 	VAR obj: Base.Object;
 BEGIN
 	IF SymTable.curLev # 0 THEN
@@ -1320,7 +1275,13 @@ BEGIN
 	END;
 	IF sym = Scanner.ident THEN qualident (obj) ELSE obj := Base.guard END;
 	IF obj.class = Base.cType THEN
-		IF obj.type.form = Base.tRecord THEN tp.base := obj.type
+		IF obj.type.form = Base.tRecord THEN
+			IF obj.type.extensible THEN
+				IF obj.type.len < Base.MaxExtension-1 THEN tp.base := obj.type
+				ELSE Scanner.Mark ('Extension level too high')
+				END
+			ELSE Scanner.Mark ('Not extensible record')
+			END
 		ELSIF obj.type.form = Base.tPointer THEN
 			IF obj.type.base # Base.intType THEN tp.base := obj.type.base
 			ELSE Scanner.Mark ('Undefined record type')
@@ -1329,20 +1290,39 @@ BEGIN
 		END;
 		IF tp.base # NIL THEN
 			tp.len := tp.base.len + 1; tp.nptr := tp.base.nptr;
-			tp.size := tp.base.size; tp.alignment := tp.base.alignment;
-			IF tp.len >= Base.MaxExtension THEN
-				Scanner.Mark ('Extension level too deep')
-			END;
-			IF ~tp.base.extensible THEN
-				Scanner.Mark ('Not extensible record')
-			END
+			tp.size := tp.base.size; tp.alignment := tp.base.alignment
 		END
 	ELSE Scanner.Mark (notTypeError)
 	END
 END RecordBaseType;
 
+PROCEDURE PointerBaseType (tp: Base.Type);
+	VAR obj: Base.Object; lev: INTEGER;
+BEGIN lev := SymTable.curLev;
+	IF sym = Scanner.ident THEN
+		SymTable.Find (obj, Scanner.id);
+		IF obj # Base.guard THEN
+			IF (obj.class = Base.cType) & (obj.type.form = Base.tRecord) THEN
+				CheckRecLevel (obj.lev);
+				IF ~obj.type.unsafe THEN
+					Scanner.Mark ('Pointer to unsafe record not allowed')
+				ELSIF obj.lev = 0 THEN tp.base := obj.type
+				END
+			ELSE Scanner.Mark ('Invalid base type')
+			END
+		ELSE CheckRecLevel (lev);
+			IF lev = 0 THEN RegisterUndefType (tp, obj.name) END
+		END;
+		Scanner.Get (sym)
+	ELSIF (sym = Scanner.record) OR (sym = Scanner.extensible) THEN
+		CheckRecLevel (lev); type (tp.base);
+		IF lev # 0 THEN tp.base := Base.intType END
+	ELSE Scanner.Mark (notRecordTypeError)
+	END
+END PointerBaseType;
+
 PROCEDURE type0 (VAR tp: Base.Type);
-	VAR obj, bfield: Base.Object; x: Base.Item; lev: INTEGER;
+	VAR obj, bfield: Base.Object; x: Base.Item;
 		id, str: Base.IdentStr; anonType: AnonRecordType;
 BEGIN tp := Base.intType;
 	IF (sym # Scanner.ident) & (sym < Scanner.array) THEN
@@ -1355,13 +1335,13 @@ BEGIN tp := Base.intType;
 		ELSE Scanner.Mark (notTypeError)
 		END
 	ELSIF sym = Scanner.array THEN
-		Base.NewType (tp, Base.tArray); identExport := FALSE;
+		Base.NewType (tp, Base.tArray); tp.len := 1; identExport := FALSE;
 		Scanner.Get (sym); expression (x); CheckInt (x);
 		IF x.mode = Base.cConst THEN
 			IF x.a > 0 THEN tp.len := x.a
-			ELSE Scanner.Mark ('Array length must be positive'); tp.len := 1
+			ELSE Scanner.Mark ('Array length must be positive')
 			END
-		ELSE Scanner.Mark (notConstError); MakeIntConst (x); tp.len := 1
+		ELSE Scanner.Mark (notConstError); MakeIntConst (x)
 		END;
 		Check (Scanner.of, noOfError); type (tp.base);
 		tp.alignment := tp.base.alignment;
@@ -1390,42 +1370,25 @@ BEGIN tp := Base.intType;
 				bfield := bfield.next
 			END
 		END;
-		IF (sym = Scanner.ident) OR (sym = Scanner.union) THEN
-			FieldListSequence (tp, obj)
+		IF sym = Scanner.ident THEN FieldList (tp);
+			WHILE sym = Scanner.semicolon DO Scanner.Get (sym);
+				IF sym = Scanner.ident THEN FieldList (tp)
+				ELSE Scanner.Mark (superflousSemicolonError)
+				END
+			END
 		END;
 		tp.fields := SymTable.topScope.next; SymTable.CloseScope;
 		Check (Scanner.end, noEndError)
 	ELSIF sym = Scanner.pointer THEN
 		Base.NewType (tp, Base.tPointer); identExport := FALSE;
 		tp.size := Base.WordSize; tp.alignment := Base.WordSize;
-		tp.nptr := 1; tp.base := Base.intType; lev := SymTable.curLev;
+		tp.nptr := 1; tp.base := Base.intType;
 		IF (defobj # NIL) & (defobj.type = tp) THEN
 			Base.StrCopy (defobjId, defobj.name)
 		END;
-		Scanner.Get (sym); Check (Scanner.to, noToError);
-		IF sym = Scanner.ident THEN SymTable.Find (obj, Scanner.id);
-			IF obj # Base.guard THEN
-				IF (obj.class = Base.cType)
-					& (obj.type.form = Base.tRecord) THEN
-					CheckRecLevel (obj.lev);
-					IF ~obj.type.unsafe THEN tp.base := obj.type
-					ELSE Scanner.Mark ('Pointer to unsafe record not allowed')
-					END
-				ELSE Scanner.Mark ('Invalid base type')
-				END
-			ELSE CheckRecLevel (lev); RegisterUndefType (tp, obj.name)
-			END;
-			Scanner.Get (sym)
-		ELSIF (sym = Scanner.record) OR (sym = Scanner.extensible) THEN
-			CheckRecLevel (lev); type (tp.base)
-		ELSE Scanner.Mark (notRecordTypeError)
-		END
+		Scanner.Get (sym); Check (Scanner.to, noToError); PointerBaseType (tp)
 	ELSIF sym = Scanner.procedure THEN
 		Scanner.Get (sym); FormalParameters (tp)
-	ELSIF sym = Scanner.address THEN
-		Base.NewType (tp, Base.tAddress); tp.size := Base.WordSize;
-		tp.alignment := Base.WordSize; Scanner.Get (sym);
-		Check (Scanner.of, noOfError); type0 (tp.base)
 	ELSE Scanner.Mark (notTypeError)
 	END
 END type0;
@@ -1605,5 +1568,5 @@ BEGIN
 END Module;
 
 BEGIN
-	expression := expression0; type := type0; Union := Union0
+	expression := expression0; type := type0
 END Parser.

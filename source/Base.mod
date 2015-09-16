@@ -1,7 +1,7 @@
 MODULE Base;
 
 IMPORT
-	Kernel32, Console;
+	SYSTEM, Kernel32, Console;
 	
 CONST
 	WordSize* = 8; CharSize* = 2; MaxChar* = 65535; SetUpperLimit* = 64;
@@ -53,7 +53,7 @@ TYPE
 		modname*: POINTER TO RECORD s*: IdentStr END;
 		extensible*, unsafe*: BOOLEAN;
 		form*, size*, len*, nptr*, alignment*, parblksize*: INTEGER;
-		base*, adrType*: Type;
+		base*: Type;
 		obj*, fields*: Object
 	END;
 	
@@ -311,7 +311,6 @@ BEGIN
 	typ.form := form;
 	typ.mod := -1;
 	typ.ref := -1;
-	typ.adrType := NIL;
 	typ.nptr := 0;
 	typ.extensible := FALSE;
 	typ.unsafe := FALSE
@@ -326,13 +325,6 @@ BEGIN
 	INC (preTypeNo); predefinedTypes[preTypeNo] := typ;
 	typ.ref := preTypeNo
 END NewPredefinedType;
-
-PROCEDURE NewAddressType* (bas: Type);
-	VAR tp: Type;
-BEGIN
-	NewType (tp, tAddress); tp.size := WordSize; tp.alignment := WordSize;
-	tp.base := bas; bas.adrType := tp
-END NewAddressType;
 
 PROCEDURE IsSignedType* (typ: Type) : BOOLEAN;
 	RETURN (typ = int8Type) OR (typ = int16Type) OR (typ = int32Type)

@@ -30,27 +30,19 @@ small integer types over INTEGER type. The programmer should use only INTEGER ty
 
 **Note:** The 64-bit CARDINAL is not introduced, because 64-bit INTEGER is big enough, and also because of you cannot loselessly convert CARDINAL to INTEGER.
 
-### ADDRESS types
+### EXTENSIBLE RECORD keyword.
 
-**Reason for introducing:** In order to interface with Win32 API.
+**Reason for introducing:** For efficiency, because VAR param of non-extensible RECORD types doesn't need a hidden tag. Same as in Component Pascal.
 
-**Note:** The ADDRESS types is same as POINTER in Modula-2 and PASCAL. You can declare ADDRESS of any suitable base type:
-```oberon
-TYPE PINTEGER = ADDRESS OF INTEGER;
-```
-And use the SYSTEM.ADR2 function to get the address of any variable:
-```oberon
-adr := SYSTEM.ADR2(x) (* If x type is T, then type of adr must be ADDRESS OF T *)
-```
-Finally, there also exists SYSTEM.STRADR function, which accepts an ARRAY OF CHAR or string variable, and outputs the address of that variable as ADDRESS OF CHAR.
+### DEFINITION module for external DLL
 
-**Note:** In order to use ADDRESS keyword, you must import SYSTEM module.
+**Reason for introducing:** In order to interface with Win32 API and external DLLs.
 
-### UNION in RECORD
+**Note:** For example usage, see Kernel32.mod file in source directory.
 
-**Reason for introducing:** In order to interface with Win32 API.
+**Note:** You can declare CONSTs and TYPEs in DEFINITION module. RECORD types declared in DEFINITION modules will be marked with unsafe flag, so their usage in normal Oberon modules will be restricted. POINTER types declared in DEFINITION module are treated as ADDRESS and hence, not compatible with normal Oberon POINTERs. In DEFINITION module, POINTER TO X, with X is not RECORD, is allowed. There is also existed POINTER TO ARRAY OF X types.
 
-**Note:** Usage example:
+**Note:** In DEFINITION module, RECORD can has UNION, for example:
 ```oberon
 TYPE
 	OVERLAPPED* = RECORD
@@ -62,8 +54,6 @@ TYPE
 		hEvent*: HANDLE
 	END;
 ```
-
-**Note:** In order to use UNION keyword, you must import SYSTEM module.
 
 ### Standard procedure DISPOSE
 
@@ -91,29 +81,21 @@ END Proc;
 ## Minimal Hello World program on Windows
 
 ```oberon
+(* User32.mod file *)
+DEFINITION User32;
+
+	PROCEDURE MessageBoxW* (hwnd: INTEGER; lpText, lpCaption: ARRAY OF CHAR; uType: CARD32);
+
+END User32.
+
+(* Test.mod file *)
 MODULE Test;
 (*$MAIN*)
 
 IMPORT
-    SYSTEM;	
-CONST
-	mess = 'Oberon for Win64';
-	title = 'Hello, World!';
-TYPE
-    Handle = INTEGER;
-    Uint = CARD32;
-    PChar = ADDRESS OF CHAR;
-VAR
-    MessageBoxW: PROCEDURE (
-		hwnd: Handle;
-		lpText, lpCaption: PChar;
-		uType: Uint
-	);
-	user32: Handle;
+    SYSTEM, User32;
 
 BEGIN
-    SYSTEM.LoadLibraryW (user32, 'USER32.DLL');
-	SYSTEM.GetProcAddress (MessageBoxW, user32, 'MessageBoxW'@);
-	MessageBoxW (0, SYSTEM.STRADR(mess), SYSTEM.STRADR(title), 0)
+	User32.MessageBoxW (0, 'Hello, World!', 'Message Box', 0)
 END Test.
 ```
