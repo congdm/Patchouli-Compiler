@@ -45,7 +45,7 @@ CONST
     array* = 60; record* = 61; union* = 62; pointer* = 63; address* = 64;
 	const* = 70; type* = 71; var* = 72; procedure* = 73; begin* = 74; 
 	return* = 75; import* = 76; module* = 77;
-	extensible* = 80; library* = 81;
+	extensible* = 80; definition* = 81;
 
 VAR
 	ival*, slen*: INTEGER;
@@ -54,16 +54,16 @@ VAR
     str*: Base.String; ansiStr*: BOOLEAN;
     errcnt*: INTEGER;
 
-    ch: CHAR; eof, importSystem: BOOLEAN;
+    ch: CHAR; eof, isDefinitionModule: BOOLEAN;
     errpos: INTEGER;
     srcfile: Base.FileHandle;
     k: INTEGER;
     KWX: ARRAY 11 OF INTEGER;
     keyTab: ARRAY NKW OF RECORD sym: INTEGER; id: Base.IdentStr END;
 	
-PROCEDURE ImportSystem*;
-BEGIN importSystem := TRUE
-END ImportSystem;
+PROCEDURE EnableDefinitionModuleMode*;
+BEGIN isDefinitionModule := TRUE
+END EnableDefinitionModuleMode;
   
 PROCEDURE Pos*() : INTEGER;
 	RETURN Base.FilePos(srcfile)
@@ -101,9 +101,9 @@ BEGIN
 	IF i < 11 THEN k2 := KWX[i-1];  (* search for keyword *)
 		WHILE (id # keyTab[k2].id) & (k2 < KWX[i]) DO INC(k2) END;
 		IF k2 < KWX[i] THEN sym := keyTab[k2].sym;
-			(*IF ~importSystem & ((sym = address) OR (sym = union)) THEN
-				Mark ('The uses of ADDRESS and UNION are not allowed')
-			END*)
+			IF (sym = union) & ~isDefinitionModule THEN
+				Mark ('UNION is only allowed in definition module')
+			END
 		ELSE sym := ident
 		END
 	ELSE sym := ident
@@ -331,7 +331,7 @@ BEGIN (*Console.WriteInt (Pos()); Console.Write (' ');*)
 END Get;
 
 PROCEDURE Init* (VAR file: Base.FileHandle; pos: INTEGER);
-BEGIN importSystem := FALSE;
+BEGIN isDefinitionModule := FALSE;
 	srcfile := file; errpos := pos; errcnt := 0; Base.Seek (file, pos); Read
 END Init;
 
@@ -379,11 +379,11 @@ BEGIN
 	EnterKW(module, 'MODULE');
 	KWX[6] := k;
 	EnterKW(pointer, 'POINTER');
-	EnterKW(library, 'LIBRARY');
 	KWX[7] := k;
 	KWX[8] := k;
 	EnterKW(procedure, 'PROCEDURE');
 	KWX[9] := k;
 	EnterKW(extensible, 'EXTENSIBLE');
+	EnterKW(definition, 'DEFINITION');
 	KWX[10] := k
 END Scanner.

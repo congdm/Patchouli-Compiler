@@ -16,7 +16,7 @@ TYPE
 		a*: ARRAY Base.MaxModules OF Module
 	END;
 	ModuleDesc* = RECORD
-		lev*, modno*: INTEGER; isLibrary*: BOOLEAN;
+		lev*, modno*: INTEGER; isDefMod*: BOOLEAN;
 		name*: Base.IdentStr; key*: ModuleKey;
 		dsc*: Base.Object; types*: TypeArray;
 		importModules*: ModuleArray;
@@ -28,7 +28,7 @@ VAR
 	curLev*: INTEGER;
 	
 	refno, expno*, modno: INTEGER;
-	importSystem*, isLibrary: BOOLEAN;
+	importSystem*, isDefinitionModule: BOOLEAN;
 	
 	moduleList*, imod: Module;
 	module*: ModuleDesc;
@@ -353,8 +353,7 @@ END Import_symbols_file;
 
 PROCEDURE Import_SYSTEM (mod: Base.Object);
 BEGIN
-	importSystem := TRUE; Scanner.ImportSystem;
-	curLev := -2; OpenScope ('');
+	importSystem := TRUE; curLev := -2; OpenScope ('');
 	
 	Enter (Base.cType, 0, 'BYTE', Base.sysByteType);
 	
@@ -403,7 +402,7 @@ BEGIN
 END Import_modules;
 
 PROCEDURE Find_module_symfile* (mod: Base.Object; symName: Base.IdentStr);
-	VAR filename: Base.String; i, modlev: INTEGER; isLibrary: BOOLEAN;
+	VAR filename: Base.String; i, modlev: INTEGER; isDefMod: BOOLEAN;
 		importModules: ModuleArray; key: ModuleKey; newmod: Module;
 BEGIN importModules := module.importModules;
 	IF symName = 'SYSTEM' THEN Import_SYSTEM (mod)
@@ -413,9 +412,9 @@ BEGIN importModules := module.importModules;
 		IF Base.File_existed(filename) THEN
 			Base.Open (symfile, filename);
 			Read_module_key (key); Base.ReadInt (symfile, modlev);
-			Base.ReadInt (symfile, i); isLibrary := i = ORD(TRUE);
+			Base.ReadInt (symfile, i); isDefMod := i = ORD(TRUE);
 			New_module (newmod, symName, key, modlev);
-			newmod.isLibrary := isLibrary;
+			newmod.isDefMod := isDefMod;
 			Base.Close (symfile);
 			i := importModules.len; importModules.a[i] := newmod;
 			mod.val := i; INC (importModules.len);
@@ -526,7 +525,7 @@ BEGIN
 	refno := 0; expno := 0;
 	Base.Rewrite (symfile, 'sym.temp_'); Base.Seek (symfile, 16);
 	Base.WriteInt (symfile, module.lev);
-	Base.WriteInt (symfile, ORD(isLibrary));
+	Base.WriteInt (symfile, ORD(isDefinitionModule));
 	
 	mod := moduleList;
 	WHILE mod # NIL DO
@@ -590,10 +589,11 @@ END Write_symbols_file;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 	
-PROCEDURE Init* (modname: Base.IdentStr; isLib: BOOLEAN);
+PROCEDURE Init* (modname: Base.IdentStr; isDefMod: BOOLEAN);
 BEGIN
 	module.lev := 0; Base.StrCopy (modname, module.name);
-	NEW (module.importModules); NEW (module.types); isLibrary := isLib;
+	NEW (module.importModules); NEW (module.types);
+	isDefinitionModule := isDefMod;
 	
 	importSystem := FALSE; NEW (universe);
 	universe.class := Base.cHead; universe.name := 'MODULE';
@@ -616,7 +616,7 @@ BEGIN
 	Enter (Base.cType, 0, 'REAL', Base.realType);
 	Enter (Base.cType, 0, 'LONGREAL', Base.realType);
 	
-	IF ~isLib THEN
+	IF ~isDefMod THEN
 		Enter (Base.cSProc, 0, 'INC', NIL);
 		Enter (Base.cSProc, 1, 'DEC', NIL);
 		Enter (Base.cSProc, 2, 'INCL', NIL);

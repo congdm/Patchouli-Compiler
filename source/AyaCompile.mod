@@ -15,7 +15,7 @@ BEGIN
 		Base.Open (srcfile, str);
 		Scanner.Init (srcfile, 0); Scanner.Get (sym);
 		IF sym = Scanner.module THEN Parser.Module
-		ELSIF sym = Scanner.library THEN Parser2.Library
+		ELSIF sym = Scanner.definition THEN Parser2.Definition
 		ELSE Scanner.Mark ('Not a MODULE or LIBRARY')
 		END;
 		Base.Close (srcfile)

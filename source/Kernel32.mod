@@ -1,4 +1,4 @@
-LIBRARY Kernel32;
+DEFINITION Kernel32;
 
 CONST
 	(* Standard devices *)

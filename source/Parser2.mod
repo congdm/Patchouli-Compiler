@@ -715,26 +715,27 @@ END DeclarationSequence;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE Library*;
+PROCEDURE Definition*;
 	VAR modid: Base.IdentStr;
 BEGIN
-	Base.ResetCompilerFlag; Scanner.Get (sym);
+	Scanner.EnableDefinitionModuleMode; Base.ResetCompilerFlag;
+	Scanner.Get (sym);
 	IF sym = Scanner.ident THEN modid := Scanner.id; Scanner.Get (sym)
-	ELSE modid := '@'; Scanner.Mark ('No library name')
+	ELSE modid := '@'; Scanner.Mark ('No definition module name')
 	END;
 	Check (Scanner.semicolon, noSemicolonError);
 	IF modid # '@' THEN
 		SymTable.Init (modid, TRUE); Generator.Init (modid);
 		DeclarationSequence; Check (Scanner.end, noEndError);
 		IF sym = Scanner.ident THEN
-			IF modid # Scanner.id THEN Scanner.Mark ('Wrong library name') END;
+			IF modid # Scanner.id THEN Scanner.Mark ('Wrong module name') END;
 			Scanner.Get (sym)
-		ELSE Scanner.Mark ('No library identifier after END')
+		ELSE Scanner.Mark ('No module name after END')
 		END;
 		Check (Scanner.period, 'No ending .');
 		Generator.Finish (TRUE)
 	END
-END Library;
+END Definition;
 
 BEGIN
 	expression := expression0; type := type0; Union := Union0

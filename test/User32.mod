@@ -1,4 +1,4 @@
-LIBRARY User32;
+DEFINITION User32;
 
 PROCEDURE MessageBoxW* (
 	hwnd: INTEGER;

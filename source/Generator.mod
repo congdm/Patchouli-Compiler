@@ -2255,7 +2255,7 @@ BEGIN
 			EmitRR (MOVd, reg_SI, 8, reg_A);
 			
 			(* Check module key *)
-			IF ~imod.isLibrary THEN key := imod.key;
+			IF ~imod.isDefMod THEN key := imod.key;
 				MoveRI (reg_A, 8, key[0]); SetRmOperand_regI (reg_SI, 400H-16);
 				EmitRegRm (CMPd, reg_A, 8); Trap (ccNZ, modkey_trap);
 				MoveRI (reg_A, 8, key[1]); SetRmOperand_regI (reg_SI, 400H-8);
@@ -2265,7 +2265,7 @@ BEGIN
 			obj := imod.dsc;
 			WHILE obj # Base.guard DO
 				IF (obj.val # 0) & (obj.expno # 0) THEN
-					IF ~imod.isLibrary THEN
+					IF ~imod.isDefMod THEN
 						EmitRR (MOVd, reg_C, 8, reg_SI);
 						MoveRI (reg_D, 4, obj.expno);
 						SetRmOperand_staticvar (Base.GetProcAddress);
@@ -2571,7 +2571,7 @@ BEGIN p := fixupList;
 	END
 END Perform_fixup;
 
-PROCEDURE Finish* (isLibrary: BOOLEAN);
+PROCEDURE Finish* (isDefMod: BOOLEAN);
 	VAR i, n, padding, filesize, k: INTEGER;
 		str: Base.String; modkey: SymTable.ModuleKey;
 BEGIN
@@ -2623,7 +2623,7 @@ BEGIN
 		Console.WriteString (' miliseconds'); Console.WriteLn;
 		
 		(* Rename files *)
-		IF ~isLibrary THEN str[0] := 0X; Strings.Append (modid, str);
+		IF ~isDefMod THEN str[0] := 0X; Strings.Append (modid, str);
 			IF Base.CplFlag.main THEN Strings.Append ('.exe', str)
 			ELSE Strings.Append ('.dll', str)
 			END;
