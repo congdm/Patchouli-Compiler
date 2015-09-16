@@ -40,7 +40,7 @@ small integer types over INTEGER type. The programmer should use only INTEGER ty
 
 **Note:** For example usage, see Kernel32.mod file in source directory.
 
-**Note:** You can declare CONSTs and TYPEs in DEFINITION module. RECORD types declared in DEFINITION modules will be marked with unsafe flag, so their usage in normal Oberon modules will be restricted. POINTER types declared in DEFINITION module are treated as ADDRESS and hence, not compatible with normal Oberon POINTERs. In DEFINITION module, POINTER TO X, with X is not RECORD, is allowed. There is also existed POINTER TO ARRAY OF X types.
+**Note:** You can declare CONSTs, TYPEs, VARs and PROCEDUREs in DEFINITION module. RECORD types declared in DEFINITION modules will be marked with unsafe flag, so their usage in normal Oberon modules will be restricted. POINTER types declared in DEFINITION module are treated as ADDRESS and hence, not compatible with normal Oberon POINTERs. In DEFINITION module, POINTER TO X, with X is not RECORD, is allowed. There is also existed POINTER TO ARRAY OF X types.
 
 **Note:** In DEFINITION module, RECORD can has UNION, for example:
 ```oberon
