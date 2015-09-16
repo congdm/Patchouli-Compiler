@@ -51,7 +51,7 @@ TYPE
 	TypeDesc* = RECORD
 		ref*, mod*: INTEGER;
 		modname*: POINTER TO RECORD s*: IdentStr END;
-		extensible*: BOOLEAN;
+		extensible*, unsafe*: BOOLEAN;
 		form*, size*, len*, nptr*, alignment*, parblksize*: INTEGER;
 		base*, adrType*: Type;
 		obj*, fields*: Object
@@ -67,10 +67,10 @@ TYPE
 	END;
 	
 	Item* = RECORD
-		readonly*, param*, tagged* : BOOLEAN;
-		mode*, lev* : INTEGER;
-		obj* : Object; type* : Type;
-		r*, a*, b*, c* : INTEGER
+		readonly*, param*, tagged*: BOOLEAN;
+		mode*, lev*: INTEGER;
+		obj*: Object; type*: Type;
+		r*, a*, b*, c*: INTEGER
 	END;
 
 VAR
@@ -312,7 +312,9 @@ BEGIN
 	typ.mod := -1;
 	typ.ref := -1;
 	typ.adrType := NIL;
-	typ.nptr := 0
+	typ.nptr := 0;
+	typ.extensible := FALSE;
+	typ.unsafe := FALSE
 END NewType;
 
 PROCEDURE NewPredefinedType (VAR typ: Type; form, size: INTEGER);

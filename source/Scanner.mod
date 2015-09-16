@@ -26,7 +26,7 @@ IMPORT
   
 CONST
 	MaxIdLen = Base.MaxIdentLen;
-    NKW = 38;  (* Number of keywords *)
+    NKW = 37;  (* Number of keywords *)
     maxExp = 38; stringBufSize = 256;
   
     (* Symbols *)
@@ -379,7 +379,6 @@ BEGIN
 	EnterKW(module, 'MODULE');
 	KWX[6] := k;
 	EnterKW(pointer, 'POINTER');
-	EnterKW(address, 'ADDRESS');
 	EnterKW(library, 'LIBRARY');
 	KWX[7] := k;
 	KWX[8] := k;

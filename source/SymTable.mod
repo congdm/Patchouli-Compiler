@@ -230,6 +230,7 @@ BEGIN itype.nptr := 0;
 		Base.ReadInt (symfile, itype.nptr);
 		Base.ReadInt (symfile, itype.alignment);
 		Base.ReadInt (symfile, n); itype.extensible := n = ORD(TRUE);
+		Base.ReadInt (symfile, n); itype.unsafe := n = ORD(TRUE);
 		
 		OpenScope ('');
 		Base.ReadInt (symfile, class);
@@ -367,8 +368,7 @@ BEGIN
 	Enter (Base.cSFunc, 301, 'SIZE', Base.intType);
 	Enter (Base.cSFunc, 302, 'BIT', Base.boolType);
 	Enter (Base.cSFunc, 303, 'VAL', Base.intType);
-	Enter (Base.cSFunc, 310, 'ADR2', Base.intType);
-	Enter (Base.cSFunc, 311, 'STRADR', Base.intType);
+	Enter (Base.cSFunc, 312, 'VARCAST', Base.intType);
 	
 	mod.dsc := topScope.next; mod.val := -1;
 	CloseScope; curLev := 0
@@ -468,7 +468,7 @@ BEGIN
 	ELSE typ.ref := -typ.ref - 1
 	END;
 	Base.WriteInt (symfile, typ.ref);
-	IF (typ.form # Base.tRecord) OR isLibrary OR typ.obj.export THEN
+	IF (typ.form # Base.tRecord) OR typ.unsafe OR typ.obj.export THEN
 		Base.WriteInt (symfile, 0)
 	ELSE
 		IF typ.obj.expno = 0 THEN INC (expno); typ.obj.expno := expno END;
@@ -483,6 +483,7 @@ BEGIN
 		Base.WriteInt (symfile, typ.nptr);
 		Base.WriteInt (symfile, typ.alignment);
 		Base.WriteInt (symfile, ORD(typ.extensible));
+		Base.WriteInt (symfile, ORD(typ.unsafe));
 		
 		i := 0; field := typ.fields;
 		WHILE field # Base.guard DO

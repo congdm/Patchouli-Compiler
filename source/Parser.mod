@@ -520,28 +520,18 @@ PROCEDURE StandFunc (VAR x: Base.Item);
 			Scanner.Mark ('Not a scalar type'); MakeIntConst (x)
 		END;
 		castType := x.type; Check (Scanner.comma, tooLittleParamError);
-		expression (x); CheckValue (x); Generator.SFunc_VAL (x, castType);
+		expression (x); CheckValue (x); Generator.SFunc_VAL (x, castType)
 	END SFunc_VAL;
 	
-	PROCEDURE SFunc_ADR2 (VAR x: Base.Item);
-	BEGIN
-		expression (x); CheckVar (x, TRUE); Generator.SFunc_ADR (x);
-		IF x.type = Base.stringType THEN x.type := Base.charType END;
-		IF x.type.adrType = NIL THEN Base.NewAddressType (x.type) END;
-		x.type := x.type.adrType
-	END SFunc_ADR2;
-	
-	PROCEDURE SFunc_STRADR (VAR x: Base.Item);
-	BEGIN
-		expression (x); CheckVar (x, TRUE);
-		IF (x.type # Base.stringType)
-			& ((x.type.form # Base.tArray) OR (x.type.base # Base.charType))
-		THEN Scanner.Mark (notStrError)
+	PROCEDURE SFunc_VARCAST (VAR x: Base.Item);
+		VAR castType: Base.Type;
+	BEGIN expression (x);
+		IF x.mode # Base.cType THEN
+			Scanner.Mark (notTypeError); MakeIntConst (x)
 		END;
-		Generator.SFunc_ADR (x); x.type := Base.charType;
-		IF x.type.adrType = NIL THEN Base.NewAddressType (x.type) END;
-		x.type := x.type.adrType
-	END SFunc_STRADR;
+		castType := x.type; Check (Scanner.comma, tooLittleParamError);
+		expression (x); CheckInt (x); Generator.SFunc_VARCAST (x, castType)
+	END SFunc_VARCAST;
 		
 BEGIN (* StandFunc *)
 	Check (Scanner.lparen, noLParenError); funcno := x.a; rtype := x.type;
@@ -557,12 +547,11 @@ BEGIN (* StandFunc *)
 	ELSIF funcno = 301 THEN SFunc_SIZE (x)
 	ELSIF funcno = 302 THEN SFunc_BIT (x)
 	ELSIF funcno = 303 THEN SFunc_VAL (x)
-	ELSIF funcno = 310 THEN SFunc_ADR2 (x)
-	ELSIF funcno = 311 THEN SFunc_STRADR (x)
+	ELSIF funcno = 312 THEN SFunc_VARCAST (x)
 	ELSE ASSERT(FALSE)
 	END;
-	IF (funcno # 303) & (funcno # 200) & (funcno # 310) & (funcno # 311) THEN
-		x.type := rtype 
+	IF (funcno # 303) & (funcno # 200) & (funcno # 312) THEN
+		x.type := rtype
 	END;
 	funcno := 0;
 	WHILE sym = Scanner.comma DO Scanner.Get (sym); expression (y);
@@ -931,8 +920,8 @@ PROCEDURE StandProc (VAR x: Base.Item);
 	PROCEDURE SProc_GetProcAddress;
 		VAR x, y, z, proc: Base.Item; c: Generator.ProcCall; tp: Base.Type;
 	BEGIN expression (x); CheckVar (x, FALSE);
-		IF ~(x.type.form IN {Base.tProcedure, Base.tAddress}) THEN
-			Scanner.Mark ('Not a proc or ADDRESS'); x.type := Base.intType
+		IF (x.type # Base.intType) & ~(x.type.form = Base.tProcedure) THEN
+			Scanner.Mark ('Not an INTEGER or proc'); x.type := Base.intType
 		END;
 		
 		proc.mode := Base.cProc; proc.type := Base.GetProcAddressFuncType;
@@ -1416,8 +1405,12 @@ BEGIN tp := Base.intType;
 		Scanner.Get (sym); Check (Scanner.to, noToError);
 		IF sym = Scanner.ident THEN SymTable.Find (obj, Scanner.id);
 			IF obj # Base.guard THEN
-				IF (obj.class = Base.cType) & (obj.type.form = Base.tRecord)
-				THEN CheckRecLevel (obj.lev); tp.base := obj.type
+				IF (obj.class = Base.cType)
+					& (obj.type.form = Base.tRecord) THEN
+					CheckRecLevel (obj.lev);
+					IF ~obj.type.unsafe THEN tp.base := obj.type
+					ELSE Scanner.Mark ('Pointer to unsafe record not allowed')
+					END
 				ELSE Scanner.Mark ('Invalid base type')
 				END
 			ELSE CheckRecLevel (lev); RegisterUndefType (tp, obj.name)

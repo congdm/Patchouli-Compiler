@@ -105,15 +105,14 @@ END MD5ComputeChunk;
 PROCEDURE MD5Compute* (
 	VAR hash: MD5Hash; chunk: ARRAY OF SYSTEM.BYTE; lenInBit: INTEGER
 );
-	VAR adr: ADDRESS OF ARRAY 64 OF BYTE;
+	VAR adr: INTEGER;
 BEGIN
-	ASSERT (LEN(chunk) * 8 >= lenInBit);
-	SYSTEM.PUT (SYSTEM.ADR(adr), SYSTEM.ADR(chunk));
+	ASSERT (LEN(chunk) * 8 >= lenInBit); adr := SYSTEM.ADR(chunk);
 	WHILE lenInBit >= 512 DO
-		MD5ComputeChunk (hash, adr^, 512); lenInBit := lenInBit - 512;
-		SYSTEM.PUT (SYSTEM.ADR(adr), SYSTEM.VAL(INTEGER, adr) + 64)
+		MD5ComputeChunk (hash, SYSTEM.VARCAST(MD5Chunk, adr), 512);
+		lenInBit := lenInBit - 512; adr := adr + 64
 	END;
-	MD5ComputeChunk (hash, adr^, lenInBit)
+	MD5ComputeChunk (hash, SYSTEM.VARCAST(MD5Chunk, adr), lenInBit)
 END MD5Compute;
 
 PROCEDURE MD5GetLowResult* (VAR hash: MD5Hash) : INTEGER;

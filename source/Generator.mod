@@ -641,7 +641,7 @@ BEGIN
 	IF (obj.lev = -2) & (obj.val = 0) & (obj.expno # 0) THEN
 		Alloc_static_data (8, 8); obj.val := -staticsize
 	END;
-	x.readonly := obj.readonly; x.param := obj.param;
+	x.readonly := obj.readonly; x.param := obj.param; x.tagged := obj.tagged;
 	x.mode := obj.class; x.lev := obj.lev;
 	x.type := obj.type; x.obj := obj;
 	x.a := obj.val; x.b := obj.val2; x.c := 0
@@ -2087,6 +2087,11 @@ BEGIN signed := Base.IsSignedType(castType); castSize := castType.size;
 	END;
 	x.type := castType
 END SFunc_VAL;
+
+PROCEDURE SFunc_VARCAST* (VAR x: Base.Item; castType: Base.Type);
+BEGIN
+	load (x); x.mode := mRegI; x.a := 0; x.type := castType
+END SFunc_VARCAST;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)

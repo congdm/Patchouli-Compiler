@@ -199,10 +199,10 @@ PROCEDURE StandFunc (VAR x: Base.Item);
 	PROCEDURE SFunc_SIZE (VAR x: Base.Item);
 		VAR size: INTEGER;
 	BEGIN expression (x);
-		IF x.mode = Base.cType THEN size := x.type.size
+		IF x.mode = Base.cType THEN size := Generator.TypeSize(x.type)
 		ELSE Scanner.Mark (notTypeError); size := Base.WordSize
 		END;
-		Generator.Align (size, x.type.alignment); MakeIntConst (x); x.a := size
+		MakeIntConst (x); x.a := size
 	END SFunc_SIZE;
 	
 BEGIN (* StandFunc *)
@@ -616,7 +616,7 @@ BEGIN tp := Base.intType;
 		tp.nptr := tp.len * tp.base.nptr
 	ELSIF sym = Scanner.record THEN
 		Base.NewType (tp, Base.tRecord); identExport := FALSE;
-		tp.len := 0; tp.size := 0; tp.alignment := 0;
+		tp.unsafe := TRUE; tp.len := 0; tp.size := 0; tp.alignment := 0;
 		Scanner.Get (sym); SymTable.OpenScope ('');
 		IF (sym = Scanner.ident) OR (sym = Scanner.union) THEN
 			FieldListSequence (tp, obj)
