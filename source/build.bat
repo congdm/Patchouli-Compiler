@@ -1,10 +1,7 @@
 ..\bin\AyaCompile Strings.mod
 ..\bin\AyaCompile Crypt.mod
-..\bin\AyaCompile WinBase.mod
-..\bin\AyaCompile WinApi.mod
-..\bin\AyaCompile ProgArgs.mod
+..\bin\AyaCompile Kernel32.mod
 ..\bin\AyaCompile Console.mod
-..\bin\AyaCompile Sys.mod
 ..\bin\AyaCompile Base.mod
 ..\bin\AyaCompile Scanner.mod
 ..\bin\AyaCompile SymTable.mod

@@ -640,6 +640,10 @@ BEGIN tp := Base.intType;
 			END;
 			Scanner.Get (sym)
 		ELSIF sym = Scanner.record THEN type (tp.base)
+		ELSIF sym = Scanner.array THEN
+			Base.NewType (tp.base, Base.tArray); tp.base.len := -1;
+			Scanner.Get (sym); Check (Scanner.of, noOfError);
+			type (tp.base.base)
 		ELSE Scanner.Mark (notTypeError)
 		END
 	ELSIF sym = Scanner.procedure THEN

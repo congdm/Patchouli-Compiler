@@ -8,4 +8,5 @@ dumpbin /all /disasm Scanner.dll > Scanner.txt
 dumpbin /all /disasm SymTable.dll > SymTable.txt
 dumpbin /all /disasm Generator.dll > Generator.txt
 dumpbin /all /disasm Parser.dll > Parser.txt
+dumpbin /all /disasm Parser2.dll > Parser2.txt
 dumpbin /all /disasm AyaCompile.exe > AyaCompile.txt

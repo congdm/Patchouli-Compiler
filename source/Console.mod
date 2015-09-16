@@ -1,32 +1,29 @@
 MODULE Console;
 
 IMPORT
-	SYS := SYSTEM, WinBase, Win := WinApi, Strings;
+	SYSTEM, Kernel32, Strings;
 	
 CONST
-	chSz = SYS.SIZE(CHAR);
+	chSz = SYSTEM.SIZE(CHAR);
 	
 VAR
-	stdin, stdout: WinBase.HANDLE;
+	stdin, stdout: Kernel32.HANDLE;
 
 PROCEDURE Write* (ch: CHAR);
-	VAR nWritten: WinBase.DWORD; r: WinBase.BOOL;
-BEGIN
-	r := Win.WriteConsoleW(stdout, SYS.ADR(ch), 1, SYS.ADR2(nWritten), 0)
+	VAR nWritten: CARD32; r: Kernel32.BOOL;
+BEGIN r := Kernel32.WriteConsoleW (stdout, ch, 1, nWritten, NIL)
 END Write;
 
 PROCEDURE WriteLn*;
-	VAR str: ARRAY 2 OF CHAR; nWritten: WinBase.DWORD; r: WinBase.BOOL;
-BEGIN
-	str[0] := CHR(13); str[1] := CHR(10);
-	r := Win.WriteConsoleW(stdout, SYS.ADR(str), 2, SYS.ADR2(nWritten), 0)
+	VAR str: ARRAY 2 OF CHAR; nWritten: CARD32; r: Kernel32.BOOL;
+BEGIN str[0] := CHR(13); str[1] := CHR(10);
+	r := Kernel32.WriteConsoleW (stdout, str, 2, nWritten, NIL)
 END WriteLn;
 
 PROCEDURE WriteString* (str: ARRAY OF CHAR);
-	VAR nWritten: WinBase.DWORD; r: WinBase.BOOL; len: INTEGER;
-BEGIN
-	len := Strings.Length(str);
-	r := Win.WriteConsoleW(stdout, SYS.ADR(str), len, SYS.ADR2(nWritten), 0)
+	VAR nWritten: CARD32; r: Kernel32.BOOL; len: INTEGER;
+BEGIN len := Strings.Length(str);
+	r := Kernel32.WriteConsoleW (stdout, str, len, nWritten, NIL)
 END WriteString;
 
 PROCEDURE WriteInt* (n: INTEGER);
@@ -45,17 +42,17 @@ BEGIN Strings.FormatReal (r, str); WriteString (str)
 END WriteReal;
 
 PROCEDURE Read* (VAR ch: CHAR);
-	VAR nRead: WinBase.DWORD; r: WinBase.BOOL;
+	VAR nRead: CARD32; r: Kernel32.BOOL;
 BEGIN
-	r := Win.ReadConsoleW(stdin, SYS.ADR(ch), 1, SYS.ADR2(nRead), NIL)
+	r := Kernel32.ReadConsoleW (stdin, ch, 1, nRead, NIL)
 END Read;
 
 PROCEDURE Init;
-	VAR res: WinBase.BOOL;
+	VAR res: Kernel32.BOOL;
 BEGIN
-	res := Win.AllocConsole();
-	stdin := Win.GetStdHandle(WinBase.STD_INPUT_HANDLE);
-	stdout := Win.GetStdHandle(WinBase.STD_OUTPUT_HANDLE)
+	res := Kernel32.AllocConsole();
+	stdin := Kernel32.GetStdHandle(Kernel32.STD_INPUT_HANDLE);
+	stdout := Kernel32.GetStdHandle(Kernel32.STD_OUTPUT_HANDLE)
 END Init;
 
 BEGIN Init

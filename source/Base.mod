@@ -1,7 +1,7 @@
 MODULE Base;
 
 IMPORT
-	Console, Sys;
+	Kernel32, Console;
 	
 CONST
 	WordSize* = 8; CharSize* = 2; MaxChar* = 65535; SetUpperLimit* = 64;
@@ -41,6 +41,7 @@ CONST
 	HeapFree* = -16;
 	
 TYPE
+	FileHandle* = RECORD handle: Kernel32.HANDLE END;
 	IdentStr* = ARRAY MaxIdentLen + 1 OF CHAR;
 	String* = ARRAY MaxStrLen + 1 OF CHAR;
 	
@@ -99,6 +100,7 @@ VAR
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
+(* Strings *)
 	
 PROCEDURE StrEqual* (s1, s2: ARRAY OF CHAR) : BOOLEAN;
 	VAR i: INTEGER;
@@ -122,6 +124,183 @@ BEGIN
 	END;
 	dst[i] := 0X
 END StrCopy;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+(* System functions wrappers *)
+
+PROCEDURE File_existed* (filename: ARRAY OF CHAR): BOOLEAN;
+	VAR attr: CARD32;
+BEGIN attr := Kernel32.GetFileAttributesW(filename);
+	RETURN attr # ORD(Kernel32.INVALID_FILE_ATTRIBUTES)
+END File_existed;
+	
+PROCEDURE Open* (VAR file: FileHandle; filename: ARRAY OF CHAR);
+BEGIN
+	IF File_existed(filename) THEN
+		file.handle := Kernel32.CreateFileW(
+			filename, ORD(Kernel32.GENERIC_READ + Kernel32.GENERIC_WRITE),
+			0, NIL, Kernel32.OPEN_EXISTING, 0, 0
+		)
+	ELSE Console.WriteString ('File not existed!'); Console.WriteLn
+	END
+END Open;
+	
+PROCEDURE Rewrite* (VAR file: FileHandle; filename: ARRAY OF CHAR);
+BEGIN
+	file.handle := Kernel32.CreateFileW(
+		filename, ORD(Kernel32.GENERIC_READ + Kernel32.GENERIC_WRITE),
+		0, NIL, Kernel32.CREATE_ALWAYS, 0, 0
+	)
+END Rewrite;
+
+PROCEDURE Close* (VAR file : FileHandle);
+	VAR bRes: Kernel32.BOOL;
+BEGIN
+	IF file.handle # 0 THEN
+		bRes := Kernel32.CloseHandle (file.handle); file.handle := 0
+	END
+END Close;
+
+PROCEDURE Rename_file* (oldname, newname: ARRAY OF CHAR);
+	VAR bRes: Kernel32.BOOL;
+BEGIN
+	bRes := Kernel32.MoveFileW (oldname, newname)
+END Rename_file;
+
+PROCEDURE Delete_file* (filename : ARRAY OF CHAR);
+	VAR bRes: Kernel32.BOOL;
+BEGIN
+	bRes := Kernel32.DeleteFileW (filename)
+END Delete_file;
+
+(* -------------------------------------------------------------------------- *)
+
+PROCEDURE Read_byte* (VAR file: FileHandle; VAR n: INTEGER);
+	VAR bRes: Kernel32.BOOL; buf: BYTE; byteRead: CARD32;
+BEGIN
+	bRes := Kernel32.ReadFile (file.handle, buf, 1, byteRead, NIL);
+	IF (bRes = 0) OR (byteRead # 1) THEN n := -1 ELSE n := buf END
+END Read_byte;
+	
+PROCEDURE Read_2bytes* (VAR file: FileHandle; VAR n: INTEGER);
+	VAR bRes: Kernel32.BOOL; buf: CARD16; byteRead: CARD32;
+BEGIN
+	bRes := Kernel32.ReadFile (file.handle, buf, 2, byteRead, NIL);
+	IF (bRes = 0) OR (byteRead # 2) THEN n := -1 ELSE n := buf END
+END Read_2bytes;
+
+PROCEDURE Read_string* (VAR file: FileHandle; VAR str: ARRAY OF CHAR);
+	VAR i, n: INTEGER;
+BEGIN i := -1; n := 0;
+	REPEAT INC (i); Read_2bytes (file, n); str[i] := CHR(n)
+	UNTIL n = 0
+END Read_string;
+	
+PROCEDURE Read_4bytes* (VAR file: FileHandle; VAR n: INTEGER);
+	VAR bRes: Kernel32.BOOL; buf, byteRead: CARD32;
+BEGIN
+	bRes := Kernel32.ReadFile (file.handle, buf, 4, byteRead, NIL);
+	IF (bRes = 0) OR (byteRead # 4) THEN n := -1 ELSE n := buf END
+END Read_4bytes;
+	
+PROCEDURE Read_8bytes* (VAR file : FileHandle; VAR n : INTEGER);
+	VAR bRes: Kernel32.BOOL; buf: INTEGER; byteRead: CARD32;
+BEGIN
+	bRes := Kernel32.ReadFile (file.handle, buf, 8, byteRead, NIL);
+	IF (bRes = 0) OR (byteRead # 8) THEN n := -1 ELSE n := buf END
+END Read_8bytes;
+
+(* -------------------------------------------------------------------------- *)
+	
+PROCEDURE Write_byte* (VAR file: FileHandle; n: INTEGER);
+	VAR bRes: Kernel32.BOOL; buf: BYTE; byteWritten: CARD32;
+BEGIN buf := n;
+	bRes := Kernel32.WriteFile (file.handle, buf, 1, byteWritten, NIL)
+END Write_byte;
+
+PROCEDURE Write_ansi_str* (VAR file: FileHandle; str: ARRAY OF CHAR);
+	VAR i: INTEGER;
+BEGIN i := 0;
+	WHILE (i < LEN(str)) & (str[i] # 0X) DO
+		Write_byte (file, ORD(str[i])); INC (i)
+	END;
+	Write_byte (file, 0)
+END Write_ansi_str;
+	
+PROCEDURE Write_2bytes* (VAR file: FileHandle; n: INTEGER);
+	VAR bRes: Kernel32.BOOL; buf: CARD16; byteWritten: CARD32;
+BEGIN buf := n;
+	bRes := Kernel32.WriteFile (file.handle, buf, 2, byteWritten, NIL)
+END Write_2bytes;
+
+PROCEDURE Write_string* (VAR file: FileHandle; str: ARRAY OF CHAR);
+	VAR i: INTEGER;
+BEGIN i := 0;
+	WHILE (i < LEN(str)) & (str[i] # 0X) DO
+		Write_2bytes (file, ORD(str[i])); INC (i)
+	END;
+	Write_2bytes (file, 0)
+END Write_string;
+	
+PROCEDURE Write_4bytes* (VAR file: FileHandle; n: INTEGER);
+	VAR bRes: Kernel32.BOOL; buf, byteWritten: CARD32;
+BEGIN buf := n;
+	bRes := Kernel32.WriteFile (file.handle, buf, 4, byteWritten, NIL)
+END Write_4bytes;
+	
+PROCEDURE Write_8bytes* (VAR file : FileHandle; n : INTEGER);
+	VAR bRes: Kernel32.BOOL; byteWritten: CARD32;
+BEGIN
+	bRes := Kernel32.WriteFile (file.handle, n, 8, byteWritten, NIL)
+END Write_8bytes;
+
+PROCEDURE FilePos* (VAR file: FileHandle): INTEGER;
+	VAR bRes: Kernel32.BOOL; byteToMove, newPointer: Kernel32.LARGE_INTEGER;
+BEGIN byteToMove.QuadPart := 0;
+	bRes := Kernel32.SetFilePointerEx(
+		file.handle, byteToMove, newPointer, Kernel32.FILE_CURRENT
+	);
+	RETURN newPointer.QuadPart
+END FilePos;
+
+PROCEDURE Seek* (VAR file: FileHandle; pos: INTEGER);
+	VAR bRes: Kernel32.BOOL; byteToMove, newPointer: Kernel32.LARGE_INTEGER;
+BEGIN byteToMove.QuadPart := pos;
+	bRes := Kernel32.SetFilePointerEx(
+		file.handle, byteToMove, newPointer, Kernel32.FILE_BEGIN
+	)
+END Seek;
+
+PROCEDURE SeekRel* (VAR file: FileHandle; offset: INTEGER);
+	VAR bRes: Kernel32.BOOL; byteToMove, newPointer: Kernel32.LARGE_INTEGER;
+BEGIN byteToMove.QuadPart := offset;
+	bRes := Kernel32.SetFilePointerEx(
+		file.handle, byteToMove, newPointer, Kernel32.FILE_CURRENT
+	)
+END SeekRel;
+
+PROCEDURE GetTickCount*() : INTEGER;
+	RETURN Kernel32.GetTickCount()
+END GetTickCount;
+
+PROCEDURE GetArg* (VAR out: ARRAY OF CHAR; VAR paramLen: INTEGER; n: INTEGER);
+	VAR i, k: INTEGER; buf: Kernel32.LPWSTR;
+BEGIN buf := Kernel32.GetCommandLineW(); i := 0;
+	WHILE n > 0 DO
+		WHILE (buf[i] # ' ') & (buf[i] # 0X) DO INC (i) END;
+		IF buf[i] = 0X THEN n := 0
+		ELSIF buf[i] = ' ' THEN DEC (n);
+			WHILE buf[i] = ' ' DO INC (i) END
+		END
+	END;
+	k := 0; paramLen := 0;
+	WHILE (buf[i] # ' ') & (buf[i] # 0X) DO
+		IF k < LEN(out) THEN out[k] := buf[i] END;
+		INC (k); INC (i); INC (paramLen)
+	END;
+	IF k < LEN(out) THEN out[k] := 0X END
+END GetArg;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -160,19 +339,19 @@ END IsSignedType;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE WriteInt* (VAR f: Sys.FileHandle; n: INTEGER);
+PROCEDURE WriteInt* (VAR f: FileHandle; n: INTEGER);
 	VAR finish: BOOLEAN; b: INTEGER;
 BEGIN
 	REPEAT b := n MOD 128; finish := (n >= -64) & (n < 64);
 		IF finish THEN b := b + 128 ELSE n := n DIV 128 END;
-		Sys.Write_byte (f, b)
+		Write_byte (f, b)
 	UNTIL finish
 END WriteInt;
 
-PROCEDURE ReadInt* (VAR f: Sys.FileHandle; VAR n: INTEGER);
+PROCEDURE ReadInt* (VAR f: FileHandle; VAR n: INTEGER);
 	VAR finish: BOOLEAN; i, b, k: INTEGER;
 BEGIN n := 0; i := 1; k := 1;
-	REPEAT Sys.Read_byte (f, b);
+	REPEAT Read_byte (f, b);
 		IF i < 10 THEN
 			finish := b >= 128; b := b MOD 128; n := n + b * k;
 			IF i # 9 THEN k := k * 128 END; INC (i);

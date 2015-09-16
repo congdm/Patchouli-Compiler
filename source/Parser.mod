@@ -500,10 +500,10 @@ PROCEDURE StandFunc (VAR x: Base.Item);
 	PROCEDURE SFunc_SIZE (VAR x: Base.Item);
 		VAR size: INTEGER;
 	BEGIN expression (x);
-		IF x.mode = Base.cType THEN size := x.type.size
+		IF x.mode = Base.cType THEN size := Generator.TypeSize(x.type)
 		ELSE Scanner.Mark (notTypeError); size := Base.WordSize
 		END;
-		Generator.Align (size, x.type.alignment); MakeIntConst (x); x.a := size
+		MakeIntConst (x); x.a := size
 	END SFunc_SIZE;
 	
 	PROCEDURE SFunc_BIT (VAR x: Base.Item);
@@ -1014,7 +1014,7 @@ BEGIN (* StatementSequence *)
 		END;
 		IF sym = Scanner.ident THEN designator (x);
 			IF sym = Scanner.becomes THEN CheckVar (x, FALSE);
-				IF (x.type.form = Base.tArray) & (x.type.len = 0) THEN
+				IF (x.type.form = Base.tArray) & (x.type.len <= 0) THEN
 					Scanner.Mark ('Open array assignment not supported')
 				END;
 				Scanner.Get (sym); expression (y);
@@ -1353,7 +1353,7 @@ BEGIN
 END RecordBaseType;
 
 PROCEDURE type0 (VAR tp: Base.Type);
-	VAR obj, bfield: Base.Object; x: Base.Item; size, lev: INTEGER;
+	VAR obj, bfield: Base.Object; x: Base.Item; lev: INTEGER;
 		id, str: Base.IdentStr; anonType: AnonRecordType;
 BEGIN tp := Base.intType;
 	IF (sym # Scanner.ident) & (sym < Scanner.array) THEN
@@ -1375,8 +1375,8 @@ BEGIN tp := Base.intType;
 		ELSE Scanner.Mark (notConstError); MakeIntConst (x); tp.len := 1
 		END;
 		Check (Scanner.of, noOfError); type (tp.base);
-		tp.alignment := tp.base.alignment; size := tp.base.size;
-		Generator.Align (size, tp.alignment); tp.size := tp.len * size;
+		tp.alignment := tp.base.alignment;
+		tp.size := tp.len * Generator.TypeSize(tp.base);
 		tp.nptr := tp.len * tp.base.nptr
 	ELSIF (sym = Scanner.record) OR (sym = Scanner.extensible) THEN
 		Base.NewType (tp, Base.tRecord); identExport := FALSE;

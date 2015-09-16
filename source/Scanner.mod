@@ -22,7 +22,7 @@
 MODULE Scanner; (* Modified from ORS module in Project Oberon *)
 
 IMPORT
-	SYSTEM, Sys, Console, Base;
+	SYSTEM, Console, Base;
   
 CONST
 	MaxIdLen = Base.MaxIdentLen;
@@ -56,7 +56,7 @@ VAR
 
     ch: CHAR; eof, importSystem: BOOLEAN;
     errpos: INTEGER;
-    srcfile: Sys.FileHandle;
+    srcfile: Base.FileHandle;
     k: INTEGER;
     KWX: ARRAY 11 OF INTEGER;
     keyTab: ARRAY NKW OF RECORD sym: INTEGER; id: Base.IdentStr END;
@@ -66,7 +66,7 @@ BEGIN importSystem := TRUE
 END ImportSystem;
   
 PROCEDURE Pos*() : INTEGER;
-	RETURN Sys.FilePos(srcfile)
+	RETURN Base.FilePos(srcfile)
 END Pos;
 
 PROCEDURE Mark* (msg: ARRAY OF CHAR);
@@ -84,7 +84,7 @@ END Mark;
 PROCEDURE Read;
 	VAR n : INTEGER;
 BEGIN
-	n := -1; Sys.Read_byte(srcfile, n);
+	n := -1; Base.Read_byte(srcfile, n);
 	IF n = -1 THEN eof := TRUE; ch := 0X ELSE ch := CHR(n)
 	END
 END Read;
@@ -101,9 +101,9 @@ BEGIN
 	IF i < 11 THEN k2 := KWX[i-1];  (* search for keyword *)
 		WHILE (id # keyTab[k2].id) & (k2 < KWX[i]) DO INC(k2) END;
 		IF k2 < KWX[i] THEN sym := keyTab[k2].sym;
-			IF ~importSystem & ((sym = address) OR (sym = union)) THEN
+			(*IF ~importSystem & ((sym = address) OR (sym = union)) THEN
 				Mark ('The uses of ADDRESS and UNION are not allowed')
-			END
+			END*)
 		ELSE sym := ident
 		END
 	ELSE sym := ident
@@ -330,9 +330,9 @@ BEGIN (*Console.WriteInt (Pos()); Console.Write (' ');*)
 	UNTIL (sym # null) OR eof
 END Get;
 
-PROCEDURE Init* (VAR file: Sys.FileHandle; pos: INTEGER);
+PROCEDURE Init* (VAR file: Base.FileHandle; pos: INTEGER);
 BEGIN importSystem := FALSE;
-	srcfile := file; errpos := pos; errcnt := 0; Sys.Seek (file, pos); Read
+	srcfile := file; errpos := pos; errcnt := 0; Base.Seek (file, pos); Read
 END Init;
 
 PROCEDURE EnterKW (sym: INTEGER; name: ARRAY OF CHAR);

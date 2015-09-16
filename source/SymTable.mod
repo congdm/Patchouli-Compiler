@@ -1,7 +1,7 @@
 MODULE SymTable;
 
 IMPORT
-	Strings, Console, Sys, Base, Scanner, Crypt;
+	Strings, Crypt, Console, Base, Scanner;
 
 TYPE
 	ModuleKey* = ARRAY 2 OF INTEGER;
@@ -28,11 +28,11 @@ VAR
 	curLev*: INTEGER;
 	
 	refno, expno*, modno: INTEGER;
-	importSystem*: BOOLEAN;
+	importSystem*, isLibrary: BOOLEAN;
 	
 	moduleList*, imod: Module;
 	module*: ModuleDesc;
-	symfile: Sys.FileHandle;
+	symfile: Base.FileHandle;
 	
 	(* Forward decl procedure *)
 	_Export_type : PROCEDURE (typ: Base.Type);
@@ -164,7 +164,7 @@ BEGIN
 		ELSE typ := imod.importModules.a[mod].types.a[ref]
 		END
 	ELSIF mod = -3 THEN
-		Sys.Read_string (symfile, modname);
+		Base.Read_string (symfile, modname);
 		IF ref < 0 THEN _Import_type (typ, -3, modname)
 		ELSE Find_module (mod0, modname); typ := mod0.types.a[ref]
 		END
@@ -184,7 +184,7 @@ BEGIN
 	OpenScope ('');
 	Base.ReadInt (symfile, class);
 	WHILE class # Base.cType DO
-		Sys.Read_string (symfile, name);
+		Base.Read_string (symfile, name);
 		New (field, name, class); field.param := TRUE;
 		Base.ReadInt (symfile, n); field.readonly := n = ORD(TRUE);
 		Base.ReadInt (symfile, n); field.tagged := n = ORD(TRUE);
@@ -234,7 +234,7 @@ BEGIN itype.nptr := 0;
 		OpenScope ('');
 		Base.ReadInt (symfile, class);
 		WHILE class = Base.cField DO
-			Sys.Read_string (symfile, name);
+			Base.Read_string (symfile, name);
 			New (field, name, Base.cField);
 			Detect_typeI (field.type);
 			Base.ReadInt (symfile, field.val);
@@ -277,8 +277,8 @@ END Import_type;
 
 PROCEDURE Read_module_key (VAR key: ModuleKey);
 BEGIN
-	Sys.Read_8bytes (symfile, key[0]);
-	Sys.Read_8bytes (symfile, key[1])
+	Base.Read_8bytes (symfile, key[0]);
+	Base.Read_8bytes (symfile, key[1])
 END Read_module_key;
 
 PROCEDURE Different_key (key1, key2: ModuleKey) : BOOLEAN;
@@ -291,8 +291,8 @@ PROCEDURE Import_symbols_file* (filename: ARRAY OF CHAR);
 		errormsg: ARRAY 1024 OF CHAR;
 BEGIN
 	NEW (imod.types);
-	Sys.Open (symfile, filename);
-	Sys.Seek (symfile, 16); (* Skip module key *)
+	Base.Open (symfile, filename);
+	Base.Seek (symfile, 16); (* Skip module key *)
 	Base.ReadInt (symfile, class); (* Skip module level *)
 	Base.ReadInt (symfile, class); (* Skip module or library flag *)
 	
@@ -300,7 +300,7 @@ BEGIN
 	IF class = Base.cModule THEN NEW (imod.importModules) END;
 	WHILE class # Base.cHead DO
 		IF class = Base.cModule THEN
-			Sys.Read_string (symfile, name); Read_module_key (key);
+			Base.Read_string (symfile, name); Read_module_key (key);
 			Base.ReadInt (symfile, modlev); Base.ReadInt (symfile, no);
 			IF name # module.name THEN mod := moduleList;
 				WHILE (mod # NIL) & (mod.name # name) DO mod := mod.next END;
@@ -320,12 +320,12 @@ BEGIN
 			ELSE Scanner.Mark ('Circular import!')
 			END
 		ELSIF class = Base.cConst THEN
-			Sys.Read_string (symfile, name);
+			Base.Read_string (symfile, name);
 			New_import (obj, name, Base.cConst);
 			Base.ReadInt (symfile, obj.val); obj.expno := 0;
 			Detect_typeI (obj.type)
 		ELSIF class = Base.cType THEN
-			Sys.Read_string (symfile, name);
+			Base.Read_string (symfile, name);
 			New_import (obj, name, Base.cType);
 			Detect_typeI (obj.type);
 			IF obj.type.obj = NIL THEN obj.type.obj := obj END;
@@ -333,13 +333,13 @@ BEGIN
 				Base.ReadInt (symfile, obj.expno); obj.val := 0
 			END
 		ELSIF class = Base.cVar THEN
-			Sys.Read_string (symfile, name);
+			Base.Read_string (symfile, name);
 			New_import (obj, name, Base.cRef);
 			Base.ReadInt (symfile, obj.val2);
 			Base.ReadInt (symfile, obj.expno); obj.val := 0;
 			Detect_typeI (obj.type)
 		ELSIF class = Base.cProc THEN
-			Sys.Read_string (symfile, name);
+			Base.Read_string (symfile, name);
 			New_import (obj, name, Base.cProc);
 			Base.ReadInt (symfile, obj.expno); obj.val := 0;
 			Base.NewType (obj.type, Base.tProcedure); Import_proc (obj.type^)
@@ -347,7 +347,7 @@ BEGIN
 		END;
 		Base.ReadInt (symfile, class)
 	END;
-	Sys.Close (symfile)
+	Base.Close (symfile)
 END Import_symbols_file;
 
 PROCEDURE Import_SYSTEM (mod: Base.Object);
@@ -410,13 +410,13 @@ BEGIN importModules := module.importModules;
 	ELSIF importModules.len < LEN(importModules.a) THEN
 		filename[0] := 0X; Strings.Append (symName, filename);
 		Strings.Append ('.sym', filename);
-		IF Sys.File_existed(filename) THEN
-			Sys.Open (symfile, filename);
+		IF Base.File_existed(filename) THEN
+			Base.Open (symfile, filename);
 			Read_module_key (key); Base.ReadInt (symfile, modlev);
 			Base.ReadInt (symfile, i); isLibrary := i = ORD(TRUE);
 			New_module (newmod, symName, key, modlev);
 			newmod.isLibrary := isLibrary;
-			Sys.Close (symfile);
+			Base.Close (symfile);
 			i := importModules.len; importModules.a[i] := newmod;
 			mod.val := i; INC (importModules.len);
 			IF modlev >= module.lev THEN module.lev := modlev + 1 END
@@ -432,7 +432,7 @@ PROCEDURE Detect_type (typ : Base.Type);
 BEGIN
 	IF typ # NIL THEN
 		Base.WriteInt (symfile, typ.mod); Base.WriteInt (symfile, typ.ref);
-		IF typ.mod = -3 THEN Sys.Write_string (symfile, typ.modname.s) END;
+		IF typ.mod = -3 THEN Base.Write_string (symfile, typ.modname.s) END;
 		IF typ.ref < 0 THEN _Export_type (typ) END
 	ELSE Base.WriteInt (symfile, -2); Base.WriteInt (symfile, 0)
 	END
@@ -448,7 +448,7 @@ BEGIN
 	field := typ.fields;
 	WHILE field # Base.guard DO
 		Base.WriteInt (symfile, field.class);
-		Sys.Write_string (symfile, field.name);
+		Base.Write_string (symfile, field.name);
 		Base.WriteInt (symfile, ORD(field.readonly));
 		Base.WriteInt (symfile, ORD(field.tagged));
 		Base.WriteInt (symfile, ORD(field.nilable));
@@ -468,7 +468,7 @@ BEGIN
 	ELSE typ.ref := -typ.ref - 1
 	END;
 	Base.WriteInt (symfile, typ.ref);
-	IF (typ.form # Base.tRecord) OR typ.obj.export THEN
+	IF (typ.form # Base.tRecord) OR isLibrary OR typ.obj.export THEN
 		Base.WriteInt (symfile, 0)
 	ELSE
 		IF typ.obj.expno = 0 THEN INC (expno); typ.obj.expno := expno END;
@@ -488,8 +488,8 @@ BEGIN
 		WHILE field # Base.guard DO
 			IF field.export OR (field.type.nptr > 0) THEN
 				Base.WriteInt (symfile, Base.cField);
-				IF ~field.export THEN s[0] := 0X; Sys.Write_string (symfile, s)
-				ELSE Sys.Write_string (symfile, field.name)
+				IF ~field.export THEN s[0] := 0X; Base.Write_string (symfile, s)
+				ELSE Base.Write_string (symfile, field.name)
 				END;
 				Detect_type (field.type);
 				Base.WriteInt (symfile, field.val)
@@ -514,23 +514,23 @@ END Export_type;
 
 PROCEDURE Write_module_key (key: ModuleKey);
 BEGIN
-	Sys.Write_8bytes (symfile, key[0]);
-	Sys.Write_8bytes (symfile, key[1])
+	Base.Write_8bytes (symfile, key[0]);
+	Base.Write_8bytes (symfile, key[1])
 END Write_module_key;
 
-PROCEDURE Write_symbols_file* (isLibrary: BOOLEAN);
+PROCEDURE Write_symbols_file*;
 	VAR obj: Base.Object; i, k, n, size: INTEGER; mod: Module;
 		hash: Crypt.MD5Hash; chunk: ARRAY 64 OF BYTE;
 BEGIN
 	refno := 0; expno := 0;
-	Sys.Rewrite (symfile, 'sym.temp_'); Sys.Seek (symfile, 16);
+	Base.Rewrite (symfile, 'sym.temp_'); Base.Seek (symfile, 16);
 	Base.WriteInt (symfile, module.lev);
 	Base.WriteInt (symfile, ORD(isLibrary));
 	
 	mod := moduleList;
 	WHILE mod # NIL DO
 		Base.WriteInt (symfile, Base.cModule);
-		Sys.Write_string (symfile, mod.name);
+		Base.Write_string (symfile, mod.name);
 		Write_module_key (mod.key); Base.WriteInt (symfile, mod.lev);
 		Base.WriteInt (symfile, mod.modno); mod := mod.next
 	END;
@@ -540,12 +540,12 @@ BEGIN
 		IF obj.export THEN
 			IF obj.class = Base.cConst THEN
 				Base.WriteInt (symfile, Base.cConst);
-				Sys.Write_string (symfile, obj.name);
+				Base.Write_string (symfile, obj.name);
 				Base.WriteInt (symfile, obj.val);
 				Detect_type (obj.type)
 			ELSIF obj.class = Base.cType THEN
 				Base.WriteInt (symfile, Base.cType);
-				Sys.Write_string (symfile, obj.name);
+				Base.Write_string (symfile, obj.name);
 				Detect_type (obj.type);
 				IF obj.type.form = Base.tRecord THEN
 					INC (expno); obj.expno := expno;
@@ -553,14 +553,14 @@ BEGIN
 				END
 			ELSIF obj.class = Base.cVar THEN
 				Base.WriteInt (symfile, Base.cVar);
-				Sys.Write_string (symfile, obj.name);
+				Base.Write_string (symfile, obj.name);
 				Base.WriteInt (symfile, obj.val2);
 				INC (expno); obj.expno := expno;
 				Base.WriteInt (symfile, expno);
 				Detect_type (obj.type)
 			ELSIF obj.class = Base.cProc THEN
 				Base.WriteInt (symfile, Base.cProc);
-				Sys.Write_string (symfile, obj.name);
+				Base.Write_string (symfile, obj.name);
 				INC (expno); obj.expno := expno;
 				Base.WriteInt (symfile, expno);
 				Export_proc (obj.type)
@@ -571,28 +571,28 @@ BEGIN
 	END;
 	Base.WriteInt (symfile, Base.cHead);
 	
-	size := Sys.FilePos(symfile); Sys.Seek (symfile, 0);
+	size := Base.FilePos(symfile); Base.Seek (symfile, 0);
 	Crypt.InitMD5Hash (hash); i := 0;
 	REPEAT k := 0;
-		REPEAT Sys.Read_byte (symfile, n); chunk[k] := n; INC (i); INC (k)
+		REPEAT Base.Read_byte (symfile, n); chunk[k] := n; INC (i); INC (k)
 		UNTIL (i = size) OR (k = 64);
 		Crypt.MD5ComputeChunk (hash, chunk, k * 8)
 	UNTIL i = size;
 	
-	Sys.Seek (symfile, 0);
+	Base.Seek (symfile, 0);
 	module.key[0] := Crypt.MD5GetLowResult(hash);
 	module.key[1] := Crypt.MD5GetHighResult(hash);
 	Write_module_key (module.key);
-	Sys.Close (symfile)
+	Base.Close (symfile)
 END Write_symbols_file;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 	
-PROCEDURE Init* (modname: Base.IdentStr; isLibrary: BOOLEAN);
+PROCEDURE Init* (modname: Base.IdentStr; isLib: BOOLEAN);
 BEGIN
 	module.lev := 0; Base.StrCopy (modname, module.name);
-	NEW (module.importModules); NEW (module.types);
+	NEW (module.importModules); NEW (module.types); isLibrary := isLib;
 	
 	importSystem := FALSE; NEW (universe);
 	universe.class := Base.cHead; universe.name := 'MODULE';
@@ -615,7 +615,7 @@ BEGIN
 	Enter (Base.cType, 0, 'REAL', Base.realType);
 	Enter (Base.cType, 0, 'LONGREAL', Base.realType);
 	
-	IF ~isLibrary THEN
+	IF ~isLib THEN
 		Enter (Base.cSProc, 0, 'INC', NIL);
 		Enter (Base.cSProc, 1, 'DEC', NIL);
 		Enter (Base.cSProc, 2, 'INCL', NIL);
