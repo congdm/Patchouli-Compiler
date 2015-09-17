@@ -1907,7 +1907,7 @@ PROCEDURE SProc_UNPK* (VAR x, y, z: Base.Item);
 BEGIN
 	e.mode := mReg; e.type := Base.card32Type; Alloc_reg (r); e.r := r;
 	EmitRR (MOVd, r, 4, y.r); EmitRI (SHRi, r, 4, 23);
-	EmitRI (SUBi, r, 4, 127); Store (z, e);
+	EmitRI (SUBi, r, 8, 127); Store (z, e);
 	EmitRI (SHLi, r, 4, 23); EmitRR (SUBd, y.r, 4, r); Store (x, y)
 END SProc_UNPK;
 
@@ -2150,7 +2150,8 @@ PROCEDURE Return*;
 	CONST savedRegs = {reg_DI, reg_SI, reg_R12, reg_R13, reg_R14, reg_R15};
 	VAR i, k, nXregs, nRegs, endPC, endIP: INTEGER;
 		paramRegs: ARRAY 4 OF BYTE; obj: Base.Object; x: Base.Item;
-BEGIN nXregs := 0; i := 15;
+BEGIN
+	nXregs := 0; i := 15;
 	WHILE i >= 6 DO
 		IF i IN ProcState.usedXregs THEN
 			SetRmOperand_regI (reg_SP, nXregs * 16);
@@ -2169,6 +2170,10 @@ BEGIN nXregs := 0; i := 15;
 	IF i > 0 THEN ProcState.locblksize := ProcState.locblksize + 16 - i END;
 	EmitBare (LEAVE); EmitBare (RET); endPC := pc; endIP := ip;
 	(* End of Return section *)
+	
+	IF ProcState.locblksize > 4096 THEN
+		Scanner.Mark ('Compiler limit: Stack allocation must be <= 4096')
+	END;
 	
 	(* Emit Enter section - delayed code generation *)
 	PushR (reg_BP); EmitRR (MOVd, reg_BP, 8, reg_SP);
