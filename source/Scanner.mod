@@ -61,12 +61,15 @@ VAR
     KWX: ARRAY 11 OF INTEGER;
     keyTab: ARRAY NKW OF RECORD sym: INTEGER; id: Base.IdentStr END;
 	
+	buffer: ARRAY 100000H OF CHAR8;
+	bufPos, filePos, bufSize: INTEGER;
+	
 PROCEDURE EnableDefinitionModuleMode*;
 BEGIN isDefinitionModule := TRUE
 END EnableDefinitionModuleMode;
   
 PROCEDURE Pos*() : INTEGER;
-	RETURN Base.FilePos(srcfile)
+	RETURN filePos
 END Pos;
 
 PROCEDURE Mark* (msg: ARRAY OF CHAR);
@@ -84,9 +87,9 @@ END Mark;
 PROCEDURE Read;
 	VAR n : INTEGER;
 BEGIN
-	n := -1; Base.Read_byte(srcfile, n);
-	IF n = -1 THEN eof := TRUE; ch := 0X ELSE ch := CHR(n)
-	END
+	IF bufPos < bufSize THEN ch := buffer[bufPos]; INC (bufPos); INC (filePos)
+	ELSE eof := TRUE; ch := 0X
+	END	
 END Read;
 
 PROCEDURE Identifier (VAR sym: INTEGER);
@@ -331,8 +334,10 @@ BEGIN (*Console.WriteInt (Pos()); Console.Write (' ');*)
 END Get;
 
 PROCEDURE Init* (VAR file: Base.FileHandle; pos: INTEGER);
-BEGIN isDefinitionModule := FALSE;
-	srcfile := file; errpos := pos; errcnt := 0; Base.Seek (file, pos); Read
+BEGIN
+	isDefinitionModule := FALSE; errpos := pos; errcnt := 0;
+	srcfile := file; Base.Seek (file, pos); filePos := pos; bufPos := 0;
+	Base.Read_bytes (file, buffer, bufSize); Read
 END Init;
 
 PROCEDURE EnterKW (sym: INTEGER; name: ARRAY OF CHAR);

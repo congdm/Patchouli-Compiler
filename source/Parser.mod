@@ -170,10 +170,21 @@ BEGIN
 	RETURN RecursiveIsExt(tpX, tpY)
 END IsExt;
 
+PROCEDURE CompAddress (tpX, tpY: Base.Type) : BOOLEAN;
+	RETURN (tpX.base = tpY.base)
+	OR ({tpX.base.form, tpY.base.form} = {Base.tAddress})
+		& CompAddress (tpX.base, tpY.base)
+	OR ({tpX.base.form, tpY.base.form} = {Base.tArray})
+		& (tpX.base.len = -1) & (tpY.base.len = -1)
+		& CompAddress (tpX.base, tpY.base)
+END CompAddress;
+
 PROCEDURE SameTypes (tpX, tpY: Base.Type) : BOOLEAN;
 	RETURN (tpX = tpY)
 	OR ({tpX.form, tpY.form} = {Base.tArray}) & (tpX.len = 0) & (tpY.len = 0)
 		& SameTypes (tpX.base, tpY.base)
+	OR ({tpX.form, tpY.form} = {Base.tAddress})
+		& CompAddress (tpX.base, tpY.base)
 END SameTypes;
 
 PROCEDURE SameParams (parX, parY: Base.Object) : BOOLEAN;
@@ -192,16 +203,9 @@ PROCEDURE CompArray (tpX, tpY: Base.Type) : BOOLEAN;
 	RETURN (tpX.base = tpY.base)
 	OR ({tpX.base.form, tpY.base.form} = {Base.tArray})
 		& (tpX.base.len = 0) & CompArray (tpX.base, tpY.base)
-END CompArray;
-
-PROCEDURE CompAddress (tpX, tpY: Base.Type) : BOOLEAN;
-	RETURN (tpX.base = tpY.base)
 	OR ({tpX.base.form, tpY.base.form} = {Base.tAddress})
 		& CompAddress (tpX.base, tpY.base)
-	OR ({tpX.base.form, tpY.base.form} = {Base.tArray})
-		& (tpX.base.len = -1) & (tpY.base.len = -1)
-		& CompAddress (tpX.base, tpY.base)
-END CompAddress;
+END CompArray;
 
 PROCEDURE CheckScalarAssignment (xtype: Base.Type; VAR y: Base.Item);
 BEGIN

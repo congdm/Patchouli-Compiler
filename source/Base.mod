@@ -211,6 +211,15 @@ BEGIN
 	IF (bRes = 0) OR (byteRead # 8) THEN n := -1 ELSE n := buf END
 END Read_8bytes;
 
+PROCEDURE Read_bytes* (
+	VAR file: FileHandle; VAR buf: ARRAY OF SYSTEM.BYTE; VAR byteRead: INTEGER
+);
+	VAR bRes: Kernel32.BOOL; bRead: CARD32;
+BEGIN
+	bRes := Kernel32.ReadFile (file.handle, buf, LEN(buf), bRead, NIL);
+	byteRead := bRead
+END Read_bytes;
+
 (* -------------------------------------------------------------------------- *)
 	
 PROCEDURE Write_byte* (VAR file: FileHandle; n: INTEGER);
