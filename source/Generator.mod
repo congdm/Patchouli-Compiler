@@ -2036,22 +2036,31 @@ END SFunc_ABS;
 PROCEDURE SFunc_FLOOR* (VAR x: Base.Item);
 	VAR r: INTEGER;
 BEGIN
-	EmitRI (SUBi, reg_SP, 8, 8);
-	SetRmOperand_regI (reg_SP, 0); EmitRm (STMXCSR, 4);
-	SetRmOperand_regI (reg_SP, 0); EmitRmImm (BTSi, 4, 13);
-	SetRmOperand_regI (reg_SP, 0); EmitRm (LDMXCSR, 4);
-	load (x); SetRmOperand_reg (x.r); Alloc_reg (r);
-	EmitXmmRm (CVTSS2SI, r, 8); Free_xreg;
-	x.type := Base.intType; x.mode := mReg; x.r := r;
-	SetRmOperand_regI (reg_SP, 0); EmitRmImm (BTRi, 4, 13);
-	SetRmOperand_regI (reg_SP, 0); EmitRm (LDMXCSR, 4);
-	EmitRI (ADDi, reg_SP, 8, 8)
+	IF x.mode = mImm THEN
+		x.a := FLOOR(SYSTEM.VAL(REAL, x.a))
+	ELSE
+		EmitRI (SUBi, reg_SP, 8, 8);
+		SetRmOperand_regI (reg_SP, 0); EmitRm (STMXCSR, 4);
+		SetRmOperand_regI (reg_SP, 0); EmitRmImm (BTSi, 4, 13);
+		SetRmOperand_regI (reg_SP, 0); EmitRm (LDMXCSR, 4);
+		load (x); SetRmOperand_reg (x.r); Alloc_reg (r);
+		EmitXmmRm (CVTSS2SI, r, 8); Free_xreg;
+		x.type := Base.intType; x.mode := mReg; x.r := r;
+		SetRmOperand_regI (reg_SP, 0); EmitRmImm (BTRi, 4, 13);
+		SetRmOperand_regI (reg_SP, 0); EmitRm (LDMXCSR, 4);
+		EmitRI (ADDi, reg_SP, 8, 8)
+	END
 END SFunc_FLOOR;
 
 PROCEDURE SFunc_FLT* (VAR x: Base.Item);
-BEGIN load (x); Alloc_xreg;
-	SetRmOperand_reg (x.r); EmitXmmRm (CVTSI2SS, xmm_stack - 1, 8);
-	Free_reg; x.mode := mXreg; x.r := xmm_stack - 1
+BEGIN
+	IF x.mode = mImm THEN
+		x.a := SYSTEM.VAL(INTEGER, FLT(x.a))
+	ELSE
+		load (x); Alloc_xreg;
+		SetRmOperand_reg (x.r); EmitXmmRm (CVTSI2SS, xmm_stack - 1, 8);
+		Free_reg; x.mode := mXreg; x.r := xmm_stack - 1
+	END
 END SFunc_FLT;
 
 PROCEDURE SFunc_VAL* (VAR x: Base.Item; castType: Base.Type);
