@@ -198,6 +198,9 @@ PROCEDURE CompAddress (tpX, tpY: Base.Type) : BOOLEAN;
 	RETURN (tpX.base = tpY.base)
 	OR ({tpX.base.form, tpY.base.form} = {Base.tAddress})
 		& CompAddress (tpX.base, tpY.base)
+	OR ({tpX.base.form, tpY.base.form} = {Base.tArray})
+		& (tpX.base.len = -1) & (tpY.base.len = -1)
+		& CompAddress (tpX.base, tpY.base)
 END CompAddress;
 
 PROCEDURE CheckScalarAssignment (xtype: Base.Type; VAR y: Base.Item);
