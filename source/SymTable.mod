@@ -367,7 +367,6 @@ BEGIN
 	Enter (Base.cSFunc, 301, 'SIZE', Base.intType);
 	Enter (Base.cSFunc, 302, 'BIT', Base.boolType);
 	Enter (Base.cSFunc, 303, 'VAL', Base.intType);
-	Enter (Base.cSFunc, 312, 'VARCAST', Base.intType);
 	
 	mod.dsc := topScope.next; mod.val := -1;
 	CloseScope; curLev := 0

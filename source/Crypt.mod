@@ -109,7 +109,7 @@ PROCEDURE MD5Compute* (
 BEGIN
 	ASSERT (LEN(chunk) * 8 >= lenInBit); adr := SYSTEM.ADR(chunk);
 	WHILE lenInBit >= 512 DO
-		MD5ComputeChunk (hash, SYSTEM.VARCAST(MD5Chunk, adr), 512);
+		MD5ComputeChunk (hash, adr{MD5Chunk}, 512);
 		lenInBit := lenInBit - 512; adr := adr + 64
 	END;
 	MD5ComputeChunk (hash, SYSTEM.VARCAST(MD5Chunk, adr), lenInBit)

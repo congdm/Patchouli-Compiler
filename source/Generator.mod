@@ -1649,6 +1649,12 @@ BEGIN (* Index *)
 	x.param := FALSE; x.type := x.type.base
 END Index;
 
+PROCEDURE Cast* (VAR x: Base.Item; castType: Base.Type);
+BEGIN
+	load (x); x.mode := mRegI; x.a := 0; x.type := castType;
+	x.param := FALSE; x.readonly := FALSE
+END Cast;
+
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
@@ -2096,11 +2102,6 @@ BEGIN signed := Base.IsSignedType(castType); castSize := castType.size;
 	END;
 	x.type := castType
 END SFunc_VAL;
-
-PROCEDURE SFunc_VARCAST* (VAR x: Base.Item; castType: Base.Type);
-BEGIN
-	load (x); x.mode := mRegI; x.a := 0; x.type := castType
-END SFunc_VARCAST;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)

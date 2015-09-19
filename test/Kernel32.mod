@@ -38,7 +38,7 @@ TYPE
 	LPVOID* = INTEGER;
 	PVOID* = INTEGER;
 	
-	LPWSTR* = POINTER TO ARRAY OF CHAR;
+	WSTR* = ARRAY OF CHAR;
 	
 	CONSOLE_READCONSOLE_CONTROL* = RECORD
 		nLength*, nInitialChars*: CARD32;
@@ -95,10 +95,10 @@ PROCEDURE SetConsoleCP*(wCodePageID: CARD32): BOOL;
 PROCEDURE SetConsoleOutputCP*(wCodePageID: CARD32): BOOL;
 
 (* DLL functions *)
-PROCEDURE GetModuleHandleW*(lpModuleName: ARRAY OF CHAR): HANDLE;
+PROCEDURE GetModuleHandleW*([NIL] lpModuleName: ARRAY OF CHAR): HANDLE;
 
 (* Process and Thread functions *)
-PROCEDURE GetCommandLineW*(): LPWSTR;
+PROCEDURE GetCommandLineW*(): LPVOID;
 
 (* File Management functions *)
 PROCEDURE GetFileAttributesW*(lpFilename: ARRAY OF CHAR): CARD32;

@@ -294,18 +294,20 @@ PROCEDURE GetTickCount*() : INTEGER;
 END GetTickCount;
 
 PROCEDURE GetArg* (VAR out: ARRAY OF CHAR; VAR paramLen: INTEGER; n: INTEGER);
-	VAR i, k: INTEGER; buf: Kernel32.LPWSTR;
+	VAR i, k: INTEGER; buf: Kernel32.LPVOID;
 BEGIN buf := Kernel32.GetCommandLineW(); i := 0;
 	WHILE n > 0 DO
-		WHILE (buf[i] # ' ') & (buf[i] # 0X) DO INC (i) END;
-		IF buf[i] = 0X THEN n := 0
-		ELSIF buf[i] = ' ' THEN DEC (n);
-			WHILE buf[i] = ' ' DO INC (i) END
+		WHILE (buf{Kernel32.WSTR}[i] # ' ') & (buf{Kernel32.WSTR}[i] # 0X) DO
+			INC (i)
+		END;
+		IF buf{Kernel32.WSTR}[i] = 0X THEN n := 0
+		ELSIF buf{Kernel32.WSTR}[i] = ' ' THEN DEC (n);
+			WHILE buf{Kernel32.WSTR}[i] = ' ' DO INC (i) END
 		END
 	END;
 	k := 0; paramLen := 0;
-	WHILE (buf[i] # ' ') & (buf[i] # 0X) DO
-		IF k < LEN(out) THEN out[k] := buf[i] END;
+	WHILE (buf{Kernel32.WSTR}[i] # ' ') & (buf{Kernel32.WSTR}[i] # 0X) DO
+		IF k < LEN(out) THEN out[k] := buf{Kernel32.WSTR}[i] END;
 		INC (k); INC (i); INC (paramLen)
 	END;
 	IF k < LEN(out) THEN out[k] := 0X END

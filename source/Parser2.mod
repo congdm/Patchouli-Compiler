@@ -487,11 +487,11 @@ PROCEDURE FPSection (VAR parblksize, nofpar: INTEGER);
 		tp: Base.Type;
 BEGIN nilable := FALSE;
 	IF sym # Scanner.var THEN cls := Base.cVar
-	ELSE Scanner.Get (sym); cls := Base.cRef;
-		IF sym = Scanner.lbrak THEN Scanner.Get (sym);
-			IF sym = Scanner.nil THEN Scanner.Get (sym); nilable := TRUE END;
-			Check (Scanner.rbrak, 'No ]')
-		END
+	ELSE Scanner.Get (sym); cls := Base.cRef
+	END;
+	IF sym = Scanner.lbrak THEN Scanner.Get (sym);
+		IF sym = Scanner.nil THEN Scanner.Get (sym); nilable := TRUE END;
+		Check (Scanner.rbrak, 'No ]')
 	END;
 	
 	IF sym = Scanner.ident THEN
@@ -602,18 +602,26 @@ BEGIN tp := Base.intType;
 		ELSE Scanner.Mark (notTypeError)
 		END
 	ELSIF sym = Scanner.array THEN
-		Base.NewType (tp, Base.tArray); identExport := FALSE;
-		Scanner.Get (sym); expression (x); CheckInt (x);
-		IF x.mode = Base.cConst THEN
-			IF x.a > 0 THEN tp.len := x.a
-			ELSE Scanner.Mark ('Array length must be positive'); tp.len := 1
+		Base.NewType (tp, Base.tArray);
+		identExport := FALSE; Scanner.Get (sym);
+		IF sym # Scanner.of THEN
+			tp.len := 1; expression (x); CheckInt (x);
+			IF x.mode = Base.cConst THEN
+				IF x.a > 0 THEN tp.len := x.a
+				ELSE Scanner.Mark ('Array length must be positive')
+				END
+			ELSE Scanner.Mark (notConstError); MakeIntConst (x)
+			END;
+			Check (Scanner.of, noOfError); type (tp.base);
+			tp.size := tp.len * Generator.TypeSize(tp.base)
+		ELSE
+			tp.len := -1; Scanner.Get (sym); type (tp.base);
+			IF (tp.base.form = Base.tArray) & (tp.len = -1) THEN
+				Scanner.Mark ('Multidimension open array not allowed');
+				tp.base := Base.intType
 			END
-		ELSE Scanner.Mark (notConstError); MakeIntConst (x); tp.len := 1
 		END;
-		Check (Scanner.of, noOfError); type (tp.base);
-		tp.alignment := tp.base.alignment; size := tp.base.size;
-		Generator.Align (size, tp.alignment); tp.size := tp.len * size;
-		tp.nptr := tp.len * tp.base.nptr
+		tp.alignment := tp.base.alignment
 	ELSIF sym = Scanner.record THEN
 		Base.NewType (tp, Base.tRecord); identExport := FALSE;
 		tp.unsafe := TRUE; tp.len := 0; tp.size := 0; tp.alignment := 0;
@@ -623,7 +631,7 @@ BEGIN tp := Base.intType;
 		END;
 		tp.fields := SymTable.topScope.next; SymTable.CloseScope;
 		Check (Scanner.end, noEndError)
-	ELSIF sym = Scanner.pointer THEN
+	(* ELSIF sym = Scanner.pointer THEN
 		Base.NewType (tp, Base.tAddress); identExport := FALSE;
 		tp.size := Base.WordSize; tp.alignment := Base.WordSize;
 		tp.base := Base.intType;
@@ -645,7 +653,7 @@ BEGIN tp := Base.intType;
 			Scanner.Get (sym); Check (Scanner.of, noOfError);
 			type (tp.base.base)
 		ELSE Scanner.Mark (notTypeError)
-		END
+		END *)
 	ELSIF sym = Scanner.procedure THEN
 		Scanner.Get (sym); FormalParameters (tp)
 	ELSE Scanner.Mark (notTypeError)
@@ -691,6 +699,10 @@ BEGIN
 	IF sym = Scanner.var THEN Scanner.Get (sym);
 		WHILE sym = Scanner.ident DO IdentList (Base.cVar, first);
 			Check (Scanner.colon, noColonError); type (tp); obj := first;
+			IF (tp.form = Base.tArray) & (tp.len = -1) THEN
+				Scanner.Mark ('Open array variable not allowed');
+				tp := Base.intType
+			END;
 			WHILE obj # Base.guard DO
 				obj.lev := SymTable.curLev;
 				obj.type := tp; obj := obj.next

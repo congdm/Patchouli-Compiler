@@ -183,8 +183,6 @@ PROCEDURE SameTypes (tpX, tpY: Base.Type) : BOOLEAN;
 	RETURN (tpX = tpY)
 	OR ({tpX.form, tpY.form} = {Base.tArray}) & (tpX.len = 0) & (tpY.len = 0)
 		& SameTypes (tpX.base, tpY.base)
-	OR ({tpX.form, tpY.form} = {Base.tAddress})
-		& CompAddress (tpX.base, tpY.base)
 END SameTypes;
 
 PROCEDURE SameParams (parX, parY: Base.Object) : BOOLEAN;
@@ -203,8 +201,6 @@ PROCEDURE CompArray (tpX, tpY: Base.Type) : BOOLEAN;
 	RETURN (tpX.base = tpY.base)
 	OR ({tpX.base.form, tpY.base.form} = {Base.tArray})
 		& (tpX.base.len = 0) & CompArray (tpX.base, tpY.base)
-	OR ({tpX.base.form, tpY.base.form} = {Base.tAddress})
-		& CompAddress (tpX.base, tpY.base)
 END CompArray;
 
 PROCEDURE CheckScalarAssignment (xtype: Base.Type; VAR y: Base.Item);
@@ -226,14 +222,6 @@ BEGIN
 			END
 		ELSIF y.type # Base.nilType THEN
 			Scanner.Mark (notProcError); y.type := xtype
-		END
-	ELSIF xtype.form = Base.tAddress THEN CheckValue (y);
-		IF y.type.form = Base.tAddress THEN
-			IF ~CompAddress (xtype, y.type) THEN
-				Scanner.Mark (notCompAddrError)
-			END
-		ELSIF y.type # Base.nilType THEN
-			Scanner.Mark (notAddrError); y.type := xtype
 		END
 	END
 END CheckScalarAssignment;
@@ -283,8 +271,6 @@ BEGIN expression (x); INC (c.nofact);
 			OR (ftype.form = Base.tArray)
 				& ((ftype.base = Base.charType) & (x.type = Base.stringType)
 				OR (ftype.base = Base.char8Type) & (x.type = Base.string8Type))
-			OR (x.type.form = Base.tAddress) & (ftype.form = Base.tAddress)
-				& CompAddress(x.type, ftype)
 			OR (ftype.form = Base.tArray) & (ftype.len = -1)
 				& ((x.type.form = Base.tArray) & (ftype.base = x.type.base)
 				OR (x.type = Base.stringType) & (ftype.base = Base.charType)
@@ -401,9 +387,6 @@ BEGIN exit := FALSE;
 			ELSE Scanner.Mark (notPointerOrRecordError); Scanner.Get (sym)
 			END
 		ELSIF sym = Scanner.lbrak THEN
-			IF (x.mode IN Base.clsValue) & (x.type.form = Base.tAddress) THEN
-				Generator.Deref (x)
-			END;
 			IF (x.mode IN Base.clsValue) & (x.type.form = Base.tArray) THEN
 				Scanner.Get (sym); expression (y); CheckInt (y);
 				Generator.Index (x, y);
@@ -418,16 +401,24 @@ BEGIN exit := FALSE;
 			ELSE Scanner.Mark ('Not an array'); Scanner.Get (sym)
 			END
 		ELSIF sym = Scanner.arrow THEN
-			IF (x.mode IN Base.clsValue)
-				& (x.type.form IN {Base.tPointer, Base.tAddress})
-			THEN Generator.Deref (x)
+			IF (x.mode IN Base.clsValue) & (x.type.form = Base.tPointer) THEN
+				Generator.Deref (x)
 			ELSE Scanner.Mark (notPointerError)
 			END;
 			Scanner.Get (sym)
 		ELSIF (sym = Scanner.lparen) & (x.mode IN Base.clsValue) &
 			((x.type.form = Base.tPointer)
-			OR (x.type.form = Base.tRecord) & x.tagged)
-		THEN TypeTest (x, TRUE); Check (Scanner.rparen, noRParenError)
+			OR (x.type.form = Base.tRecord) & x.tagged) THEN
+			TypeTest (x, TRUE); Check (Scanner.rparen, noRParenError)
+		ELSIF (sym = Scanner.lbrace) & SymTable.importSystem THEN
+			CheckInt (x); Scanner.Get (sym);
+			IF sym = Scanner.ident THEN qualident (obj);
+				IF obj.class = Base.cType THEN Generator.Cast (x, obj.type)
+				ELSE Scanner.Mark (notTypeError)
+				END
+			ELSE Scanner.Mark (noIdentError)
+			END;
+			Check (Scanner.rbrace, 'No }')
 		ELSE exit := TRUE
 		END
 	END
@@ -528,16 +519,6 @@ PROCEDURE StandFunc (VAR x: Base.Item);
 		castType := x.type; Check (Scanner.comma, tooLittleParamError);
 		expression (x); CheckValue (x); Generator.SFunc_VAL (x, castType)
 	END SFunc_VAL;
-	
-	PROCEDURE SFunc_VARCAST (VAR x: Base.Item);
-		VAR castType: Base.Type;
-	BEGIN expression (x);
-		IF x.mode # Base.cType THEN
-			Scanner.Mark (notTypeError); MakeIntConst (x)
-		END;
-		castType := x.type; Check (Scanner.comma, tooLittleParamError);
-		expression (x); CheckInt (x); Generator.SFunc_VARCAST (x, castType)
-	END SFunc_VARCAST;
 		
 BEGIN (* StandFunc *)
 	Check (Scanner.lparen, noLParenError); funcno := x.a; rtype := x.type;
@@ -553,12 +534,9 @@ BEGIN (* StandFunc *)
 	ELSIF funcno = 301 THEN SFunc_SIZE (x)
 	ELSIF funcno = 302 THEN SFunc_BIT (x)
 	ELSIF funcno = 303 THEN SFunc_VAL (x)
-	ELSIF funcno = 312 THEN SFunc_VARCAST (x)
 	ELSE ASSERT(FALSE)
 	END;
-	IF (funcno # 303) & (funcno # 200) & (funcno # 312) THEN
-		x.type := rtype
-	END;
+	IF (funcno # 303) & (funcno # 200) THEN x.type := rtype END;
 	funcno := 0;
 	WHILE sym = Scanner.comma DO Scanner.Get (sym); expression (y);
 		IF funcno = 0 THEN Scanner.Mark (tooMuchParamError); funcno := 1 END
@@ -761,14 +739,6 @@ BEGIN SimpleExpression (x);
 					END
 				ELSIF y.type # Base.nilType THEN
 					Scanner.Mark (notProcError); relType := noRel
-				END
-			ELSIF x.type.form = Base.tAddress THEN CheckValue (y);
-				IF y.type.form = Base.tAddress THEN
-					IF ~CompAddress (x.type, y.type) THEN
-						Scanner.Mark (notCompAddrError)
-					END
-				ELSIF y.type # Base.nilType THEN
-					Scanner.Mark (notAddrError); relType := noRel
 				END
 			(* else x is NIL *)
 			ELSIF (y.type # Base.nilType) & ~(y.type.form IN Base.typeAddress)
@@ -1446,6 +1416,10 @@ BEGIN
 	IF sym = Scanner.var THEN Scanner.Get (sym);
 		WHILE sym = Scanner.ident DO IdentList (Base.cVar, first);
 			Check (Scanner.colon, noColonError); type (tp); obj := first;
+			IF (tp.form = Base.tArray) & (tp.len = -1) THEN
+				Scanner.Mark ('Open array variable not allowed');
+				tp := Base.intType
+			END;
 			WHILE obj # Base.guard DO
 				obj.lev := SymTable.curLev; varsize := varsize + tp.size;
 				Generator.Align (varsize, tp.alignment); obj.val := -varsize;
