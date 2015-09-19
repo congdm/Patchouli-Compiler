@@ -40,7 +40,7 @@ small integer types over INTEGER type. The programmer should use only INTEGER ty
 
 **Note:** For example usage, see Kernel32.mod file in source directory.
 
-**Note:** You can declare CONSTs, TYPEs, VARs and PROCEDUREs in DEFINITION module. RECORD types declared in DEFINITION modules will be marked with unsafe flag, so their usage in normal Oberon modules will be restricted. POINTER types declared in DEFINITION module are treated as ADDRESS and hence, not compatible with normal Oberon POINTERs. In DEFINITION module, POINTER TO X, with X is not RECORD, is allowed. There is also existed POINTER TO ARRAY OF X types.
+**Note:** You can declare CONSTs, TYPEs, VARs and PROCEDUREs in DEFINITION module. RECORD types declared in DEFINITION modules will be marked with unsafe flag, so their usage in normal Oberon modules will be restricted. POINTER types in DEFINITION module are not allowed. Open array formal parameter in DEFINITION module doesn't have hidden length tag (compatible with Win32 API).
 
 **Note:** In DEFINITION module, RECORD can has UNION, for example:
 ```oberon
@@ -54,6 +54,24 @@ TYPE
 		hEvent*: HANDLE
 	END;
 ```
+
+### Casting INTEGER address into variable
+
+**Reason for introducing:** To ease Win32 programming.
+
+**Example:**
+```oberon
+TYPE
+	ChArr = ARRAY OF CHAR;
+VAR
+	adr: INTEGER;
+BEGIN
+	adr := Kernel32.GetCommandLineW(); (* adr is INTEGER value *)
+	adr{ChArr}[0] := 'A'; (* adr{ChArr} is the ChArr array pointed by adr *)
+END;
+```
+
+**Note:** This is the equivalence of Cee pointer and even more dangerous. Although its usage is restricted in system modules, the programmer should not abuse this extension.
 
 ### Standard procedure DISPOSE
 

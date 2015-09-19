@@ -112,7 +112,7 @@ BEGIN
 		MD5ComputeChunk (hash, adr{MD5Chunk}, 512);
 		lenInBit := lenInBit - 512; adr := adr + 64
 	END;
-	MD5ComputeChunk (hash, SYSTEM.VARCAST(MD5Chunk, adr), lenInBit)
+	MD5ComputeChunk (hash, adr{MD5Chunk}, lenInBit)
 END MD5Compute;
 
 PROCEDURE MD5GetLowResult* (VAR hash: MD5Hash) : INTEGER;

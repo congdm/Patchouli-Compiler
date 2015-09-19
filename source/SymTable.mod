@@ -418,12 +418,15 @@ BEGIN importModules := module.importModules;
 			Base.Open (symfile, filename);
 			Read_module_key (key); Base.ReadInt (symfile, modlev);
 			Base.ReadInt (symfile, i); isDefMod := i = ORD(TRUE);
-			New_module (newmod, symName, key, modlev);
-			newmod.isDefMod := isDefMod;
-			Base.Close (symfile);
-			i := importModules.len; importModules.a[i] := newmod;
-			mod.val := i; INC (importModules.len);
-			IF modlev >= module.lev THEN module.lev := modlev + 1 END
+			IF ~isDefinitionModule OR isDefMod THEN
+				New_module (newmod, symName, key, modlev);
+				newmod.isDefMod := isDefMod;
+				i := importModules.len; importModules.a[i] := newmod;
+				mod.val := i; INC (importModules.len);
+				IF modlev >= module.lev THEN module.lev := modlev + 1 END
+			ELSE Scanner.Mark ('Cannot import normal module')
+			END;
+			Base.Close (symfile)
 		ELSE Scanner.Mark ('Symbol file not found')
 		END
 	ELSE Scanner.Mark ('Compiler limit: Too many imported modules')

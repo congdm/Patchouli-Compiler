@@ -2,7 +2,7 @@ MODULE Editor;
 (*$MAIN*)
 
 IMPORT
-	SYSTEM, Kernel32, User32;
+	SYSTEM, Kernel32, User32, Comdlg32;
 
 VAR
 	hInst: Kernel32.HANDLE;

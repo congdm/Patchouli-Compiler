@@ -1120,7 +1120,11 @@ PROCEDURE FormalType (VAR tp: Base.Type);
 	VAR obj: Base.Object; len: INTEGER;
 BEGIN tp := Base.intType;
 	IF sym = Scanner.ident THEN qualident (obj);
-		IF obj.class = Base.cType THEN tp := obj.type; CheckExport2 (obj)
+		IF obj.class = Base.cType THEN CheckExport2 (obj); tp := obj.type;
+			IF (tp.form = Base.tArray) & (tp.len = -1) THEN
+				Scanner.Mark ('Open array without length not allowed');
+				tp := Base.intType
+			END
 		ELSE Scanner.Mark (notTypeError)
 		END
 	ELSIF sym = Scanner.array THEN
@@ -1312,17 +1316,26 @@ BEGIN tp := Base.intType;
 		ELSE Scanner.Mark (notTypeError)
 		END
 	ELSIF sym = Scanner.array THEN
-		Base.NewType (tp, Base.tArray); tp.len := 1; identExport := FALSE;
-		Scanner.Get (sym); expression (x); CheckInt (x);
-		IF x.mode = Base.cConst THEN
-			IF x.a > 0 THEN tp.len := x.a
-			ELSE Scanner.Mark ('Array length must be positive')
+		Base.NewType (tp, Base.tArray);
+		identExport := FALSE; Scanner.Get (sym);
+		IF sym # Scanner.of THEN
+			tp.len := 1; expression (x); CheckInt (x);
+			IF x.mode = Base.cConst THEN
+				IF x.a > 0 THEN tp.len := x.a
+				ELSE Scanner.Mark ('Array length must be positive')
+				END
+			ELSE Scanner.Mark (notConstError); MakeIntConst (x)
+			END;
+			Check (Scanner.of, noOfError); type (tp.base);
+			tp.size := tp.len * Generator.TypeSize(tp.base)
+		ELSE
+			tp.len := -1; Scanner.Get (sym); type (tp.base);
+			IF (tp.base.form = Base.tArray) & (tp.len = -1) THEN
+				Scanner.Mark ('Multidimension open array not allowed');
+				tp.base := Base.intType
 			END
-		ELSE Scanner.Mark (notConstError); MakeIntConst (x)
 		END;
-		Check (Scanner.of, noOfError); type (tp.base);
 		tp.alignment := tp.base.alignment;
-		tp.size := tp.len * Generator.TypeSize(tp.base);
 		tp.nptr := tp.len * tp.base.nptr
 	ELSIF (sym = Scanner.record) OR (sym = Scanner.extensible) THEN
 		Base.NewType (tp, Base.tRecord); identExport := FALSE;

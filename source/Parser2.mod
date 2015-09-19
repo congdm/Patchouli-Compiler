@@ -727,6 +727,31 @@ END DeclarationSequence;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
+PROCEDURE import;
+	VAR mod: Base.Object; symName: Base.IdentStr;
+BEGIN SymTable.New (mod, Scanner.id, Base.cModule); Scanner.Get (sym);
+	IF sym = Scanner.becomes THEN Scanner.Get (sym);
+		IF sym = Scanner.ident THEN
+			Base.StrCopy (Scanner.id, symName); Scanner.Get (sym)
+		ELSE Scanner.Mark (noIdentError); Base.StrCopy (mod.name, symName)
+		END
+	ELSE Base.StrCopy (mod.name, symName)
+	END;
+	SymTable.Find_module_symfile (mod, symName)
+END import;
+
+PROCEDURE ImportList;
+BEGIN Scanner.Get (sym);
+	IF sym = Scanner.ident THEN import ELSE Scanner.Mark (noIdentError) END;
+	WHILE sym = Scanner.comma DO Scanner.Get (sym);
+		IF sym = Scanner.ident THEN import
+		ELSE Scanner.Mark (superflousCommaError)
+		END
+	END;
+	Check (Scanner.semicolon, noSemicolonError);
+	IF Scanner.errcnt = 0 THEN SymTable.Import_modules END
+END ImportList;
+
 PROCEDURE Definition*;
 	VAR modid: Base.IdentStr;
 BEGIN
@@ -738,6 +763,7 @@ BEGIN
 	Check (Scanner.semicolon, noSemicolonError);
 	IF modid # '@' THEN
 		SymTable.Init (modid, TRUE); Generator.Init (modid);
+		IF sym = Scanner.import THEN ImportList END;
 		DeclarationSequence; Check (Scanner.end, noEndError);
 		IF sym = Scanner.ident THEN
 			IF modid # Scanner.id THEN Scanner.Mark ('Wrong module name') END;
