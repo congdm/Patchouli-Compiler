@@ -387,7 +387,7 @@ BEGIN
 		END;
 		IF min # -1 THEN
 			imod := importModules.a[min]; imod.modno := min;
-			IF imod.isDefMod & ~importSystem THEN
+			IF imod.isDefMod & ~importSystem & ~isDefinitionModule THEN
 				errmsg := 'Cannot import definition module ';
 				Strings.Append (imod.name, errmsg);
 				Strings.Append (' without importing SYSTEM', errmsg);

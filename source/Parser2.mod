@@ -138,7 +138,18 @@ END CheckChar;
 PROCEDURE qualident (VAR obj: Base.Object);
 BEGIN
 	SymTable.Find (obj, Scanner.id);
-	IF obj = Base.guard THEN Scanner.Mark (undefinedError) END;
+	IF obj # Base.guard THEN
+		IF obj.class = Base.cModule THEN
+			Scanner.Get (sym); Check (Scanner.period, noPeriodError);
+			IF sym = Scanner.ident THEN
+				Base.StrCopy (Scanner.id, Base.guard.name); obj := obj.dsc;
+				WHILE obj.name # Scanner.id DO obj := obj.next END;
+				IF obj = Base.guard THEN Scanner.Mark (undefinedError) END
+			ELSE Scanner.Mark (noIdentError); obj := Base.guard 
+			END
+		END
+	ELSE Scanner.Mark (undefinedError)
+	END;
 	Scanner.Get (sym)
 END qualident;
 
