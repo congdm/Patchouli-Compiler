@@ -1,0 +1,7 @@
+source/*.exe
+source/*.dll
+*.sym
+test/*.exe
+test/*.dll
+lib/*.dll
+*.vs/
