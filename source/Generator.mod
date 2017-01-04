@@ -1109,11 +1109,10 @@ BEGIN RefToRegI(x);
 		IF x.mode # mReg THEN size := x.type.size;
 			IF x.mode # mRegI THEN r := AllocReg() ELSE r := x.r END;
 			IF x.mode = mImm THEN LoadImm(r, size, x.a)
-			ELSIF x.mode IN {mRegI, mSP, mIP, mBP, mBX} THEN
-				SetRmOperand(x);
-				IF size >= 4 THEN EmitRegRm(MOVd, r, size)
-				ELSIF x.type = B.strType THEN
+			ELSIF x.mode IN {mRegI, mSP, mIP, mBP, mBX} THEN SetRmOperand(x);
+				IF x.type = B.strType THEN
 					ASSERT(x.strlen <= 2); EmitMOVZX(r, 2)
+				ELSIF size >= 4 THEN EmitRegRm(MOVd, r, size)
 				ELSE EmitMOVZX(r, size)
 				END
 			ELSIF x.mode = mProc THEN
@@ -3195,6 +3194,8 @@ BEGIN
 	B.setType.size := 8; B.setType.align := 8;
 	B.realType.size := 8; B.realType.align := 8;
 	B.nilType.size := 8; B.nilType.align := 8;
+	B.card16Type.size := 2; B.card16Type.align := 2;
+	B.card32Type.size := 4; B.card32Type.align := 4;
 	
 	adrOfNEW := -128;
 	wsprintfW := -120;
