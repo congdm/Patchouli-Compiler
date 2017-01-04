@@ -1,6 +1,4 @@
 MODULE Parser;
-(*$NEW Rtl.New*)
-
 IMPORT
 	Rtl, Out,
 	S := Scanner, B := Base, G := Generator;

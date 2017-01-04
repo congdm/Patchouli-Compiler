@@ -20,7 +20,6 @@
 *)
 
 MODULE Scanner; (* Modified from ORS module in Project Oberon *)
-
 IMPORT
 	SYSTEM, Rtl, Out;
   

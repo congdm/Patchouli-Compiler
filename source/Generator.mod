@@ -1,6 +1,4 @@
 MODULE Generator;
-(*$NEW Rtl.New*)
-
 IMPORT
 	SYSTEM, Rtl, Strings, Out,
 	S := Scanner, B := Base;
@@ -113,7 +111,7 @@ VAR
 	
 	modInitProc, trapProc, trapProc2, NEWProc, dllInitProc: Proc;
 	modid: B.IdStr; modidStr, errFmtStr, err2FmtStr: B.Str;
-	err3FmtStr, err4FmtStr, mfname: B.Str;
+	err3FmtStr, err4FmtStr, rtlName, user32name: B.Str;
 
 	mem: RECORD
 		mod, rm, bas, idx, scl, disp: INTEGER
@@ -741,8 +739,8 @@ BEGIN ident := decl;
 		staticSize := (staticSize + 8 + 15) DIV 16 * 16;
 		modPtrTable := -staticSize; ident := decl;
 		fixAmount := (staticSize + 4095) DIV 4096 * 4096;
-		WHILE ident # NIL DO obj := ident.obj;
-			IF (lev = 0) & (obj IS B.Var) & ~(obj IS B.Str) THEN
+		WHILE ident # NIL DO obj := ident.obj;	
+			IF (obj IS B.Var) & ~(obj IS B.Str) THEN
 				(* fix global var address *)
 				DEC(obj(B.Var).adr, fixAmount)
 			END;
@@ -759,7 +757,7 @@ BEGIN
 	err2FmtStr := B.NewStr2('Module key of %s is mismatched%sModule: %s');
 	err3FmtStr := B.NewStr2('Procedure NEW is not installed%sModule: %s');
 	err4FmtStr := B.NewStr2('Cannot load module %s (not exist?)%sModule: %s');
-	mfname := B.NewStr2('Local\PatchouliOberon07');
+	rtlName := B.NewStr2(B.Flag.rtl); user32name := B.NewStr2('USER32.DLL');
 	AllocStaticData; ScanDeclaration(B.universe.first, 0);
 	
 	IF modinit # NIL THEN
@@ -961,12 +959,12 @@ BEGIN
 	END
 END Trap;
 
-PROCEDURE ModKeyTrap(cond: INTEGER; imod: B.Module);
+PROCEDURE ModKeyTrap(cond, errno: INTEGER; imod: B.Module);
 	VAR L: INTEGER;
 BEGIN
 	L := pc; Jcc1(negated(cond), 0);
 	SetRm_regI(reg_B, imod.adr); EmitRegRm(LEA, reg_C, 8);
-	CallProc2(trapProc2); Fixup(L, pc)
+	MoveRI(reg_D, 1, errno); CallProc2(trapProc2); Fixup(L, pc)
 END ModKeyTrap;
 
 (* -------------------------------------------------------------------------- *)
@@ -2373,49 +2371,29 @@ BEGIN
 	FinishProc
 END ProcedureNEW;
 
-PROCEDURE InstallNEW;
-	VAR str: B.String; i, j, expno, adr: INTEGER;
-		modName, procName: B.IdStr; imod: B.Module; ident: B.Ident;
+PROCEDURE ImportRTL;
 BEGIN
-	str := B.Flag.new; j := 0; i := 0;
-	WHILE (str[j] = 20X) OR (str[j] = 9X) DO INC(j) END;
-	WHILE (str[j] # '.') & (str[j] # 0X) & (str[j] # 20X)
-		& (str[j] # 9X) & (i < LEN(modName)) DO
-		modName[i] := str[j]; INC(i); INC(j)
-	END;
-	IF i = LEN(modName) THEN DEC(i) END; modName[i] := 0X;
-	IF str[j] = '.' THEN INC(j); i := 0;
-		WHILE (str[j] # 20X) & (str[j] # 9X)
-			& (str[j] # 0X) & (i < LEN(procName)) DO
-			procName[i] := str[j]; INC(i); INC(j)
-		END;
-		IF i = LEN(procName) THEN DEC(i) END; procName[i] := 0X;
-		imod := B.FindModule(modName);
-		IF imod # NIL THEN ident := imod.first;
-			WHILE (ident # NIL) & (ident.name # procName) DO
-				ident := ident.next
-			END;
-			IF (ident # NIL) & (ident.obj IS B.Proc) THEN
-				expno := ident.obj(B.Proc).expno; 
-				SetRm_regI(reg_B, imod.adr); EmitRegRm(LEA, reg_C, 8);
-				SetRm_regI(reg_B, LoadLibraryW); EmitRm(CALL, 4);
-				
-				EmitRR(MOVd, reg_C, 8, reg_A); MoveRI(reg_D, 4, expno);
-				SetRm_regI(reg_B, GetProcAddress); EmitRm(CALL, 4);
-				SetRm_regI(reg_B, adrOfNEW); EmitRegRm(MOV, reg_A, 8);
-			END
-		END
-	ELSE ident := B.universe.first;
-		WHILE (ident # NIL) & (ident.name # modName) DO
-			ident := ident.next
-		END;
-		IF (ident # NIL) & (ident.obj IS B.Proc) THEN
-			adr := ident.obj(B.Proc).adr;
-			SetRm_regI(reg_B, adr); EmitRegRm(LEA, reg_A, 8);
-			SetRm_regI(reg_B, adrOfNEW); EmitRegRm(MOV, reg_A, 8)
-		END
-	END
-END InstallNEW;
+	SetRm_regI(reg_B, rtlName.adr); EmitRegRm(LEA, reg_C, 8);
+	SetRm_regI(reg_B, LoadLibraryW); EmitRm(CALL, 4);
+	EmitRR(MOVd, reg_SI, 8, reg_A);
+	
+	MoveRI(reg_A, 4, 0077654EH); (* New *)
+	SetRm_regI(reg_SP, 32); EmitRegRm(MOV, reg_A, 4);
+	EmitRR(MOVd, reg_C, 8, reg_SI);
+	SetRm_regI(reg_SP, 32); EmitRegRm(LEA, reg_D, 8);
+	SetRm_regI(reg_B, GetProcAddress); EmitRm(CALL, 4);
+	SetRm_regI(reg_B, adrOfNEW); EmitRegRm(MOV, reg_A, 8);
+	
+	MoveRI(reg_A, 8, 7265747369676552H); (* Register *)
+	SetRm_regI(reg_SP, 32); EmitRegRm(MOV, reg_A, 8);
+	SetRm_regI(reg_SP, 40); EmitRmImm(MOVi, 1, 0);
+	EmitRR(MOVd, reg_C, 8, reg_SI);
+	SetRm_regI(reg_SP, 32); EmitRegRm(LEA, reg_D, 8);
+	SetRm_regI(reg_B, GetProcAddress); EmitRm(CALL, 4);
+	
+	EmitRR(MOVd, reg_C, 8, reg_B);
+	SetRm_reg(reg_A); EmitRm(CALL, 4)
+END ImportRTL;
 
 PROCEDURE DLLInit;
 	VAR i, j, adr, expno, L: INTEGER;
@@ -2435,13 +2413,7 @@ BEGIN
 		SetRm_RIP(-pc-7); EmitRegRm(LEA, reg_B, 8);
 		
 		(* Import USER32.DLL *)
-		MoveRI(reg_A, 8, 0052004500530055H); (* RAX := 'USER' *)
-		SetRm_regI(reg_SP, 32); EmitRegRm(MOV, reg_A, 8);
-		MoveRI(reg_A, 8, 0044002E00320033H); (* RAX := '32.D' *)
-		SetRm_regI(reg_SP, 40); EmitRegRm(MOV, reg_A, 8);
-		MoveRI(reg_A, 4, 00000000004C004CH); (* RAX := 'LL' *)
-		SetRm_regI(reg_SP, 48); EmitRegRm(MOV, reg_A, 8);
-		SetRm_regI(reg_SP, 32); EmitRegRm(LEA, reg_C, 8); 
+		SetRm_regI(reg_B, user32name.adr); EmitRegRm(LEA, reg_C, 8); 
 		SetRm_regI(reg_B, LoadLibraryW); EmitRm(CALL, 4);
 		EmitRR(MOVd, reg_SI, 8, reg_A);
 		
@@ -2468,15 +2440,15 @@ BEGIN
 		WHILE i < B.modno DO imod := B.modList[i];
 			SetRm_regI(reg_B, imod.adr); EmitRegRm(LEA, reg_C, 8);
 			SetRm_regI(reg_B, LoadLibraryW); EmitRm(CALL, 4);
-			EmitRR(TEST, reg_A, 8, reg_A); ModKeyTrap(ccZ, imod);
+			EmitRR(TEST, reg_A, 8, reg_A); ModKeyTrap(ccZ, 1, imod);
 			EmitRR(MOVd, reg_SI, 8, reg_A);
 			
 			(* Check module key *)
 			key := imod.key;
 			MoveRI(reg_A, 8, key[0]); SetRm_regI(reg_SI, 400H-16);
-			EmitRegRm(CMPd, reg_A, 8); ModKeyTrap(ccNZ, imod);
+			EmitRegRm(CMPd, reg_A, 8); ModKeyTrap(ccNZ, 0, imod);
 			MoveRI (reg_A, 8, key[1]); SetRm_regI(reg_SI, 400H-8);
-			EmitRegRm(CMPd, reg_A, 8); ModKeyTrap(ccNZ, imod);
+			EmitRegRm(CMPd, reg_A, 8); ModKeyTrap(ccNZ, 0, imod);
 		
 			ident := imod.impList;
 			WHILE ident # NIL DO x := ident.obj;
@@ -2516,13 +2488,11 @@ BEGIN
 			t := t.next
 		END;
 		
-		IF B.Flag.new[0] # 0X THEN InstallNEW END;
+		IF B.Flag.rtl[0] # 0X THEN ImportRTL END;
 		
-		(* Call module main procedure *)
 		IF modInitProc # NIL THEN CallProc2(modInitProc) END;
 		Linker.entry := dllInitProc.adr;
-		
-		(* Exit *)
+
 		IF B.Flag.main THEN EmitRR(XOR, reg_C, 4, reg_C);
 			SetRm_regI(reg_B, ExitProcess); EmitRm(CALL, 4)
 		ELSE

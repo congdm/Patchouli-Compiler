@@ -1,5 +1,4 @@
 MODULE MemFiles;
-(*$NEW Rtl.New*)
 IMPORT SYSTEM, Rtl;
 	
 CONST

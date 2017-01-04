@@ -1,6 +1,4 @@
 MODULE Base;
-(*$NEW Rtl.New*)
-
 IMPORT
 	SYSTEM, Rtl, Strings, Crypt, S := Scanner;
 
@@ -109,7 +107,7 @@ VAR
 	
 	Flag*: RECORD
 		main*, console*, debug*, handle*: BOOLEAN;
-		new*: String
+		rtl*: String
 	END;
 	
 	ExportType0: PROCEDURE(typ: Type);
@@ -148,33 +146,7 @@ END ReadInt;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
-
-(*PROCEDURE AppendStr*(ext: ARRAY OF CHAR; VAR dst: ARRAY OF CHAR);
-	VAR i, k: INTEGER;
-BEGIN i := 0; WHILE dst[i] # 0X DO INC(i) END;
-	k := 0; WHILE ext[k] # 0X DO dst[i+k] := ext[k]; INC(k) END;
-	dst[i+k] := 0X
-END AppendStr;
-
-PROCEDURE StrPos*(pattern, s: ARRAY OF CHAR; pos: INTEGER): INTEGER;
-	VAR i, slen, plen: INTEGER; notfound, differ: BOOLEAN;
-BEGIN
-	IF pos < 0 THEN pos := 0 END;
-	slen := 0; WHILE s[slen] # 0X DO INC(slen) END;
-	plen := 0; WHILE pattern[plen] # 0X DO INC(plen) END;
-	IF (plen > 0) & (slen >= plen) THEN
-		notfound := TRUE;
-		WHILE notfound & (pos < slen) & (slen - pos >= plen) DO
-			i := 0;
-			REPEAT differ := s[pos + i] # pattern[i]; INC(i)
-			UNTIL differ OR (i = plen) OR (pos + i = slen);
-			notfound := differ; INC(pos)
-		END;
-		IF notfound THEN pos := -1 ELSE DEC(pos) END
-	ELSE pos := -1
-	END
-	RETURN pos
-END StrPos;*)
+(* Compiler Flag *)
 
 PROCEDURE SetCompilerFlag(pragma: ARRAY OF CHAR);
 	VAR i: INTEGER;
@@ -183,10 +155,11 @@ BEGIN
 	ELSIF pragma = 'CONSOLE' THEN
 		Flag.main := TRUE; Flag.console := TRUE
 	ELSIF pragma = 'DEBUG' THEN Flag.debug := TRUE
-	ELSIF Strings.Pos('NEW ', pragma, 0) = 0 THEN i := 0;
-		WHILE pragma[i+4] # 0X DO Flag.new[i] := pragma[i+4]; INC(i) END
+	(*ELSIF Strings.Pos('RTL ', pragma, 0) = 0 THEN i := 0;
+		WHILE pragma[i+4] # 0X DO Flag.rtl[i] := pragma[i+4]; INC(i) END*)
 	ELSIF pragma = 'HANDLE' THEN Flag.handle := TRUE
 	ELSIF pragma = 'POINTER' THEN Flag.handle := FALSE
+	ELSIF pragma = 'RTL-' THEN Flag.rtl[0] := 0X
 	END
 END SetCompilerFlag;
 
@@ -581,7 +554,7 @@ BEGIN
 			typ := p.type
 		ELSE msg := 'Need to import '; Strings.Append(modname, msg);
 			Strings.Append(' in order to import ', msg); i := -(curLev+2);
-			Strings.Append(modList[i].name, msg); S.Mark(msg)
+			Strings.Append(modList[i].name, msg); S.Mark(msg); typ := intType
 		END
 	ELSE ASSERT(FALSE)
 	END
@@ -760,7 +733,7 @@ BEGIN
 	NEW(universe); topScope := universe; curLev := -1;
 	modid := modname; modno := 0; strbufSize := 0;
 	expList := NIL; lastExp := NIL; strList := NIL; recList := NIL;
-	Flag.new[0] := 0X;
+	Flag.rtl := 'RTL.DLL';
 	
 	Enter(NewTypeObj(intType), 'INTEGER');
 	Enter(NewTypeObj(byteType), 'BYTE');

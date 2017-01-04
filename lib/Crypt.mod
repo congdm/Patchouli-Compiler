@@ -1,4 +1,5 @@
 MODULE Crypt;
+(*$RTL-*)
 
 IMPORT
 	SYSTEM;

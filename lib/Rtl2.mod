@@ -1,5 +1,5 @@
 MODULE Rtl; (* multi-threaded application NOT SUPPORTED *)
-(*$HANDLE*)
+(*$HANDLE*)(*$RTL-*)
 IMPORT SYSTEM;
 	
 CONST
