@@ -22,6 +22,8 @@ TYPE
 	File* = RECORD hFile: INTEGER END;
 
 VAR
+	modList*, nMod*: INTEGER;
+
 	(* Utility *)
 	ExitProcess: PROCEDURE(uExitCode: INTEGER);
 	MessageBoxW: PROCEDURE(hWnd, lpText, lpCaption, uType: INTEGER): Int;
@@ -566,6 +568,20 @@ PROCEDURE SizeInUtf8*(str: ARRAY OF CHAR): INTEGER;
 	CONST CP_UTF8 = 65001;
 	RETURN WideCharToMultiByte(CP_UTF8, 0, SYSTEM.ADR(str), -1, 0, 0, 0, 0)
 END SizeInUtf8;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+(* Module management *)
+
+PROCEDURE Register*(modAdr: INTEGER);
+BEGIN
+	ASSERT(nMod < 512);
+	IF modList = 0 THEN
+		modList := VirtualAlloc(0, 4096, MEM_COMMIT, PAGE_READWRITE);
+		nMod := 0; ASSERT(modList # 0)
+	END;
+	INC(nMod); SYSTEM.PUT(modList+nMod*8-8, modAdr)
+END Register;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
