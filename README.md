@@ -50,17 +50,20 @@ Here is the list of compiler pragma:
 |----------------|-----------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `(*$MAIN*)`    | Generate .EXE file instead of .DLL                                                                                                      |                                                                                                                                                                                                  |
 | `(*$CONSOLE*)` | Same as `MAIN` but for console applications                                                                                             |                                                                                                                                                                                                  |
-| `(*$NEW*)`     | Install a procedure as the standard procedure `NEW`.<br> By default, `NEW` is not installed, so you need to install your own procedure. | `(*$NEW Proc*)` installs procedure `Proc` (in the same module) as `NEW` <br> `(*$NEW Mod.Proc*)` installs procedure `Proc` from module `Mod` as `NEW` (note: must import `Mod` in order to work) |
+| `(*$RTL-*)`    | This module don't need Run Time Library (low level modules)                                                                             |                                                                                                                                                                                                  |
 
 All pragma should stay at the beginning of module for easy visibility.
 
-User-defined NEW procedure must have the formal parameters as follow:
+### Run Time Library (Rtl.dll)
+
+The Run Time Library can be written in any language (not necessary Oberon). It must export two following procedures:
 
 ```modula-2
-PROCEDURE (VAR ptr: INTEGER; tdAdr: INTEGER);
+PROCEDURE New(VAR ptr: INTEGER; tdAdr: INTEGER); (* dynamic memory allocator *)
+PROCEDURE Register(modAdr: INTEGER); (* Oberon modules will call this function during initialization *)
 ```
 
-See PROCEDURE New in module Rtl for example implementation. Type desc structure is same as in Project Oberon, with each word be 64-bit, instead of 32-bit, and the max level of extension is 7, instead of 3.
+See module Rtl.mod for example implementation. Type desc structure is same as in Project Oberon, with each word be 64-bit, instead of 32-bit, and the max level of extension is 7, instead of 3.
 
 ### Debugging facility
 
