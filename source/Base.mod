@@ -98,7 +98,7 @@ VAR
 	topScope*, universe*, systemScope: Scope;
 	curLev*, modlev*: INTEGER;
 	modid*: IdStr; modkey*: ModuleKey;
-	expList*, strList*: Ident; recList*: TypeList;
+	expList*, lastExp, strList*: Ident; recList*: TypeList;
 	
 	symfile: Rtl.File;
 	refno, preTypeNo, expno*, modno*: INTEGER;
@@ -388,12 +388,9 @@ PROCEDURE ModByLev*(lev: INTEGER): Module;
 END ModByLev;
 
 PROCEDURE NewExport(VAR ident: Ident);
-	VAR p: Ident;
-BEGIN NEW(ident); INC(expno);
-	IF expList = NIL THEN expList := ident
-	ELSE p := expList;
-		WHILE p.next # NIL DO p := p.next END;
-		p.next := ident
+BEGIN NEW(ident); ident.name[0] := 0X; INC(expno);
+	IF lastExp = NIL THEN expList := ident; lastExp := ident
+	ELSE lastExp.next := ident; lastExp := ident
 	END
 END NewExport;
 
@@ -510,7 +507,7 @@ BEGIN
 			ELSIF ident.obj.class = cProc THEN
 				WriteInt(symfile, cProc);
 				Rtl.WriteStr(symfile, ident.name);
-				NewExport(exp); exp.obj := ident.obj;
+				NewExport(exp); exp.obj := ident.obj; exp.name := ident.name;
 				WriteInt(symfile, expno);
 				ExportProc(ident.obj.type)
 			ELSE ASSERT(FALSE)
@@ -762,6 +759,7 @@ PROCEDURE Init*(modname: IdStr);
 BEGIN
 	NEW(universe); topScope := universe; curLev := -1;
 	modid := modname; modno := 0; strbufSize := 0;
+	expList := NIL; lastExp := NIL; strList := NIL; recList := NIL;
 	Flag.new[0] := 0X;
 	
 	Enter(NewTypeObj(intType), 'INTEGER');

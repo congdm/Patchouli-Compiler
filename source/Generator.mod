@@ -124,10 +124,9 @@ VAR
 	(* Static data address*)
 	(* Win32 specifics *)
 	GetModuleHandleExW, ExitProcess, LoadLibraryW, GetProcAddress: INTEGER;
-	CreateFileMappingW, MapViewOfFile, UnmapViewOfFile: INTEGER;
 	MessageBoxW, wsprintfW: INTEGER;
 	(* others *)
-	adrOfNEW, modPtrTable, adrOfModPtrTable: INTEGER;
+	adrOfNEW, modPtrTable: INTEGER;
 	
 	(* Linker state *)
 	Linker: RECORD
@@ -138,7 +137,7 @@ VAR
 		code_fadr, data_fadr, idata_fadr, reloc_fadr, edata_fadr: INTEGER;
 		debug_rawsize, debug_size, debug_rva, debug_fadr: INTEGER;
 		bss_size, bss_rva: INTEGER;
-		Kernel32Table: ARRAY 8 OF INTEGER
+		Kernel32Table: ARRAY 5 OF INTEGER
 	END;
 	
 	out, debug: Rtl.File;
@@ -2518,31 +2517,6 @@ BEGIN
 		END;
 		
 		IF B.Flag.new[0] # 0X THEN InstallNEW END;
-		SetRm_regI(reg_B, modPtrTable); EmitRegRm(LEA, reg_A, 8);
-		SetRm_regI(reg_B, adrOfModPtrTable); EmitRegRm(MOV, reg_A, 8);
-		
-		EmitRR(XOR, reg_C, 4, reg_C); EmitRI(SUBi, reg_C, 8, 1);
-		EmitRR(XOR, reg_D, 4, reg_D); MoveRI(reg_R8, 4, 4);
-		EmitRR(XOR, reg_R9, 4, reg_R9); MoveRI(reg_A, 4, 4096);
-		SetRm_regI(reg_SP, 32); EmitRegRm(MOV, reg_A, 4);
-		SetRm_regI(reg_B, mfname.adr); EmitRegRm(LEA, reg_A, 8);
-		SetRm_regI(reg_SP, 40); EmitRegRm(MOV, reg_A, 8);
-		SetRm_regI(reg_B, CreateFileMappingW); EmitRm(CALL, 4);
-		
-		EmitRR(MOVd, reg_C, 8, reg_A); MoveRI(reg_D, 4, 2);
-		EmitRR(XOR, reg_R8, 4, reg_R8); EmitRR(XOR, reg_R9, 4, reg_R9);
-		EmitRR(XOR, reg_A, 4, reg_A);
-		SetRm_regI(reg_SP, 32); EmitRegRm(MOV, reg_A, 8);
-		SetRm_regI(reg_B, MapViewOfFile); EmitRm(CALL, 4);
-		
-		EmitRR(MOVd, reg_SI, 8, reg_A);
-		SetRm_regI(reg_SI, 0); EmitRegRm(MOVd, reg_A, 4);
-		SetRm_regI(reg_SI, 0); EmitRmImm(ADDi, 4, 1);
-		EmitRI(ADDi, reg_A, 4, 1); SetRm_regX(reg_SI, reg_A, 3, 0);
-		EmitRegRm(MOV, reg_B, 8);
-		
-		EmitRR(MOVd, reg_C, 8, reg_SI);
-		SetRm_regI(reg_B, UnmapViewOfFile); EmitRm(CALL, 4);
 		
 		(* Call module main procedure *)
 		IF modInitProc # NIL THEN CallProc2(modInitProc) END;
@@ -2815,13 +2789,7 @@ BEGIN
 	Rtl.Seek(out, Linker.idata_fadr + hint_rva + (64 + 2));
 	Rtl.WriteAnsiStr(out, 'LoadLibraryW');
 	Rtl.Seek(out, Linker.idata_fadr + hint_rva + (96 + 2));
-	Rtl.WriteAnsiStr(out, 'GetProcAddress');
-	Rtl.Seek(out, Linker.idata_fadr + hint_rva + (128 + 2));
-	Rtl.WriteAnsiStr(out, 'CreateFileMappingW');
-	Rtl.Seek(out, Linker.idata_fadr + hint_rva + (160 + 2));
-	Rtl.WriteAnsiStr(out, 'MapViewOfFile');
-	Rtl.Seek(out, Linker.idata_fadr + hint_rva + (192 + 2));
-	Rtl.WriteAnsiStr(out, 'UnmapViewOfFile')
+	Rtl.WriteAnsiStr(out, 'GetProcAddress')
 END Write_idata_section;
 
 PROCEDURE Write_pointer_offset(offset: INTEGER; type: B.Type);
@@ -2901,26 +2869,66 @@ BEGIN
 END Write_data_section;
 
 PROCEDURE Write_edata_section;
-	CONST dirsize = 40;
-	VAR ident: B.Ident; x: B.Object; name: B.String;
-		namesize, tablesize, i, rva, expno: INTEGER;
-BEGIN name[0] := 0X; Strings.Append(modid, name); namesize := 0;
+	CONST dirSz = 40;	
+	TYPE
+		Export = POINTER TO RECORD
+			no: INTEGER; ident: B.Ident; next: Export
+		END;	
+	VAR
+		namedList, p: Export;
+		ident: B.Ident; x: B.Object; name: B.String;
+		i, rva, expno, nameRva, nameSz, namecnt: INTEGER;
+		adrTblSz, namePtrTblSz, ordTblSz: INTEGER;	
+
+	PROCEDURE Insert(VAR list: Export; x: Export);
+		VAR p: Export;
+	BEGIN
+		IF list = NIL THEN list := x
+		ELSIF x.ident.name < list.ident.name THEN x.next := list; list := x
+		ELSE p := list;
+			WHILE (p.next # NIL) & (x.ident.name > p.next.ident.name) DO
+				p := p.next
+			END;
+			x.next := p.next; p.next := x
+		END
+	END Insert;
+	
+	PROCEDURE NewExport(ident: B.Ident; no: INTEGER): Export;
+		VAR p: Export;
+	BEGIN
+		NEW(p); p.ident := ident; p.no := no;
+		RETURN p
+	END NewExport;
+		
+BEGIN (* Write_edata_section *)
+	name[0] := 0X; Strings.Append(modid, name);
 	IF B.Flag.main THEN Strings.Append('.exe', name)
 	ELSE Strings.Append('.dll', name)
+	END; nameSz := Strings.Length(name)+1;
+	expno := B.expno; adrTblSz := expno*4;
+	
+	ident := B.expList; namecnt := 0; i := 1;
+	WHILE ident # NIL DO
+		IF ident.name[0] # 0X THEN
+			INC(namecnt); Insert(namedList, NewExport(ident, i))
+		END;
+		ident := ident.next; INC(i)
 	END;
-	WHILE name[namesize] # 0X DO INC(namesize) END; INC(namesize);
-	expno := B.expno; tablesize := expno * 4;
+	namePtrTblSz := namecnt*4; ordTblSz := namecnt*2;
+	nameRva := Linker.edata_rva + dirSz + adrTblSz + namePtrTblSz + ordTblSz;
 
 	(* Export directory *)
 	Rtl.Seek(out, Linker.edata_fadr + 12);
-	Rtl.Write4(out, Linker.edata_rva + dirsize + tablesize);
+	Rtl.Write4(out, nameRva);
 	Rtl.Write4(out, 1);
 	Rtl.Write4(out, expno);
-	Rtl.Write4(out, 0);
-	Rtl.Write4(out, Linker.edata_rva + dirsize);
+	Rtl.Write4(out, namecnt);
+	Rtl.Write4(out, Linker.edata_rva + dirSz);
+	Rtl.Write4(out, Linker.edata_rva + dirSz + adrTblSz);
+	Rtl.Write4(out, Linker.edata_rva + dirSz + adrTblSz + namePtrTblSz);
 	
 	(* Export address table *)
-	Rtl.Seek(out, Linker.edata_fadr + dirsize); ident := B.expList;
+	Rtl.Seek(out, Linker.edata_fadr + dirSz); ident := B.expList;
 	WHILE ident # NIL DO x := ident.obj;
 		IF x.class = B.cType THEN rva := x.type.adr
 		ELSIF x IS B.Var THEN rva := x(B.Var).adr
@@ -2928,11 +2936,25 @@ BEGIN name[0] := 0X; Strings.Append(modid, name); namesize := 0;
 		END; INC(rva, Linker.code_rva);
 		Rtl.Write4(out, rva); ident := ident.next
 	END;
+	
+	IF namecnt > 0 THEN
+		(* Export Name Pointer Table *)
+		p := namedList; i := nameRva + nameSz;
+		WHILE p # NIL DO Rtl.Write4(out, i);
+			INC(i, Strings.Length(p.ident.name)+1); p := p.next
+		END;
+		(* Export Ordinal Table *)
+		p := namedList;
+		WHILE p # NIL DO Rtl.Write2(out, p.no-1); p := p.next END
+	END;
 		
 	(* Name string *)
 	Rtl.WriteAnsiStr(out, name);
+	IF namecnt > 0 THEN p := namedList;
+		WHILE p # NIL DO Rtl.WriteAnsiStr(out, p.ident.name); p := p.next END
+	END;
 	
-	Linker.edata_size := dirsize + tablesize + namesize;
+	Linker.edata_size := Rtl.Pos(out) - Linker.edata_fadr;
 	Linker.edata_rawsize := Linker.edata_size;
 	IF Linker.edata_rawsize MOD 512 # 0 THEN
 		Align(Linker.edata_rawsize, 512);
@@ -3193,7 +3215,6 @@ BEGIN
 END Generate;
 
 PROCEDURE Init*(modid0: B.IdStr);
-	CONST base = -88;
 BEGIN
 	modid := modid0; varSize := 0; staticSize := 128;
 	procList := NIL; curProc := NIL; pc := 0;
@@ -3205,18 +3226,14 @@ BEGIN
 	B.realType.size := 8; B.realType.align := 8;
 	B.nilType.size := 8; B.nilType.align := 8;
 	
-	adrOfNEW := base;
-	wsprintfW := base+8;
-	MessageBoxW := base+16;
-	GetModuleHandleExW := base+24;
-	ExitProcess := base+32;
-	LoadLibraryW := base+40;
-	GetProcAddress := base+48;
-	CreateFileMappingW := base+56;
-	MapViewOfFile := base+64;
-	UnmapViewOfFile := base+72;
+	adrOfNEW := -128;
+	wsprintfW := -120;
+	MessageBoxW := -112;
 	
-	adrOfModPtrTable := -8;
+	GetModuleHandleExW := -40;
+	ExitProcess := -32;
+	LoadLibraryW := -24;
+	GetProcAddress := -16;
 
 	startTime := Rtl.Time();
 	Rtl.Rewrite(debug, '.pocDebug');
