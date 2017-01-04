@@ -1,4 +1,5 @@
 echo off
+mkdir build
 cd lib
 echo on
 ..\bin\Poc Crypt.mod
@@ -20,5 +21,7 @@ echo on
 ..\bin\Poc Poc.mod
 echo off
 cd ..
+move /Y source\*.dll build\
+move /Y source\Poc.exe build\
 echo on
 

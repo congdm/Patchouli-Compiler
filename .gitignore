@@ -5,3 +5,5 @@ test/*.exe
 test/*.dll
 lib/*.dll
 *.vs/
+build/*.dll
+build/*.exe

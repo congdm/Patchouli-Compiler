@@ -190,136 +190,6 @@ END TimeToMSecs;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
-(* Heap management *)
-(* The algorithm in here is based on Quick Fit described in *)
-(* http://www.flounder.com/memory_allocation.htm *)
-
-PROCEDURE ValidMark(mark: INTEGER): BOOLEAN;
-	RETURN (mark = 0) OR (mark = -1) OR (mark = -2)
-END ValidMark;
-
-PROCEDURE HeapLimit(): INTEGER;
-	RETURN heapBase + heapSize
-END HeapLimit;
-
-PROCEDURE ExtendHeap;
-	VAR p, mark, size, prev, p2: INTEGER;
-BEGIN
-	IF heapSize = 80000000H THEN Halt('Out of memory') END;
-	p := VirtualAlloc(HeapLimit(), heapSize, MEM_COMMIT, PAGE_READWRITE);
-	IF p = 0 THEN Halt('VirtualAlloc cannot commit') END;
-	SYSTEM.PUT(p+8, heapSize);
-	IF fList0 = 0 THEN fList0 := p
-	ELSE prev := fList0; SYSTEM.GET(fList0, p2);
-		WHILE p2 # 0 DO prev := p2; SYSTEM.GET(p2, p2) END;
-		SYSTEM.PUT(prev, p)
-	END;
-	heapSize := heapSize*2
-END ExtendHeap;
-
-PROCEDURE Split(p, need: INTEGER);
-	VAR size, i, p2, next: INTEGER;
-BEGIN
-	SYSTEM.GET(p+8, size); SYSTEM.GET(p, next);
-	IF need < size THEN i := (size-need) DIV 64; p2 := p+need;
-		SYSTEM.PUT(p+8, need); SYSTEM.PUT(p2+8, size-need);
-		IF i < LEN(fList) THEN SYSTEM.PUT(p2, fList[i]); fList[i] := p2
-		ELSE SYSTEM.PUT(p2, next); SYSTEM.PUT(p, p2)
-		END
-	END
-END Split;
-
-PROCEDURE Split2(need: INTEGER): INTEGER;
-	VAR p, size, p2, next, k: INTEGER;
-BEGIN
-	IF fList0 = 0 THEN ExtendHeap END; p := fList0;
-	SYSTEM.GET(p+8, size); SYSTEM.GET(p, next); p2 := p+need;
-	SYSTEM.PUT(p+8, need); SYSTEM.PUT(p2+8, size-need);
-	k := (size-need) DIV 64;
-	IF k >= LEN(fList) THEN fList0 := p2; SYSTEM.PUT(p2, next)
-	ELSE fList0 := next; SYSTEM.PUT(p2, fList[k]); fList[k] := p2
-	END;
-	RETURN p
-END Split2;
-
-PROCEDURE Alloc0(need: INTEGER): INTEGER;
-	VAR p, prev, next, i, k, size: INTEGER;
-BEGIN i := need DIV 64;
-	IF i < LEN(fList) THEN p := fList[i];
-		IF p = 0 THEN p := Split2(need)
-		ELSE SYSTEM.GET(p, next); fList[i] := next
-		END
-	ELSE p := fList0; prev := 0;
-		IF p # 0 THEN SYSTEM.GET(p+8, size) END;
-		WHILE (p # 0) & (size < need) DO
-			prev := p; SYSTEM.GET(p, p);
-			IF p # 0 THEN SYSTEM.GET(p+8, size) END
-		END;
-		IF p # 0 THEN Split(p, need); SYSTEM.GET(p, next);
-			IF prev = 0 THEN fList0 := next ELSE SYSTEM.PUT(prev, next) END
-		ELSE ExtendHeap; p := Alloc0(need)
-		END
-	END;
-	RETURN p
-END Alloc0;
-
-PROCEDURE Free0(p: INTEGER);
-	VAR size, i, p2, prev, size0, size2: INTEGER;
-BEGIN
-	SYSTEM.GET(p+8, size); i := size DIV 64;
-	IF i < LEN(fList) THEN SYSTEM.PUT(p, fList[i]); fList[i] := p
-	ELSE prev := 0; p2 := fList0;
-		IF (p2 = 0) OR (p2 > p) THEN SYSTEM.PUT(p, p2); fList0 := p
-		ELSE prev := fList0; SYSTEM.GET(p2, p2);
-			WHILE (p2 # 0) & (p2 < p) DO prev := p2; SYSTEM.GET(p2, p2) END;
-			SYSTEM.PUT(prev, p); SYSTEM.PUT(p, p2)
-		END;
-		IF (prev # 0) & (prev < p) THEN SYSTEM.GET(prev+8, size0);
-			IF prev+size0 = p THEN
-				INC(size, size0); p := prev;
-				SYSTEM.PUT(p, p2); SYSTEM.PUT(p+8, size)
-			END
-		END;
-		IF (p+size = p2) THEN
-			SYSTEM.GET(p2+8, size2); SYSTEM.GET(p2, p2);
-			SYSTEM.PUT(p, p2); SYSTEM.PUT(p+8, size+size2)
-		END
-	END
-END Free0;
-
-PROCEDURE New*(VAR ptr: INTEGER; tdAdr: INTEGER);
-	VAR p, size, i, off: INTEGER;
-BEGIN
-	SYSTEM.GET(tdAdr, size); size := (size+32+63) DIV 64 * 64;
-	p := Alloc0(size); SYSTEM.PUT(p+16, tdAdr); ptr := p+32; INC(p, 32);
-	
-	i := tdAdr+64; SYSTEM.GET(i, off);
-	WHILE off # -1 DO SYSTEM.PUT(p+off, 0); INC(i, 8); SYSTEM.GET(i, off) END
-END New;
-
-PROCEDURE Alloc*(VAR ptr: INTEGER; size: INTEGER);
-BEGIN size := (size+32+63) DIV 64 * 64; ptr := Alloc0(size) + 32
-END Alloc;
-
-PROCEDURE Free*(ptr: INTEGER);
-BEGIN Free0(ptr-32)
-END Free;
-
-PROCEDURE ReAlloc*(VAR ptr: INTEGER; nSize: INTEGER);
-	VAR p, p2, size, size2, tSize, prev, k, next: INTEGER; reloc: BOOLEAN;
-BEGIN
-	nSize := (nSize+32+63) DIV 64 * 64; p := ptr-32; SYSTEM.GET(p+8, size);
-	p2 := Alloc0(nSize); SYSTEM.COPY(p+32, p2+32, size-32);
-	Free0(p); ptr := p2+32
-END ReAlloc;
-
-(* -------------------------------------------------------------------------- *)
-(* Mark and Sweep *)
-
-
-
-(* -------------------------------------------------------------------------- *)
-(* -------------------------------------------------------------------------- *)
 (* File *)
 
 PROCEDURE ExistFile*(fname: ARRAY OF CHAR): BOOLEAN;
@@ -548,7 +418,207 @@ END Register;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
-(* Init *)
+(* Heap management *)
+(* The algorithm in here is based on Quick Fit described in *)
+(* http://www.flounder.com/memory_allocation.htm *)
+
+PROCEDURE ValidMark(mark: INTEGER): BOOLEAN;
+	RETURN (mark = 0) OR (mark = -1) OR (mark = -2)
+END ValidMark;
+
+PROCEDURE HeapLimit(): INTEGER;
+	RETURN heapBase + heapSize
+END HeapLimit;
+
+PROCEDURE MergeSort(VAR f0: INTEGER);
+	TYPE FileArray = ARRAY 4 OF INTEGER; 
+	VAR f: FileArray; run, len: INTEGER; flag: BOOLEAN;
+	
+	PROCEDURE Merge(VAR f0, f1, f2, f3: INTEGER; run: INTEGER);
+		VAR l2, l3, i0, i1, x, y: INTEGER; flag2: BOOLEAN;
+	BEGIN
+		l2 := SYSTEM.ADR(f2); l3 := SYSTEM.ADR(f3); flag2 := TRUE;
+		REPEAT i0 := 0; i1 := 0;
+			REPEAT
+				x := f0; y := f1; SYSTEM.GET(f0, f0); SYSTEM.GET(f1, f1);
+				IF x < y THEN
+					IF flag2 THEN SYSTEM.PUT(l2, x); l2 := x
+					ELSE SYSTEM.PUT(l3, x); l3 := x
+					END; INC(i0)
+				ELSE
+					IF flag2 THEN SYSTEM.PUT(l2, y); l2 := y
+					ELSE SYSTEM.PUT(l3, y); l3 := y
+					END; INC(i1)
+				END;
+				IF f0 = 0 THEN i0 := run END;
+				IF f1 = 0 THEN i1 := run END
+			UNTIL (i0 = run) OR (i1 = run);
+			WHILE i0 < run DO
+				x := f0; SYSTEM.GET(f0, f0);
+				IF flag2 THEN SYSTEM.PUT(l2, x); l2 := x
+				ELSE SYSTEM.PUT(l3, x); l3 := x
+				END;
+				IF f0 = 0 THEN i0 := run ELSE INC(i0) END
+			END;
+			WHILE i1 < run DO
+				y := f1; SYSTEM.GET(f1, f1);
+				IF flag2 THEN SYSTEM.PUT(l2, y); l2 := y
+				ELSE SYSTEM.PUT(l3, y); l3 := y
+				END;
+				IF f1 = 0 THEN i1 := run ELSE INC(i1) END
+			END;
+			flag2 := ~flag2
+		UNTIL (f0 = 0) & (f1 = 0)
+	END Merge;
+	
+	PROCEDURE Distribute(f0: INTEGER; VAR f: FileArray): INTEGER;
+		VAR l: ARRAY 2 OF INTEGER; x, y, i, len: INTEGER;
+	BEGIN
+		l[0] := SYSTEM.ADR(f[0]); l[1] := SYSTEM.ADR(f[1]);
+		i := -1; len := 0;
+		WHILE f0 # 0 DO i := (i + 1) MOD 2; INC(len);
+			x := f0; SYSTEM.GET(f0, f0); y := f0;
+			IF f0 # 0 THEN SYSTEM.GET(f0, f0);
+				IF x < y THEN SYSTEM.PUT(l[i], x); SYSTEM.PUT(x, y); l[i] := y
+				ELSE SYSTEM.PUT(l[i], y); SYSTEM.PUT(y, x); l[i] := x
+				END
+			ELSE SYSTEM.PUT(l[i], x); l[i] := x
+			END
+		END;
+		IF l[0] # 0 THEN SYSTEM.PUT(l[0], 0) END;
+		IF l[1] # 0 THEN SYSTEM.PUT(l[1], 0) END;
+		RETURN len
+	END Distribute;
+	
+BEGIN (* MergeSort *)
+	ASSERT(f0 # 0); len := Distribute(f0, f); run := 2; flag := TRUE;
+	WHILE run < len DO
+		IF flag THEN Merge(f[0], f[1], f[2], f[3], run)
+		ELSE Merge(f[2], f[3], f[0], f[1], run)
+		END; run := run*2; flag := ~flag
+	END;
+	IF f[0] # 0 THEN f0 := f[0]
+	ELSIF f[1] # 0 THEN f0 := f[1]
+	ELSIF f[2] # 0 THEN f0 := f[2]
+	ELSIF f[3] # 0 THEN f0 := f[3]
+	ELSE ASSERT(FALSE)
+	END
+END MergeSort;
+
+PROCEDURE ExtendHeap;
+	VAR p, mark, size, prev, p2: INTEGER;
+BEGIN
+	IF heapSize = 80000000H THEN Halt('Out of memory') END;
+	p := VirtualAlloc(HeapLimit(), heapSize, MEM_COMMIT, PAGE_READWRITE);
+	IF p = 0 THEN Halt('VirtualAlloc cannot commit') END;
+	SYSTEM.PUT(p+8, heapSize);
+	IF fList0 = 0 THEN fList0 := p
+	ELSE prev := fList0; SYSTEM.GET(fList0, p2);
+		WHILE p2 # 0 DO prev := p2; SYSTEM.GET(p2, p2) END;
+		SYSTEM.PUT(prev, p)
+	END;
+	heapSize := heapSize*2
+END ExtendHeap;
+
+PROCEDURE Split(p, need: INTEGER);
+	VAR size, i, p2, next: INTEGER;
+BEGIN
+	SYSTEM.GET(p+8, size); SYSTEM.GET(p, next);
+	IF need < size THEN i := (size-need) DIV 64; p2 := p+need;
+		SYSTEM.PUT(p+8, need); SYSTEM.PUT(p2+8, size-need);
+		IF i < LEN(fList) THEN SYSTEM.PUT(p2, fList[i]); fList[i] := p2
+		ELSE SYSTEM.PUT(p2, next); SYSTEM.PUT(p, p2)
+		END
+	END
+END Split;
+
+PROCEDURE Split2(need: INTEGER): INTEGER;
+	VAR p, size, p2, next, k: INTEGER;
+BEGIN
+	IF fList0 = 0 THEN ExtendHeap END; p := fList0;
+	SYSTEM.GET(p+8, size); SYSTEM.GET(p, next); p2 := p+need;
+	SYSTEM.PUT(p+8, need); SYSTEM.PUT(p2+8, size-need);
+	k := (size-need) DIV 64;
+	IF k >= LEN(fList) THEN fList0 := p2; SYSTEM.PUT(p2, next)
+	ELSE fList0 := next; SYSTEM.PUT(p2, fList[k]); fList[k] := p2
+	END;
+	RETURN p
+END Split2;
+
+PROCEDURE Alloc0(need: INTEGER): INTEGER;
+	VAR p, prev, next, i, k, size: INTEGER;
+BEGIN i := need DIV 64;
+	IF i < LEN(fList) THEN p := fList[i];
+		IF p = 0 THEN p := Split2(need)
+		ELSE SYSTEM.GET(p, next); fList[i] := next
+		END
+	ELSE p := fList0; prev := 0;
+		IF p # 0 THEN SYSTEM.GET(p+8, size) END;
+		WHILE (p # 0) & (size < need) DO
+			prev := p; SYSTEM.GET(p, p);
+			IF p # 0 THEN SYSTEM.GET(p+8, size) END
+		END;
+		IF p # 0 THEN Split(p, need); SYSTEM.GET(p, next);
+			IF prev = 0 THEN fList0 := next ELSE SYSTEM.PUT(prev, next) END
+		ELSE ExtendHeap; p := Alloc0(need)
+		END
+	END;
+	RETURN p
+END Alloc0;
+
+PROCEDURE Free0(p: INTEGER);
+	VAR size, i, p2, prev, size0, size2: INTEGER;
+BEGIN
+	SYSTEM.GET(p+8, size); i := size DIV 64;
+	IF i < LEN(fList) THEN SYSTEM.PUT(p, fList[i]); fList[i] := p
+	ELSE prev := 0; p2 := fList0;
+		IF (p2 = 0) OR (p2 > p) THEN SYSTEM.PUT(p, p2); fList0 := p
+		ELSE prev := fList0; SYSTEM.GET(p2, p2);
+			WHILE (p2 # 0) & (p2 < p) DO prev := p2; SYSTEM.GET(p2, p2) END;
+			SYSTEM.PUT(prev, p); SYSTEM.PUT(p, p2)
+		END;
+		IF (prev # 0) & (prev < p) THEN SYSTEM.GET(prev+8, size0);
+			IF prev+size0 = p THEN
+				INC(size, size0); p := prev;
+				SYSTEM.PUT(p, p2); SYSTEM.PUT(p+8, size)
+			END
+		END;
+		IF (p+size = p2) THEN
+			SYSTEM.GET(p2+8, size2); SYSTEM.GET(p2, p2);
+			SYSTEM.PUT(p, p2); SYSTEM.PUT(p+8, size+size2)
+		END
+	END
+END Free0;
+
+PROCEDURE New*(VAR ptr: INTEGER; tdAdr: INTEGER);
+	VAR p, size, i, off: INTEGER;
+BEGIN
+	SYSTEM.GET(tdAdr, size); size := (size+32+63) DIV 64 * 64;
+	p := Alloc0(size); SYSTEM.PUT(p+16, tdAdr); ptr := p+32; INC(p, 32);
+	
+	i := tdAdr+64; SYSTEM.GET(i, off);
+	WHILE off # -1 DO SYSTEM.PUT(p+off, 0); INC(i, 8); SYSTEM.GET(i, off) END
+END New;
+
+PROCEDURE Alloc*(VAR ptr: INTEGER; size: INTEGER);
+BEGIN size := (size+32+63) DIV 64 * 64; ptr := Alloc0(size) + 32
+END Alloc;
+
+PROCEDURE Free*(ptr: INTEGER);
+BEGIN Free0(ptr-32)
+END Free;
+
+PROCEDURE ReAlloc*(VAR ptr: INTEGER; nSize: INTEGER);
+	VAR p, p2, size, size2, tSize, prev, k, next: INTEGER; reloc: BOOLEAN;
+BEGIN
+	nSize := (nSize+32+63) DIV 64 * 64; p := ptr-32; SYSTEM.GET(p+8, size);
+	p2 := Alloc0(nSize); SYSTEM.COPY(p+32, p2+32, size-32);
+	Free0(p); ptr := p2+32
+END ReAlloc;
+
+(* -------------------------------------------------------------------------- *)
+(* Mark and Sweep *)
+
 
 PROCEDURE InitHeap;
 	VAR i: INTEGER;
@@ -561,6 +631,9 @@ BEGIN heapSize := 80000H;
 	SYSTEM.PUT(heapBase, 0); SYSTEM.PUT(heapBase+8, heapSize)
 END InitHeap;
 
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+(* Init *)
 
 BEGIN
 	ImportExtProc(ExitProcess, Kernel32, 'ExitProcess');
