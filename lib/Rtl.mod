@@ -81,7 +81,7 @@ VAR
 (* -------------------------------------------------------------------------- *)
 (* Utility procedures *)
 	
-PROCEDURE ImportExtProc*(
+PROCEDURE Import*(
 	VAR proc: ARRAY OF SYSTEM.BYTE;
 	libPath, procName: ARRAY OF CHAR
 );
@@ -95,7 +95,7 @@ BEGIN
 	ELSE procAdr := 0
 	END;
 	SYSTEM.PUT(SYSTEM.ADR(proc), procAdr)
-END ImportExtProc;
+END Import;
 
 PROCEDURE MessageBox*(title, msg: ARRAY OF CHAR);
 	VAR iRes: INTEGER;
@@ -438,37 +438,38 @@ PROCEDURE MergeSort(VAR f0: INTEGER);
 		VAR l2, l3, i0, i1, x, y: INTEGER; flag2: BOOLEAN;
 	BEGIN
 		l2 := SYSTEM.ADR(f2); l3 := SYSTEM.ADR(f3); flag2 := TRUE;
-		REPEAT i0 := 0; i1 := 0;
-			REPEAT
-				x := f0; y := f1; SYSTEM.GET(f0, f0); SYSTEM.GET(f1, f1);
-				IF x < y THEN
+		REPEAT x := f0; y := f1;
+			IF x = 0 THEN i0 := run ELSE i0 := 0 END;
+			IF y = 0 THEN i1 := run ELSE i1 := 0 END;
+			WHILE (i0 < run) & (i1 < run) DO
+				IF x < y THEN SYSTEM.GET(f0, f0);
 					IF flag2 THEN SYSTEM.PUT(l2, x); l2 := x
 					ELSE SYSTEM.PUT(l3, x); l3 := x
-					END; INC(i0)
-				ELSE
+					END;
+					x := f0; INC(i0); IF x = 0 THEN i0 := run END
+				ELSE SYSTEM.GET(f1, f1);
 					IF flag2 THEN SYSTEM.PUT(l2, y); l2 := y
 					ELSE SYSTEM.PUT(l3, y); l3 := y
-					END; INC(i1)
-				END;
-				IF f0 = 0 THEN i0 := run END;
-				IF f1 = 0 THEN i1 := run END
-			UNTIL (i0 = run) OR (i1 = run);
-			WHILE i0 < run DO
-				x := f0; SYSTEM.GET(f0, f0);
+					END;
+					y := f1; INC(i1); IF y = 0 THEN i1 := run END
+				END	
+			END;
+			WHILE i0 < run DO SYSTEM.GET(f0, f0);
 				IF flag2 THEN SYSTEM.PUT(l2, x); l2 := x
 				ELSE SYSTEM.PUT(l3, x); l3 := x
 				END;
-				IF f0 = 0 THEN i0 := run ELSE INC(i0) END
+				x := f0; INC(i0); IF x = 0 THEN i0 := run END
 			END;
-			WHILE i1 < run DO
-				y := f1; SYSTEM.GET(f1, f1);
+			WHILE i1 < run DO SYSTEM.GET(f1, f1);
 				IF flag2 THEN SYSTEM.PUT(l2, y); l2 := y
 				ELSE SYSTEM.PUT(l3, y); l3 := y
 				END;
-				IF f1 = 0 THEN i1 := run ELSE INC(i1) END
+				 y := f1; INC(i1); IF y = 0 THEN i1 := run END
 			END;
 			flag2 := ~flag2
-		UNTIL (f0 = 0) & (f1 = 0)
+		UNTIL (f0 = 0) & (f1 = 0);
+		IF l2 # 0 THEN SYSTEM.PUT(l2, 0) END;
+		IF l3 # 0 THEN SYSTEM.PUT(l3, 0) END
 	END Merge;
 	
 	PROCEDURE Distribute(f0: INTEGER; VAR f: FileArray): INTEGER;
@@ -478,7 +479,7 @@ PROCEDURE MergeSort(VAR f0: INTEGER);
 		i := -1; len := 0;
 		WHILE f0 # 0 DO i := (i + 1) MOD 2; INC(len);
 			x := f0; SYSTEM.GET(f0, f0); y := f0;
-			IF f0 # 0 THEN SYSTEM.GET(f0, f0);
+			IF f0 # 0 THEN SYSTEM.GET(f0, f0); INC(len);
 				IF x < y THEN SYSTEM.PUT(l[i], x); SYSTEM.PUT(x, y); l[i] := y
 				ELSE SYSTEM.PUT(l[i], y); SYSTEM.PUT(y, x); l[i] := x
 				END
@@ -636,24 +637,24 @@ END InitHeap;
 (* Init *)
 
 BEGIN
-	ImportExtProc(ExitProcess, Kernel32, 'ExitProcess');
-	ImportExtProc(MessageBoxW, 'USER32.DLL', 'MessageBoxW');
-	ImportExtProc(GetSystemTimeAsFileTime, Kernel32, 'GetSystemTimeAsFileTime');
-	ImportExtProc(GetCommandLineW, Kernel32, 'GetCommandLineW');
+	Import(ExitProcess, Kernel32, 'ExitProcess');
+	Import(MessageBoxW, 'USER32.DLL', 'MessageBoxW');
+	Import(GetSystemTimeAsFileTime, Kernel32, 'GetSystemTimeAsFileTime');
+	Import(GetCommandLineW, Kernel32, 'GetCommandLineW');
 
-	ImportExtProc(VirtualAlloc, Kernel32, 'VirtualAlloc');
+	Import(VirtualAlloc, Kernel32, 'VirtualAlloc');
 	
-	ImportExtProc(GetFileAttributesW, Kernel32, 'GetFileAttributesW');
-	ImportExtProc(CreateFileW, Kernel32, 'CreateFileW');
-	ImportExtProc(CloseHandle, Kernel32, 'CloseHandle');
-	ImportExtProc(MoveFileW, Kernel32, 'MoveFileW');
-	ImportExtProc(DeleteFileW, Kernel32, 'DeleteFileW');
-	ImportExtProc(ReadFile, Kernel32, 'ReadFile');
-	ImportExtProc(WriteFile, Kernel32, 'WriteFile');
-	ImportExtProc(SetFilePointerEx, Kernel32, 'SetFilePointerEx');
+	Import(GetFileAttributesW, Kernel32, 'GetFileAttributesW');
+	Import(CreateFileW, Kernel32, 'CreateFileW');
+	Import(CloseHandle, Kernel32, 'CloseHandle');
+	Import(MoveFileW, Kernel32, 'MoveFileW');
+	Import(DeleteFileW, Kernel32, 'DeleteFileW');
+	Import(ReadFile, Kernel32, 'ReadFile');
+	Import(WriteFile, Kernel32, 'WriteFile');
+	Import(SetFilePointerEx, Kernel32, 'SetFilePointerEx');
 	
-	ImportExtProc(WideCharToMultiByte, Kernel32, 'WideCharToMultiByte');
-	ImportExtProc(MultiByteToWideChar, Kernel32, 'MultiByteToWideChar');
+	Import(WideCharToMultiByte, Kernel32, 'WideCharToMultiByte');
+	Import(MultiByteToWideChar, Kernel32, 'MultiByteToWideChar');
 	
 	InitHeap
 END Rtl.
