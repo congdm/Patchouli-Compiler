@@ -327,8 +327,8 @@ PROCEDURE designator(): B.Object;
 		node, next: B.Node; xtype, ytype, recType: B.Type;
 BEGIN x := qualident();
 	IF (x = NIL) OR (x.class <= B.cType) THEN
-		x := B.NewConst(B.intType, 0);
-		IF x = NIL THEN Mark('not found') ELSE Mark('invalid value') END
+		IF x = NIL THEN Mark('not found') ELSE Mark('invalid value') END;
+		x := B.NewConst(B.intType, 0)
 	END;
 	IF x IS B.Var THEN ronly := x(B.Var).ronly END;
 	WHILE sym = S.period DO

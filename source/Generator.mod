@@ -3090,11 +3090,25 @@ BEGIN
 	Rtl.Close(debug); Rtl.Delete('.pocDebug')
 END Write_debug_section;
 
+PROCEDURE Collect;
+BEGIN
+	Out.String('Before collect: '); Out.Int(Rtl.allocated DIV 1024, 0);
+	Out.String(' KB    '); Rtl.Collect; Out.String('After: ');
+	Out.Int(Rtl.allocated DIV 1024, 0); Out.String(' KB'); Out.Ln
+END Collect;
+
+PROCEDURE Cleanup;
+BEGIN
+	procList := NIL; curProc := NIL;
+	modInitProc := NIL; trapProc := NIL; trapProc2 := NIL;
+	NEWProc := NIL; dllInitProc := NIL; Collect
+END Cleanup;
+
 PROCEDURE Generate*(VAR modinit: B.Node);
 	VAR n: INTEGER; str: B.String;
 BEGIN
 	(* Pass 1 *)
-	pass := 1; Pass1(modinit);
+	pass := 1; Pass1(modinit); Collect;
 	
 	(* Pass 2 *)
 	pass := 2; curProc := procList; pc := 0;
@@ -3171,7 +3185,7 @@ BEGIN
 	Rtl.Delete(str); Rtl.Rename('.tempOut', str); endTime := Rtl.Time();
 
 	(* Show statistics *)
-	Out.String('No errors found.'); Out.Ln;
+	Cleanup; Out.String('No errors found.'); Out.Ln;
 	Out.String('Code size: '); Out.Int(Linker.code_size, 0); Out.Ln;
 	Out.String('Global variables size: '); Out.Int(varSize, 0); Out.Ln;
 	Out.String('Static data size: '); Out.Int(staticSize, 0); Out.Ln;

@@ -34,8 +34,8 @@ VAR
 	VirtualAlloc: PROCEDURE(
 		lpAddress, dwSize, flAllocationType, flProtect: INTEGER
 	): Pointer;
-	heapBase, heapSize: INTEGER;
-	fList: ARRAY 9 OF INTEGER; fList0: INTEGER;
+	heapBase, heapSize: INTEGER; allocated*: INTEGER;
+	fList: ARRAY 4 OF INTEGER; fList0: INTEGER;
 	
 	(* File *)
 	GetFileAttributesW: PROCEDURE(lpFileName: INTEGER): Dword;
@@ -418,10 +418,7 @@ END Register;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 (* Heap management *)
-
-PROCEDURE ValidMark(mark: INTEGER): BOOLEAN;
-	RETURN (mark = 0) OR (mark = -1) OR (mark = -2)
-END ValidMark;
+(* Based on Kernel.mod in Project Oberon 2013 *)
 
 PROCEDURE HeapLimit(): INTEGER;
 	RETURN heapBase + heapSize
@@ -433,81 +430,96 @@ BEGIN
 	IF heapSize = 80000000H THEN Halt('Out of memory') END;
 	p := VirtualAlloc(HeapLimit(), heapSize, MEM_COMMIT, PAGE_READWRITE);
 	IF p = 0 THEN Halt('VirtualAlloc cannot commit') END;
-	SYSTEM.PUT(p+8, heapSize);
+	SYSTEM.PUT(p, heapSize); SYSTEM.PUT(p+8, -1); SYSTEM.PUT(p+16, 0);
 	IF fList0 = 0 THEN fList0 := p
-	ELSE prev := fList0; SYSTEM.GET(fList0, p2);
-		WHILE p2 # 0 DO prev := p2; SYSTEM.GET(p2, p2) END;
-		SYSTEM.PUT(prev, p)
+	ELSE prev := fList0; SYSTEM.GET(fList0+16, p2);
+		WHILE p2 # 0 DO prev := p2; SYSTEM.GET(p2+16, p2) END;
+		SYSTEM.PUT(prev+16, p)
 	END;
 	heapSize := heapSize*2
 END ExtendHeap;
 
-PROCEDURE Split(p, need: INTEGER);
-	VAR size, i, p2, next: INTEGER;
-BEGIN
-	SYSTEM.GET(p+8, size); SYSTEM.GET(p, next);
-	IF need < size THEN i := (size-need) DIV 64; p2 := p+need;
-		SYSTEM.PUT(p+8, need); SYSTEM.PUT(p2+8, size-need);
-		IF i < LEN(fList) THEN SYSTEM.PUT(p2, fList[i]); fList[i] := p2
-		ELSE SYSTEM.PUT(p2, next); SYSTEM.PUT(p, p2)
+PROCEDURE GetBlock(need: INTEGER): INTEGER;
+	(* need is multiple of 512 *)
+	VAR p, q0, q1, q2, size: INTEGER; done: BOOLEAN;
+BEGIN q0 := 0; q1 := fList0; done := FALSE;
+	WHILE ~done & (q1 # 0) DO
+		SYSTEM.GET(q1, size); SYSTEM.GET(q1+16, q2);
+		IF size < need THEN (* no fit *) q0 := q1; q1 := q2
+		ELSIF size = need THEN (* extract -> p *)
+			done := TRUE; p := q1;
+			IF q0 # 0 THEN SYSTEM.PUT(q0+16, q2) ELSE fList0 := q2 END
+		ELSE (* reduce size *)
+			done := TRUE; p := q1; q1 := q1 + need; SYSTEM.PUT(q1, size-need);
+			SYSTEM.PUT(q1+8, -1); SYSTEM.PUT(q1+16, q2);
+			IF q0 # 0 THEN SYSTEM.PUT(q0+16, q1) ELSE fList0 := q1 END
 		END
+	END ;
+	IF ~done THEN ExtendHeap; p := GetBlock(need) END ;
+	RETURN p
+END GetBlock;
+
+PROCEDURE GetBlock256(): INTEGER;
+	VAR p, q: INTEGER;
+BEGIN
+	IF fList[3] # 0 THEN p := fList[3]; SYSTEM.GET(fList[3]+16, fList[3])
+	ELSE q := GetBlock(512); SYSTEM.PUT(q+256, 256); SYSTEM.PUT(q+(256+8), -1);
+		SYSTEM.PUT(q+(256+16), 0); fList[3] := q + 256; p := q
+	END;
+	RETURN p
+END GetBlock256;
+
+PROCEDURE GetBlock128(): INTEGER;
+	VAR p, q: INTEGER;
+BEGIN
+	IF fList[2] # 0 THEN p := fList[2]; SYSTEM.GET(fList[2]+16, fList[2])
+	ELSE q := GetBlock256(); SYSTEM.PUT(q+128, 128); SYSTEM.PUT(q+(128+8), -1);
+		SYSTEM.PUT(q+(128+16), 0); fList[2] := q + 128; p := q
+	END;
+	RETURN p
+END GetBlock128;
+
+PROCEDURE GetBlock64(): INTEGER;
+	VAR p, q: INTEGER;
+BEGIN
+	IF fList[1] # 0 THEN p := fList[1]; SYSTEM.GET(fList[1]+16, fList[1])
+	ELSE q := GetBlock128(); SYSTEM.PUT(q+64, 64); SYSTEM.PUT(q+(64+8), -1);
+		SYSTEM.PUT(q+(64+16), 0); fList[1] := q + 64; p := q
+	END;
+	RETURN p
+END GetBlock64;
+
+PROCEDURE Rounding(VAR size: INTEGER);
+BEGIN
+	IF size < 64 THEN size := 64 ELSIF size < 128 THEN size := 128
+	ELSIF size < 256 THEN size := 256 ELSE size := (size+511) DIV 512 * 512
 	END
-END Split;
-
-PROCEDURE Split2(need: INTEGER): INTEGER;
-	VAR p, size, p2, next, k: INTEGER;
-BEGIN
-	IF fList0 = 0 THEN ExtendHeap END; p := fList0;
-	SYSTEM.GET(p+8, size); SYSTEM.GET(p, next); p2 := p+need;
-	SYSTEM.PUT(p+8, need); SYSTEM.PUT(p2+8, size-need);
-	k := (size-need) DIV 64;
-	IF k >= LEN(fList) THEN fList0 := p2; SYSTEM.PUT(p2, next)
-	ELSE fList0 := next; SYSTEM.PUT(p2, fList[k]); fList[k] := p2
-	END;
-	RETURN p
-END Split2;
-
-PROCEDURE Alloc0(need: INTEGER): INTEGER;
-	VAR p, prev, next, i, k, size: INTEGER;
-BEGIN i := need DIV 64;
-	IF i < LEN(fList) THEN p := fList[i];
-		IF p = 0 THEN p := Split2(need)
-		ELSE SYSTEM.GET(p, next); fList[i] := next
-		END
-	ELSE p := fList0; prev := SYSTEM.ADR(fList0);
-		IF p # 0 THEN SYSTEM.GET(p+8, size) END;
-		WHILE (p # 0) & (size < need) DO
-			prev := p; SYSTEM.GET(p, p);
-			IF p # 0 THEN SYSTEM.GET(p+8, size) END
-		END;
-		IF p # 0 THEN Split(p, need);
-			SYSTEM.GET(p, next); SYSTEM.PUT(prev, next)
-		ELSE ExtendHeap; p := Alloc0(need)
-		END
-	END;
-	RETURN p
-END Alloc0;
+END Rounding;
 
 PROCEDURE New*(VAR ptr: INTEGER; tdAdr: INTEGER);
-	VAR p, size, i, off: INTEGER;
+	VAR p, size, need, lim: INTEGER;
 BEGIN
-	SYSTEM.GET(tdAdr, size); size := (size+16+63) DIV 64 * 64;
-	p := Alloc0(size); SYSTEM.PUT(p, tdAdr); SYSTEM.PUT(p+8, 0);
-	ptr := p+16; INC(p, 16);
+	SYSTEM.GET(tdAdr, size); need := size+16; Rounding(need);
+	IF need = 64 THEN p := GetBlock64()
+	ELSIF need = 128 THEN p := GetBlock128()
+	ELSIF need = 256 THEN p := GetBlock256()
+	ELSE p := GetBlock(need)
+	END;
 	
-	i := tdAdr+64; SYSTEM.GET(i, off);
-	WHILE off # -1 DO SYSTEM.PUT(p+off, 0); INC(i, 8); SYSTEM.GET(i, off) END
+	SYSTEM.PUT(p, tdAdr); SYSTEM.PUT(p+8, 0); ptr := p+16;
+	INC(p, 16); INC(allocated, need); lim := (p+size+7) DIV 8 * 8;
+	WHILE p < lim DO SYSTEM.PUT(p, 0); INC(p, 8) END
 END New;
 
 (* -------------------------------------------------------------------------- *)
 (* Mark and Sweep *)
-(* From Kernel.mod in Project Oberon 2013 *)
 
-PROCEDURE Mark*(pref, modBase: INTEGER);
+PROCEDURE Mark(pref, modBase: INTEGER);
 	VAR pvadr, offadr, offset, tag, p, q, r: INTEGER;
-BEGIN SYSTEM.GET(pref, pvadr); (*pointers < heapBase considered NIL*)
+BEGIN SYSTEM.GET(pref, pvadr); (* pointers < heapBase considered NIL *)
 	WHILE pvadr # -1 DO
-		INC(pvadr, modBase); SYSTEM.GET(pvadr, p); SYSTEM.GET(p-8, offadr);
+		INC(pvadr, modBase); SYSTEM.GET(pvadr, p);
+		IF p >= heapBase THEN SYSTEM.GET(p-8, offadr) END ;
 		IF (p >= heapBase) & (offadr = 0) THEN q := p;
 			(*mark elements in data structure with root p*)
 			REPEAT SYSTEM.GET(p-8, offadr); (* mark word *)
@@ -516,9 +528,11 @@ BEGIN SYSTEM.GET(pref, pvadr); (*pointers < heapBase considered NIL*)
 				END ;
 				SYSTEM.PUT(p-8, offadr); SYSTEM.GET(offadr, offset);
 				IF offset # -1 THEN (*down*)
-					SYSTEM.GET(p+offset, r); SYSTEM.GET(r-8, offadr);
-					IF (r >= heapBase) & (offadr = 0) THEN
-						SYSTEM.PUT(p+offset, q); q := p; p := r
+					SYSTEM.GET(p+offset, r);
+					IF r >= heapBase THEN SYSTEM.GET(r-8, offadr);
+						IF offadr = 0 THEN
+							SYSTEM.PUT(p+offset, q); q := p; p := r
+						END
 					END
 				ELSE (*up*)
 					SYSTEM.GET(q-8, offadr); SYSTEM.GET(offadr, offset);
@@ -533,45 +547,67 @@ BEGIN SYSTEM.GET(pref, pvadr); (*pointers < heapBase considered NIL*)
 	END
 END Mark;
 
-(*PROCEDURE Scan*;
-VAR p, q, mark, tag, size: LONGINT;
-BEGIN p := heapOrg;
-REPEAT SYSTEM.GET(p+4, mark); q := p;
-  WHILE mark = 0 DO
-	SYSTEM.GET(p, tag); SYSTEM.GET(tag, size); INC(p, size); SYSTEM.GET(p+4, mark)
-  END ;
-  size := p - q; DEC(allocated, size);  (*size of free block*)
-  IF size > 0 THEN
-	IF size MOD 64 # 0 THEN
-	  SYSTEM.PUT(q, 32); SYSTEM.PUT(q+4, -1); SYSTEM.PUT(q+8, list3); list3 := q; INC(q, 32); DEC(size, 32)
-	END ;
-	IF size MOD 128 # 0 THEN
-	  SYSTEM.PUT(q, 64); SYSTEM.PUT(q+4, -1); SYSTEM.PUT(q+8, list2); list2 := q; INC(q, 64); DEC(size, 64)
-	END ;
-	IF size MOD 256 # 0 THEN
-	  SYSTEM.PUT(q, 128); SYSTEM.PUT(q+4, -1); SYSTEM.PUT(q+8,  list1); list1 := q; INC(q, 128); DEC(size, 128)
-	END ;
-	IF size > 0 THEN
-	  SYSTEM.PUT(q, size); SYSTEM.PUT(q+4, -1); SYSTEM.PUT(q+8, list0); list0 := q; INC(q, size)
-	END
-  END ;
-  IF mark > 0 THEN SYSTEM.GET(p, tag); SYSTEM.GET(tag, size); SYSTEM.PUT(p+4, 0); INC(p, size)
-  ELSE (*free*) SYSTEM.GET(p, size); INC(p, size)
-  END
-UNTIL p >= heapLim
-END Scan;*)
+PROCEDURE Scan;
+	VAR p, q, mark, tag, size: INTEGER;
+BEGIN p := heapBase;
+	REPEAT SYSTEM.GET(p+8, mark); q := p;
+		WHILE mark = 0 DO
+			SYSTEM.GET(p, tag); SYSTEM.GET(tag, size); INC(size, 16);
+			Rounding(size); INC(p, size); SYSTEM.GET(p+8, mark)
+		END ;
+		size := p - q; DEC(allocated, size);  (* size of free block *)
+		IF size > 0 THEN
+			IF size MOD 128 # 0 THEN
+				SYSTEM.PUT(q, 64); SYSTEM.PUT(q+8, -1);
+				SYSTEM.PUT(q+16, fList[1]); fList[1] := q;
+				INC(q, 64); DEC(size, 64)
+			END ;
+			IF size MOD 256 # 0 THEN
+				SYSTEM.PUT(q, 128); SYSTEM.PUT(q+8, -1);
+				SYSTEM.PUT(q+16, fList[2]); fList[2] := q;
+				INC(q, 128); DEC(size, 128)
+			END ;
+			IF size MOD 512 # 0 THEN
+				SYSTEM.PUT(q, 256); SYSTEM.PUT(q+8, -1);
+				SYSTEM.PUT(q+16, fList[3]); fList[3] := q;
+				INC(q, 256); DEC(size, 256)
+			END ;
+			IF size > 0 THEN
+				SYSTEM.PUT(q, size); SYSTEM.PUT(q+8, -1);
+				SYSTEM.PUT(q+16, fList0); fList0 := q; INC(q, size)
+			END
+		END ;
+		IF mark > 0 THEN
+			SYSTEM.GET(p, tag); SYSTEM.GET(tag, size);
+			SYSTEM.PUT(p+8, 0); INC(size, 16); Rounding(size); INC(p, size)
+		ELSE (*free*) SYSTEM.GET(p, size); INC(p, size)
+		END
+	UNTIL p >= HeapLimit()
+END Scan;
+
+PROCEDURE Collect*;
+	VAR i, modBase, ptrTable, off: INTEGER;
+BEGIN i := 0;
+	WHILE i < nMod DO
+		SYSTEM.GET(modList+i*8, modBase); SYSTEM.GET(modBase-8, ptrTable);
+		Mark(ptrTable, modBase); INC(i)
+	END;
+	Scan
+END Collect;
 
 (* -------------------------------------------------------------------------- *)
 
 PROCEDURE InitHeap;
-	VAR i: INTEGER;
+	VAR i, p: INTEGER;
 BEGIN heapSize := 80000H;
 	heapBase := VirtualAlloc(0, 80000000H, MEM_RESERVE, PAGE_READWRITE);
 	IF heapBase = 0 THEN Halt('Cannot init heap') END;
 	heapBase := VirtualAlloc(heapBase, heapSize, MEM_COMMIT, PAGE_READWRITE);
 	IF heapBase = 0 THEN Halt('Cannot init heap') END;
-	FOR i := 1 TO LEN(fList)-1 DO fList[i] := 0 END; fList0 := heapBase;
-	SYSTEM.PUT(heapBase, 0); SYSTEM.PUT(heapBase+8, heapSize)
+	
+	FOR i := 1 TO LEN(fList)-1 DO fList[i] := 0 END;
+	p := heapBase; fList0 := heapBase; allocated := 0;
+	SYSTEM.PUT(p, heapSize); SYSTEM.PUT(p+8, -1); SYSTEM.PUT(p+16, 0)
 END InitHeap;
 
 (* -------------------------------------------------------------------------- *)
