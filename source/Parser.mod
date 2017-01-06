@@ -172,15 +172,20 @@ BEGIN xtype := x.type; ftype := fpar.type;
 		THEN (*valid*) ELSE Mark('invalid par type')
 		END
 	ELSIF ~fpar.varpar THEN
-		IF ~CompTypes(ftype, xtype) THEN Mark('invalid par type') END
+		IF ~CompTypes(ftype, xtype) THEN Mark('invalid par type')
+		ELSIF (ftype.form = B.tArray) & (ftype.len >= 0) THEN
+			IF (x IS B.Str) & (x(B.Str).len > ftype.len) THEN
+				Mark('String is longer than dest array')
+			END
+		END
 	ELSIF fpar.varpar THEN
 		CheckVar(x, fpar.ronly); xform := xtype.form; fform := ftype.form;
 		IF (xtype = ftype)
 		OR (fform = B.tRec) & (xform = B.tRec) & IsExt(xtype, ftype)
 		OR (fform = B.tArray) & (xform = B.tArray)
 			& (ftype.base = xtype.base) & (ftype.len = xtype.len)
-		OR IsStr(xtype) & IsStr(ftype)
-		THEN (*valid*) ELSE Mark('invalid par type')
+		THEN (*valid*)
+		ELSE Mark('invalid par type')
 		END
 	END
 END CheckPar;
@@ -814,8 +819,13 @@ BEGIN
 				CheckVar(x, FALSE); GetSym; y := expression();
 				IF CompTypes(x.type, y.type)
 				OR (x.type.form = B.tArray) & IsOpenArray(y.type)
-					& (y.type.base = x.type.base)
-				THEN (*valid*) ELSE Mark('Invalid assignment')
+					& (y.type.base = x.type.base) THEN
+					IF (x.type.form = B.tArray) & (x.type.len >= 0) THEN
+						IF (y IS B.Str) & (x.type.len < y(B.Str).len) THEN
+							Mark('String is longer than dest array')
+						END
+					END
+				ELSE Mark('Invalid assignment')
 				END;
 				StrToCharIfNeed(x, y); stat.left := NewNode(S.becomes, x, y)
 			ELSIF sym = S.eql THEN
