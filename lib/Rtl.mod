@@ -14,10 +14,10 @@ CONST
 TYPE
 	Handle = INTEGER;
 	Pointer = INTEGER;
-	Bool = INTEGER;
-	Int = INTEGER;
-	Dword = INTEGER;
-	Uint = INTEGER;
+	Bool = SYSTEM.CARD32;
+	Int = SYSTEM.CARD32;
+	Dword = SYSTEM.CARD32;
+	Uint = SYSTEM.CARD32;
 	
 	File* = RECORD hFile: INTEGER END;
 
@@ -98,7 +98,7 @@ BEGIN
 END Import;
 
 PROCEDURE MessageBox*(title, msg: ARRAY OF CHAR);
-	VAR iRes: INTEGER;
+	VAR iRes: Int;
 BEGIN iRes := MessageBoxW(0, SYSTEM.ADR(msg), SYSTEM.ADR(title), 0)
 END MessageBox;
 
@@ -194,7 +194,7 @@ END TimeToMSecs;
 
 PROCEDURE ExistFile*(fname: ARRAY OF CHAR): BOOLEAN;
 	CONST INVALID_FILE_ATTRIBUTES = {0..31};
-	VAR dwRes: INTEGER;
+	VAR dwRes: Dword;
 BEGIN
 	dwRes := GetFileAttributesW(SYSTEM.ADR(fname));
 	RETURN dwRes # ORD(INVALID_FILE_ATTRIBUTES)
@@ -227,17 +227,17 @@ BEGIN
 END Rewrite;
 
 PROCEDURE Close*(VAR f: File);
-	VAR bRes: INTEGER;
+	VAR bRes: Bool;
 BEGIN bRes := CloseHandle(f.hFile); f.hFile := 0
 END Close;
 
 PROCEDURE Rename*(old, new: ARRAY OF CHAR);
-	VAR bRes: INTEGER;
+	VAR bRes: Bool;
 BEGIN bRes := MoveFileW(SYSTEM.ADR(old), SYSTEM.ADR(new))
 END Rename;
 
 PROCEDURE Delete*(fname: ARRAY OF CHAR);
-	VAR bRes: INTEGER;
+	VAR bRes: Bool;
 BEGIN bRes := DeleteFileW(SYSTEM.ADR(fname))
 END Delete;
 
@@ -245,21 +245,21 @@ END Delete;
 (* Read *)
 
 PROCEDURE Read1*(f: File; VAR n: INTEGER);
-	VAR bRes, byteRead: INTEGER; x: BYTE;
+	VAR bRes: Bool; byteRead: Dword; x: BYTE;
 BEGIN byteRead := 0;
 	bRes := ReadFile(f.hFile, SYSTEM.ADR(x), 1, SYSTEM.ADR(byteRead), 0);
 	IF (bRes # 0) & (byteRead = 1) THEN n := x ELSE n := -1 END
 END Read1;
 	
 PROCEDURE Read2*(f: File; VAR n: INTEGER);
-	VAR bRes, x, byteRead: INTEGER;
+	VAR bRes: Bool; byteRead: Dword; x: SYSTEM.CARD16;
 BEGIN
 	bRes := ReadFile(f.hFile, SYSTEM.ADR(x), 2, SYSTEM.ADR(byteRead), 0);
-	IF (bRes # 0) & (byteRead = 2) THEN n := x MOD 10000H ELSE n := -1 END
+	IF (bRes # 0) & (byteRead = 2) THEN n := x ELSE n := -1 END
 END Read2;
 
 PROCEDURE ReadStr*(f: File; VAR str: ARRAY OF CHAR);
-	VAR i: INTEGER; bRes, byteRead: INTEGER; ch: CHAR;
+	VAR i: INTEGER; bRes: Bool; byteRead: Dword; ch: CHAR;
 BEGIN i := 0;
 	bRes := ReadFile(f.hFile, SYSTEM.ADR(ch), 2, SYSTEM.ADR(byteRead), 0);
 	WHILE (i < LEN(str)) & (ch # 0X) DO
@@ -271,21 +271,20 @@ BEGIN i := 0;
 END ReadStr;
 	
 PROCEDURE Read4*(f: File; VAR n: INTEGER);
-	VAR bRes, x, byteRead: INTEGER;
+	VAR bRes: Bool; byteRead: Dword; x: SYSTEM.CARD32;
 BEGIN
 	bRes := ReadFile(f.hFile, SYSTEM.ADR(x), 4, SYSTEM.ADR(byteRead), 0);
-	IF (bRes # 0) & (byteRead = 2) THEN n := x MOD 100000000H ELSE n := -1 END
+	IF (bRes # 0) & (byteRead = 4) THEN n := x ELSE n := -1 END
 END Read4;
 	
 PROCEDURE Read8*(f: File; VAR n: INTEGER);
-	VAR bRes, x, byteRead: INTEGER;
+	VAR bRes: Bool; byteRead: Dword;
 BEGIN
-	bRes := ReadFile(f.hFile, SYSTEM.ADR(x), 8, SYSTEM.ADR(byteRead), 0);
-	n := x
+	bRes := ReadFile(f.hFile, SYSTEM.ADR(n), 8, SYSTEM.ADR(byteRead), 0)
 END Read8;
 
 PROCEDURE ReadBytes*(f: File; VAR buf: ARRAY OF BYTE; VAR byteRead: INTEGER);
-	VAR bRes, dwByteRead: INTEGER;
+	VAR bRes: Bool; dwByteRead: Dword;
 BEGIN dwByteRead := 0;
 	bRes := ReadFile(
 		f.hFile, SYSTEM.ADR(buf), LEN(buf), SYSTEM.ADR(dwByteRead), 0
@@ -297,13 +296,13 @@ END ReadBytes;
 (* Write *)
 	
 PROCEDURE Write1*(f: File; n: INTEGER);
-	VAR bRes, byteWritten: INTEGER;
+	VAR bRes: Bool; byteWritten: Dword;
 BEGIN
 	bRes := WriteFile(f.hFile, SYSTEM.ADR(n), 1, SYSTEM.ADR(byteWritten), 0)
 END Write1;
 	
 PROCEDURE Write2*(f: File; n: INTEGER);
-	VAR bRes, byteWritten: INTEGER;
+	VAR bRes: Bool; byteWritten: Dword;
 BEGIN
 	bRes := WriteFile(f.hFile, SYSTEM.ADR(n), 2, SYSTEM.ADR(byteWritten), 0)
 END Write2;
@@ -321,19 +320,19 @@ BEGIN i := -1; n := 0;
 END WriteAnsiStr;
 	
 PROCEDURE Write4*(f: File; n: INTEGER);
-	VAR bRes, byteWritten: INTEGER;
+	VAR bRes: Bool; byteWritten: Dword;
 BEGIN
 	bRes := WriteFile(f.hFile, SYSTEM.ADR(n), 4, SYSTEM.ADR(byteWritten), 0)
 END Write4;
 	
 PROCEDURE Write8*(f: File; n: INTEGER);
-	VAR bRes, byteWritten: INTEGER;
+	VAR bRes: Bool; byteWritten: Dword;
 BEGIN
 	bRes := WriteFile(f.hFile, SYSTEM.ADR(n), 8, SYSTEM.ADR(byteWritten), 0)
 END Write8;
 
 PROCEDURE WriteBytes*(f: File; a: ARRAY OF BYTE; VAR byteWritten: INTEGER);
-	VAR bRes, dwByteWritten: INTEGER;
+	VAR bRes: Bool; dwByteWritten: Dword;
 BEGIN dwByteWritten := 0;
 	bRes := WriteFile(
 		f.hFile, SYSTEM.ADR(a), LEN(a), SYSTEM.ADR(dwByteWritten), 0
@@ -342,7 +341,7 @@ BEGIN dwByteWritten := 0;
 END WriteBytes;
 
 PROCEDURE WriteBuf*(f: File; ptr: INTEGER; VAR byteWritten: INTEGER);
-	VAR bRes, dwByteWritten: INTEGER;
+	VAR bRes: Bool; dwByteWritten: Dword;
 BEGIN dwByteWritten := 0;
 	bRes := WriteFile(
 		f.hFile, ptr, byteWritten, SYSTEM.ADR(dwByteWritten), 0
@@ -419,8 +418,6 @@ END Register;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 (* Heap management *)
-(* The algorithm in here is based on Quick Fit described in *)
-(* http://www.flounder.com/memory_allocation.htm *)
 
 PROCEDURE ValidMark(mark: INTEGER): BOOLEAN;
 	RETURN (mark = 0) OR (mark = -1) OR (mark = -2)
@@ -429,82 +426,6 @@ END ValidMark;
 PROCEDURE HeapLimit(): INTEGER;
 	RETURN heapBase + heapSize
 END HeapLimit;
-
-PROCEDURE MergeSort(VAR f0: INTEGER);
-	TYPE FileArray = ARRAY 4 OF INTEGER; 
-	VAR f: FileArray; run, len: INTEGER; flag: BOOLEAN;
-	
-	PROCEDURE Merge(VAR f0, f1, f2, f3: INTEGER; run: INTEGER);
-		VAR l2, l3, i0, i1, x, y: INTEGER; flag2: BOOLEAN;
-	BEGIN
-		l2 := SYSTEM.ADR(f2); l3 := SYSTEM.ADR(f3); flag2 := TRUE;
-		REPEAT x := f0; y := f1;
-			IF x = 0 THEN i0 := run ELSE i0 := 0 END;
-			IF y = 0 THEN i1 := run ELSE i1 := 0 END;
-			WHILE (i0 < run) & (i1 < run) DO
-				IF x < y THEN SYSTEM.GET(f0, f0);
-					IF flag2 THEN SYSTEM.PUT(l2, x); l2 := x
-					ELSE SYSTEM.PUT(l3, x); l3 := x
-					END;
-					x := f0; INC(i0); IF x = 0 THEN i0 := run END
-				ELSE SYSTEM.GET(f1, f1);
-					IF flag2 THEN SYSTEM.PUT(l2, y); l2 := y
-					ELSE SYSTEM.PUT(l3, y); l3 := y
-					END;
-					y := f1; INC(i1); IF y = 0 THEN i1 := run END
-				END	
-			END;
-			WHILE i0 < run DO SYSTEM.GET(f0, f0);
-				IF flag2 THEN SYSTEM.PUT(l2, x); l2 := x
-				ELSE SYSTEM.PUT(l3, x); l3 := x
-				END;
-				x := f0; INC(i0); IF x = 0 THEN i0 := run END
-			END;
-			WHILE i1 < run DO SYSTEM.GET(f1, f1);
-				IF flag2 THEN SYSTEM.PUT(l2, y); l2 := y
-				ELSE SYSTEM.PUT(l3, y); l3 := y
-				END;
-				 y := f1; INC(i1); IF y = 0 THEN i1 := run END
-			END;
-			flag2 := ~flag2
-		UNTIL (f0 = 0) & (f1 = 0);
-		IF l2 # 0 THEN SYSTEM.PUT(l2, 0) END;
-		IF l3 # 0 THEN SYSTEM.PUT(l3, 0) END
-	END Merge;
-	
-	PROCEDURE Distribute(f0: INTEGER; VAR f: FileArray): INTEGER;
-		VAR l: ARRAY 2 OF INTEGER; x, y, i, len: INTEGER;
-	BEGIN
-		l[0] := SYSTEM.ADR(f[0]); l[1] := SYSTEM.ADR(f[1]);
-		i := -1; len := 0;
-		WHILE f0 # 0 DO i := (i + 1) MOD 2; INC(len);
-			x := f0; SYSTEM.GET(f0, f0); y := f0;
-			IF f0 # 0 THEN SYSTEM.GET(f0, f0); INC(len);
-				IF x < y THEN SYSTEM.PUT(l[i], x); SYSTEM.PUT(x, y); l[i] := y
-				ELSE SYSTEM.PUT(l[i], y); SYSTEM.PUT(y, x); l[i] := x
-				END
-			ELSE SYSTEM.PUT(l[i], x); l[i] := x
-			END
-		END;
-		IF l[0] # 0 THEN SYSTEM.PUT(l[0], 0) END;
-		IF l[1] # 0 THEN SYSTEM.PUT(l[1], 0) END;
-		RETURN len
-	END Distribute;
-	
-BEGIN (* MergeSort *)
-	ASSERT(f0 # 0); len := Distribute(f0, f); run := 2; flag := TRUE;
-	WHILE run < len DO
-		IF flag THEN Merge(f[0], f[1], f[2], f[3], run)
-		ELSE Merge(f[2], f[3], f[0], f[1], run)
-		END; run := run*2; flag := ~flag
-	END;
-	IF f[0] # 0 THEN f0 := f[0]
-	ELSIF f[1] # 0 THEN f0 := f[1]
-	ELSIF f[2] # 0 THEN f0 := f[2]
-	ELSIF f[3] # 0 THEN f0 := f[3]
-	ELSE ASSERT(FALSE)
-	END
-END MergeSort;
 
 PROCEDURE ExtendHeap;
 	VAR p, mark, size, prev, p2: INTEGER;
@@ -553,73 +474,94 @@ BEGIN i := need DIV 64;
 		IF p = 0 THEN p := Split2(need)
 		ELSE SYSTEM.GET(p, next); fList[i] := next
 		END
-	ELSE p := fList0; prev := 0;
+	ELSE p := fList0; prev := SYSTEM.ADR(fList0);
 		IF p # 0 THEN SYSTEM.GET(p+8, size) END;
 		WHILE (p # 0) & (size < need) DO
 			prev := p; SYSTEM.GET(p, p);
 			IF p # 0 THEN SYSTEM.GET(p+8, size) END
 		END;
-		IF p # 0 THEN Split(p, need); SYSTEM.GET(p, next);
-			IF prev = 0 THEN fList0 := next ELSE SYSTEM.PUT(prev, next) END
+		IF p # 0 THEN Split(p, need);
+			SYSTEM.GET(p, next); SYSTEM.PUT(prev, next)
 		ELSE ExtendHeap; p := Alloc0(need)
 		END
 	END;
 	RETURN p
 END Alloc0;
 
-PROCEDURE Free0(p: INTEGER);
-	VAR size, i, p2, prev, size0, size2: INTEGER;
-BEGIN
-	SYSTEM.GET(p+8, size); i := size DIV 64;
-	IF i < LEN(fList) THEN SYSTEM.PUT(p, fList[i]); fList[i] := p
-	ELSE prev := 0; p2 := fList0;
-		IF (p2 = 0) OR (p2 > p) THEN SYSTEM.PUT(p, p2); fList0 := p
-		ELSE prev := fList0; SYSTEM.GET(p2, p2);
-			WHILE (p2 # 0) & (p2 < p) DO prev := p2; SYSTEM.GET(p2, p2) END;
-			SYSTEM.PUT(prev, p); SYSTEM.PUT(p, p2)
-		END;
-		IF (prev # 0) & (prev < p) THEN SYSTEM.GET(prev+8, size0);
-			IF prev+size0 = p THEN
-				INC(size, size0); p := prev;
-				SYSTEM.PUT(p, p2); SYSTEM.PUT(p+8, size)
-			END
-		END;
-		IF (p+size = p2) THEN
-			SYSTEM.GET(p2+8, size2); SYSTEM.GET(p2, p2);
-			SYSTEM.PUT(p, p2); SYSTEM.PUT(p+8, size+size2)
-		END
-	END
-END Free0;
-
 PROCEDURE New*(VAR ptr: INTEGER; tdAdr: INTEGER);
 	VAR p, size, i, off: INTEGER;
 BEGIN
-	SYSTEM.GET(tdAdr, size); size := (size+32+63) DIV 64 * 64;
-	p := Alloc0(size); SYSTEM.PUT(p+16, tdAdr); ptr := p+32; INC(p, 32);
+	SYSTEM.GET(tdAdr, size); size := (size+16+63) DIV 64 * 64;
+	p := Alloc0(size); SYSTEM.PUT(p, tdAdr); SYSTEM.PUT(p+8, 0);
+	ptr := p+16; INC(p, 16);
 	
 	i := tdAdr+64; SYSTEM.GET(i, off);
 	WHILE off # -1 DO SYSTEM.PUT(p+off, 0); INC(i, 8); SYSTEM.GET(i, off) END
 END New;
 
-PROCEDURE Alloc*(VAR ptr: INTEGER; size: INTEGER);
-BEGIN size := (size+32+63) DIV 64 * 64; ptr := Alloc0(size) + 32
-END Alloc;
-
-PROCEDURE Free*(ptr: INTEGER);
-BEGIN Free0(ptr-32)
-END Free;
-
-PROCEDURE ReAlloc*(VAR ptr: INTEGER; nSize: INTEGER);
-	VAR p, p2, size, size2, tSize, prev, k, next: INTEGER; reloc: BOOLEAN;
-BEGIN
-	nSize := (nSize+32+63) DIV 64 * 64; p := ptr-32; SYSTEM.GET(p+8, size);
-	p2 := Alloc0(nSize); SYSTEM.COPY(p+32, p2+32, size-32);
-	Free0(p); ptr := p2+32
-END ReAlloc;
-
 (* -------------------------------------------------------------------------- *)
 (* Mark and Sweep *)
+(* From Kernel.mod in Project Oberon 2013 *)
 
+PROCEDURE Mark*(pref, modBase: INTEGER);
+	VAR pvadr, offadr, offset, tag, p, q, r: INTEGER;
+BEGIN SYSTEM.GET(pref, pvadr); (*pointers < heapBase considered NIL*)
+	WHILE pvadr # -1 DO
+		INC(pvadr, modBase); SYSTEM.GET(pvadr, p); SYSTEM.GET(p-8, offadr);
+		IF (p >= heapBase) & (offadr = 0) THEN q := p;
+			(*mark elements in data structure with root p*)
+			REPEAT SYSTEM.GET(p-8, offadr); (* mark word *)
+				IF offadr = 0 THEN SYSTEM.GET(p-16, tag); offadr := tag + 64
+				ELSE INC(offadr, 8)
+				END ;
+				SYSTEM.PUT(p-8, offadr); SYSTEM.GET(offadr, offset);
+				IF offset # -1 THEN (*down*)
+					SYSTEM.GET(p+offset, r); SYSTEM.GET(r-8, offadr);
+					IF (r >= heapBase) & (offadr = 0) THEN
+						SYSTEM.PUT(p+offset, q); q := p; p := r
+					END
+				ELSE (*up*)
+					SYSTEM.GET(q-8, offadr); SYSTEM.GET(offadr, offset);
+					IF p # q THEN
+						SYSTEM.GET(q+offset, r); SYSTEM.PUT(q+offset, p);
+						p := q; q := r
+					END
+				END
+			UNTIL (p = q) & (offset = -1)
+		END ;
+		INC(pref, 8); SYSTEM.GET(pref, pvadr)
+	END
+END Mark;
+
+(*PROCEDURE Scan*;
+VAR p, q, mark, tag, size: LONGINT;
+BEGIN p := heapOrg;
+REPEAT SYSTEM.GET(p+4, mark); q := p;
+  WHILE mark = 0 DO
+	SYSTEM.GET(p, tag); SYSTEM.GET(tag, size); INC(p, size); SYSTEM.GET(p+4, mark)
+  END ;
+  size := p - q; DEC(allocated, size);  (*size of free block*)
+  IF size > 0 THEN
+	IF size MOD 64 # 0 THEN
+	  SYSTEM.PUT(q, 32); SYSTEM.PUT(q+4, -1); SYSTEM.PUT(q+8, list3); list3 := q; INC(q, 32); DEC(size, 32)
+	END ;
+	IF size MOD 128 # 0 THEN
+	  SYSTEM.PUT(q, 64); SYSTEM.PUT(q+4, -1); SYSTEM.PUT(q+8, list2); list2 := q; INC(q, 64); DEC(size, 64)
+	END ;
+	IF size MOD 256 # 0 THEN
+	  SYSTEM.PUT(q, 128); SYSTEM.PUT(q+4, -1); SYSTEM.PUT(q+8,  list1); list1 := q; INC(q, 128); DEC(size, 128)
+	END ;
+	IF size > 0 THEN
+	  SYSTEM.PUT(q, size); SYSTEM.PUT(q+4, -1); SYSTEM.PUT(q+8, list0); list0 := q; INC(q, size)
+	END
+  END ;
+  IF mark > 0 THEN SYSTEM.GET(p, tag); SYSTEM.GET(tag, size); SYSTEM.PUT(p+4, 0); INC(p, size)
+  ELSE (*free*) SYSTEM.GET(p, size); INC(p, size)
+  END
+UNTIL p >= heapLim
+END Scan;*)
+
+(* -------------------------------------------------------------------------- *)
 
 PROCEDURE InitHeap;
 	VAR i: INTEGER;

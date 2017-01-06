@@ -1,2 +1,2 @@
-move /Y *.dll ..\bin\
-move /Y Poc.exe ..\bin\
+move /Y *.dll ..\build\
+move /Y Poc.exe ..\build\

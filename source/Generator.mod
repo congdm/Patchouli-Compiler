@@ -67,15 +67,14 @@ CONST
 	mCond = 7; mProc = 8; mType = 9; mBX = 10; mNothing = 11;
 	
 	(* Trap code *)
-	divideTrap = 0;
+	modkeyTrap = 0;
 	arrayTrap = 1;
 	typeTrap = 2;
-	assertTrap = 3;
+	stringTrap = 3;
 	nilTrap = 4;
-	modkeyTrap = 5;
-	overflowTrap = 6;
-	stringTrap = 7;
-	arrayLenTrap = 8;
+	nilProcTrap = 5;
+	divideTrap = 6;
+	assertTrap = 7;
 	
 TYPE
 	Proc = POINTER TO ProcDesc;
@@ -581,12 +580,10 @@ END AllocImport;
 PROCEDURE AllocStaticData;
 	VAR p: B.Ident; q: B.TypeList; x: B.Object;
 		strSize, tdSize, align: INTEGER;
-BEGIN p := B.strList;
+BEGIN
+	staticSize := (staticSize + 15) DIV 16 * 16; p := B.strList;
 	WHILE p # NIL DO
-		x := p.obj; strSize := 2*x(B.Str).len;
-		NaturalAlign(strSize); INC(staticSize, strSize);
-		IF strSize <= 8 THEN align := strSize ELSE align := 16 END;
-		staticSize := (staticSize + align - 1) DIV align * align;
+		x := p.obj; strSize := 2*x(B.Str).len; INC(staticSize, strSize);
 		x(B.Str).adr := -staticSize; p := p.next
 	END;
 	staticSize := (staticSize + 15) DIV 16 * 16; q := B.recList;
@@ -1599,7 +1596,7 @@ BEGIN
 	
 	IF node.left IS B.Proc THEN MakeItem0(x, node.left)
 	ELSE AvoidUsedBy(node.right); MakeItem0(x, node.left);
-		Load(x); EmitRR(TEST, x.r, 8, x.r); Trap(ccZ, nilTrap)
+		Load(x); EmitRR(TEST, x.r, 8, x.r); Trap(ccZ, nilProcTrap)
 	END;
 	IF node.right # NIL THEN
 		Parameter(node.right(Node), procType.fields, 0)
@@ -1759,7 +1756,7 @@ BEGIN
 			SetAlloc(reg_C); ArrayLen(z, node.right); SetRmOperand(z);
 			EmitRegRm(MOVd, reg_C, 8); EmitRI(CMPi, reg_C, 8, x.type.len);
 			rsize := y.type.base.align; cx := y.type.base.size DIV rsize;
-			Trap(ccA, arrayLenTrap); EmitRI(IMULi, reg_C, 8, cx);
+			Trap(ccA, stringTrap); EmitRI(IMULi, reg_C, 8, cx);
 			EmitRep(MOVSrep, rsize, 1)
 		ELSE cx := x.type.size;
 			IF cx MOD 8 = 0 THEN cx := cx DIV 8; rsize := 8
@@ -2487,8 +2484,9 @@ BEGIN
 			t := t.next
 		END;
 		
+		SetRm_regI(reg_B, modPtrTable); EmitRegRm(LEA, reg_A, 8);
+		SetRm_regI(reg_B, -8); EmitRegRm(MOV, reg_A, 8);
 		IF B.Flag.rtl[0] # 0X THEN ImportRTL END;
-		
 		IF modInitProc # NIL THEN CallProc2(modInitProc) END;
 		Linker.entry := dllInitProc.adr;
 
