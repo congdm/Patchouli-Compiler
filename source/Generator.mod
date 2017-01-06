@@ -3090,25 +3090,18 @@ BEGIN
 	Rtl.Close(debug); Rtl.Delete('.pocDebug')
 END Write_debug_section;
 
-PROCEDURE Collect;
-BEGIN
-	Out.String('Before collect: '); Out.Int(Rtl.allocated DIV 1024, 0);
-	Out.String(' KB    '); Rtl.Collect; Out.String('After: ');
-	Out.Int(Rtl.allocated DIV 1024, 0); Out.String(' KB'); Out.Ln
-END Collect;
-
 PROCEDURE Cleanup;
 BEGIN
 	procList := NIL; curProc := NIL;
 	modInitProc := NIL; trapProc := NIL; trapProc2 := NIL;
-	NEWProc := NIL; dllInitProc := NIL; Collect
+	NEWProc := NIL; dllInitProc := NIL; Rtl.Collect
 END Cleanup;
 
 PROCEDURE Generate*(VAR modinit: B.Node);
 	VAR n: INTEGER; str: B.String;
 BEGIN
 	(* Pass 1 *)
-	pass := 1; Pass1(modinit); Collect;
+	pass := 1; Pass1(modinit); Rtl.Collect;
 	
 	(* Pass 2 *)
 	pass := 2; curProc := procList; pc := 0;

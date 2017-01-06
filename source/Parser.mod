@@ -929,7 +929,8 @@ BEGIN
 	IF sym = S.ident THEN ident := B.universe.first;
 		WHILE (ident # NIL) & (ident.name # S.id) DO ident := ident.next END;
 		IF ident # NIL THEN x := ident.obj;
-			IF (x.class = B.cType) & (x.type.form = B.tRec) THEN
+			IF x = NIL THEN Mark('Type not defined yet')
+			ELSIF (x.class = B.cType) & (x.type.form = B.tRec) THEN
 				ptrType.base := x.type
 			ELSE Mark('not record type')
 			END
