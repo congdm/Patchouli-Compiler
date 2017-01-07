@@ -87,14 +87,27 @@ PROCEDURE IsOpenArray(tp: B.Type): BOOLEAN;
 	RETURN (tp.form = B.tArray) & (tp.len < 0)
 END IsOpenArray;
 
+PROCEDURE IsOpenArray0(tp: B.Type): BOOLEAN;
+	RETURN (tp.form = B.tArray) & (tp.len < 0) & (tp.notag)
+END IsOpenArray0;
+
+PROCEDURE CompArray(t1, t2: B.Type): BOOLEAN;
+	RETURN (t1.form = B.tArray) & (t2.form = B.tArray)
+		& ((t1.base = t2.base) OR CompArray(t1.base, t2.base))
+END CompArray;
+
+PROCEDURE SameParType(t1, t2: B.Type): BOOLEAN;
+	RETURN (t1 = t2)
+	OR (t1.form = B.tArray) & (t1.form = B.tArray)
+		& (t1.base = t2.base) & (t1.notag = t2.notag)
+		& (t1.len = -1) & (t2.len = -1)
+END SameParType;
+
 PROCEDURE SamePars(p1, p2: B.Ident): BOOLEAN;
 	RETURN (p1 = NIL) & (p2 = NIL)
 	OR (p1 # NIL) & (p2 # NIL)
 		& (p1.obj(B.Par).varpar = p2.obj(B.Par).varpar)
-		& ((p1.obj.type = p2.obj.type)
-			OR (p1.obj.type.form = B.tArray) & (p2.obj.type.form = B.tArray)
-				& (p1.obj.type.len < 0) & (p2.obj.type.len < 0)
-				& (p1.obj.type.base = p2.obj.type.base))
+		& SameParType(p1.obj.type, p2.obj.type)
 		& SamePars(p1.next, p2.next)
 END SamePars;
 
@@ -162,31 +175,33 @@ BEGIN
 	END
 END CheckVar;
 
+PROCEDURE CheckStrLen(xtype: B.Type; y: B.Object);
+BEGIN
+	IF xtype.len >= 0 THEN
+		IF (y IS B.Str) & (y(B.Str).len > xtype.len)
+		OR (y.type.len > xtype.len) THEN Mark('string longer than dest')
+		END
+	END
+END CheckStrLen;
+
 PROCEDURE CheckPar(fpar: B.Par; x: B.Object);
 	VAR xtype, ftype: B.Type; xform, fform: INTEGER;
 BEGIN xtype := x.type; ftype := fpar.type;
-	IF IsOpenArray(ftype) THEN
-		CheckVar(x, fpar.ronly); xform := xtype.form; fform := ftype.form;
-		IF (xform = B.tArray) & (ftype.base = xtype.base)
-		OR (ftype.base = B.byteType) OR IsStr(xtype) & IsStr(ftype)
-		THEN (*valid*) ELSE Mark('invalid par type')
+	IF IsOpenArray(ftype) THEN CheckVar(x, fpar.ronly);
+		IF IsOpenArray0(xtype) & ~ftype.notag THEN Mark('untagged open array')
+		ELSIF CompArray(ftype, xtype) OR (ftype.base = B.byteType)
+		OR IsStr(xtype) & IsStr(ftype) THEN (*valid*)
+		ELSE Mark('invalid par type')
 		END
 	ELSIF ~fpar.varpar THEN
 		IF ~CompTypes(ftype, xtype) THEN Mark('invalid par type')
-		ELSIF (ftype.form = B.tArray) & IsStr(ftype) & (ftype.len >= 0) THEN
-			IF (x IS B.Str) & (x(B.Str).len > ftype.len)
-			OR (xtype.form = B.tArray) & (xtype.len > ftype.len)
-			THEN Mark('String is longer than dest array')
-			END
+		ELSIF IsStr(ftype) THEN CheckStrLen(ftype, x)
 		END
 	ELSIF fpar.varpar THEN
 		CheckVar(x, fpar.ronly); xform := xtype.form; fform := ftype.form;
-		IF (xtype = ftype)
+		IF (xtype = ftype) OR CompArray(xtype, ftype) & (ftype.len = xtype.len)
 		OR (fform = B.tRec) & (xform = B.tRec) & IsExt(xtype, ftype)
-		OR (fform = B.tArray) & (xform = B.tArray)
-			& (ftype.base = xtype.base) & (ftype.len = xtype.len)
-		THEN (*valid*)
-		ELSE Mark('invalid par type')
+		THEN (*valid*) ELSE Mark('invalid par type')
 		END
 	END
 END CheckPar;
@@ -195,9 +210,10 @@ PROCEDURE CheckLeft(x: B.Object; op: INTEGER);
 	CONST ivlType = 'invalid type';
 BEGIN
 	IF (op >= S.eql) & (op <= S.geq) THEN
-		IF (x.type.form IN B.typCmp) OR IsStr(x.type)
-		OR (op <= S.neq) & (x.type.form IN B.typEql)
-		THEN (*valid*) ELSE Mark(ivlType)
+		IF IsOpenArray0(x.type) THEN Mark('untagged open array')
+		ELSIF (x.type.form IN B.typCmp) OR IsStr(x.type)
+		OR (op <= S.neq) & (x.type.form IN B.typEql) THEN (*valid*)
+		ELSE Mark(ivlType)
 		END
 	ELSIF op = S.is THEN
 		IF TypeTestable(x) THEN (*valid*) ELSE Mark(ivlType) END
@@ -364,6 +380,11 @@ BEGIN x := qualident();
 	ELSIF sym = S.lbrak DO
 		Check1(x, {B.tArray}); GetSym; y := expression0(); CheckInt(y);
 		xtype := x.type; x := NewNode(S.lbrak, x, y); x(B.Node).ronly := ronly;
+		IF (xtype.form = B.tArray) & (xtype.len >= 0) THEN
+			IF (y IS B.Const) & (y(B.Const).val >= xtype.len) THEN
+				Mark('index out of range')
+			END
+		END;
 		IF xtype.base # NIL THEN x.type := xtype.base ELSE x.type := xtype END;
 		WHILE sym = S.comma DO
 			IF x.type.form # B.tArray THEN Mark('not multi-dimension') END;
@@ -419,7 +440,9 @@ BEGIN GetSym;
 			x := B.NewConst(B.intType, y.type.len)
 		ELSIF y.type.form = B.tStr THEN
 			x := B.NewConst(B.intType, y(B.Str).len)
-		ELSE x := NewNode(S.sfLEN, y, NIL); x.type := B.intType
+		ELSIF ~y.type.notag THEN
+			x := NewNode(S.sfLEN, y, NIL); x.type := B.intType
+		ELSE Mark('open array without length tag')
 		END
 	ELSIF (f.id >= B.sfLSL) & (f.id <= B.sfROR) THEN
 		y := expression0(); CheckInt(y);
@@ -609,8 +632,9 @@ PROCEDURE expression(): B.Object;
 BEGIN x := SimpleExpression();
 	IF (sym >= S.eql) & (sym <= S.geq) THEN
 		CheckLeft(x, sym); op := sym; GetSym; y := SimpleExpression();
-		IF ~CompTypes2(x.type, y.type) THEN Mark('invalid type') END;
-		StrToCharIfNeed(x, y);
+		IF ~CompTypes2(x.type, y.type) THEN Mark('invalid type')
+		ELSIF IsOpenArray0(y.type) THEN Mark('untagged open array')
+		END; StrToCharIfNeed(x, y);
 		IF IsConst(x) & IsConst(y) THEN x := G.FoldConst(op, x, y)
 		ELSE x := NewNode(op, x, y); x.type := B.boolType
 		END
@@ -816,16 +840,13 @@ BEGIN
 			REPEAT GetSym UNTIL (sym = S.ident) OR (sym >= S.semicolon)
 		END;
 		IF sym = S.ident THEN x := designator();
-			IF sym = S.becomes THEN
-				CheckVar(x, FALSE); GetSym; y := expression();
-				IF CompTypes(x.type, y.type)
-				OR (x.type.form = B.tArray) & IsOpenArray(y.type)
-					& (y.type.base = x.type.base) THEN
-					IF (x.type.form = B.tArray) & (x.type.len >= 0) THEN
-						IF (y IS B.Str) & (x.type.len < y(B.Str).len) THEN
-							Mark('String is longer than dest array')
-						END
-					END
+			IF sym = S.becomes THEN CheckVar(x, FALSE);
+				IF IsOpenArray0(x.type) THEN Mark('untagged open array') END;
+				GetSym; y := expression();
+				IF CompTypes(x.type, y.type) THEN
+					IF IsStr(x.type) THEN CheckStrLen(x.type, y) END
+				ELSIF CompArray(x.type, y.type) & IsOpenArray(y.type) THEN
+					IF y.type.notag THEN Mark('untagged open array') END
 				ELSE Mark('Invalid assignment')
 				END;
 				StrToCharIfNeed(x, y); stat.left := NewNode(S.becomes, x, y)
@@ -877,7 +898,15 @@ BEGIN tp := B.intType;
 		ELSE Mark('not type')
 		END
 	ELSIF sym = S.array THEN
-		tp := B.NewArray(-1); GetSym; Check0(S.of);
+		tp := B.NewArray(-1); GetSym;
+		IF sym = S.lbrak THEN GetSym;
+			IF (sym = S.ident) & (S.id = 'untagged') THEN
+				IF B.Flag.rtl = 0X THEN tp.notag := TRUE
+				ELSE Mark('untagged not allowed')
+				END; GetSym
+			END; Check0(S.rbrak)
+		END;
+		Check0(S.of);
 		IF sym = S.array THEN Mark('Multi-dim open array not supported') END;
 		tp.base := FormalType()
 	END;

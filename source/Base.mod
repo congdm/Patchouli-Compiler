@@ -80,6 +80,7 @@ TYPE
 	END;
 	
 	TypeDesc* = RECORD
+		notag*: BOOLEAN;
 		form*, size*, align*, nptr*: INTEGER;
 		len*, adr*, lev*, expno*: INTEGER;
 		base*: Type; fields*: Ident;
@@ -273,7 +274,7 @@ END NewSProc;
 PROCEDURE NewType*(VAR typ: Type; form: INTEGER);
 BEGIN
 	NEW(typ); typ.form := form; typ.nptr := 0;
-	typ.size := 0; typ.align := 0;
+	typ.size := 0; typ.align := 0; typ.notag := FALSE;
 	typ.lev := curLev; typ.ref := -1
 END NewType;
 
@@ -424,7 +425,7 @@ BEGIN
 		END;
 		WriteInt (symfile, cType)
 	ELSIF typ.form = tArray THEN
-		WriteInt(symfile, typ.len);
+		WriteInt(symfile, ORD(typ.notag)); WriteInt(symfile, typ.len);
 		WriteInt(symfile, typ.size); WriteInt(symfile, typ.align);
 		DetectType (typ.base)
 	ELSIF typ.form = tPtr THEN
@@ -591,7 +592,7 @@ END ImportProc;
 	
 PROCEDURE ImportType(VAR typ: Type);
 	VAR fld: Ident; x: Object; name: IdStr;
-		fltype: Type; cls, form, ref, exp, len: INTEGER;
+		fltype: Type; notag, cls, form, ref, exp, len: INTEGER;
 BEGIN
 	ReadInt(symfile, ref); ReadInt(symfile, exp);
 	ReadInt(symfile, form);
@@ -611,8 +612,9 @@ BEGIN
 		END;
 		typ.fields := topScope.first; CloseScope
 	ELSIF form = tArray THEN
-		ReadInt(symfile, len); typ := NewArray(len); 
-		typ.ref := ref; AddToTypeList(typ);
+		ReadInt(symfile, notag); ReadInt(symfile, len);
+		typ := NewArray(len); typ.ref := ref; AddToTypeList(typ);
+		IF notag = ORD(TRUE) THEN typ.notag := TRUE END;
 		ReadInt(symfile, typ.size); ReadInt(symfile, typ.align);
 		DetectTypeI(typ.base); CompleteArray(typ)
 	ELSIF form = tPtr THEN

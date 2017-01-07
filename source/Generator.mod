@@ -1460,14 +1460,12 @@ BEGIN
 END TypeCheck;
 
 PROCEDURE Index(VAR x: Item; node: Node);
-	VAR idx, size, align, e: INTEGER; len, y: Item; bType: B.Type;
-		oldStat: MakeItemState;
-BEGIN
-	oldStat := MkItmStat; AvoidUsedBy(node.right);
-	MakeItem0(x, node.left); bType := x.type.base;
-	align := bType.align; size := (bType.size + align - 1) DIV align * align;
+	VAR idx, size, align, e: INTEGER; len, y: Item;
+		bType: B.Type; oldStat: MakeItemState;
+BEGIN oldStat := MkItmStat; AvoidUsedBy(node.right);
+	MakeItem0(x, node.left); bType := x.type.base; size := bType.size;
 	IF node.right IS B.Const THEN idx := node.right(B.Const).val;
-		IF B.IsOpenArray(x.type) THEN
+		IF B.IsOpenArray(x.type) & ~x.type.notag THEN
 			ArrayLen(len, node.left); SetRmOperand(len);
 			EmitRmImm(CMPi, 8, idx); Trap(ccBE, arrayTrap)
 		END;
@@ -1475,11 +1473,11 @@ BEGIN
 	ELSE RefToRegI(x);
 		IF x.mode # mRegI THEN LoadAdr(x); x.mode := mRegI; x.a := 0 END;
 		ResetMkItmStat; MakeItem0(y, node.right); Load(y);
-		ArrayLen(len, node.left);
-		IF len.mode = mImm THEN EmitRI(CMPi, y.r, 8, len.a)
-		ELSE SetRmOperand(len); EmitRegRm(CMPd, y.r, 8)
+		IF ~x.type.notag THEN ArrayLen(len, node.left);
+			IF len.mode = mImm THEN EmitRI(CMPi, y.r, 8, len.a)
+			ELSE SetRmOperand(len); EmitRegRm(CMPd, y.r, 8)
+			END; Trap(ccAE, arrayTrap)
 		END;
-		Trap(ccAE, arrayTrap);
 		IF size > 0 THEN e := log2(size);
 			IF (e >= 0) & (e <= 3) THEN
 				SetRm_regX(x.r, y.r, e, 0); EmitRegRm(LEA, x.r, 8)
@@ -1546,7 +1544,7 @@ PROCEDURE Parameter(par: Node; fpar: B.Ident; n: INTEGER);
 BEGIN i := 1;
 	ResetMkItmStat; ftype := fpar.obj.type; varpar := fpar.obj(B.Par).varpar;
 	IF ftype.form = B.tArray THEN LoadParam(x, par, n, TRUE);
-		IF B.IsOpenArray(ftype) THEN INC(i) END
+		IF B.IsOpenArray(ftype) & ~ftype.notag THEN INC(i) END
 	ELSIF ftype = B.strType THEN LoadParam(x, par, n, TRUE)
 	ELSIF ftype.form = B.tRec THEN LoadParam(x, par, n, TRUE);
 		IF varpar THEN INC(i) END
@@ -1563,7 +1561,10 @@ BEGIN i := 1;
 		IF ftype.form = B.tArray THEN
 			IF ftype.base # B.byteType THEN ArrayLen(y, par.left)
 			ELSE SizeOf(y, par.left)
-			END; Load(y)
+			END; Load(y);
+			IF B.IsStr(ftype) & (ftype.len >= 0) & B.IsOpenArray(x.type) THEN
+				EmitRI(CMPi, y.r, 8, ftype.len); Trap(ccA, stringTrap)
+			END
 		ELSIF (par.left IS B.Par) & par.left(B.Par).varpar THEN
 			MakeItem0(y, par.left); TypeTag(y); Load(y)
 		ELSE TypeDesc(y, par.left.type); LoadAdr(y)
