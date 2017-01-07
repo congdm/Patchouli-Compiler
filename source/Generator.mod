@@ -77,20 +77,9 @@ CONST
 	assertTrap = 7;
 	
 TYPE
-	Proc = POINTER TO ProcDesc;
-	Node = POINTER TO NodeDesc;
-	
-	NodeDesc = RECORD (B.Object)
-		op: INTEGER; left, right: B.Object; link: Node;
-		sPos, cLen, jmpSz, jmpPc: INTEGER; xRegUsed, regUsed: SET
-	END;
+	Proc = B.Proc;
+	Node = B.Node;
 
-	ProcDesc = RECORD
-		usedReg, usedXReg: SET;
-		stack, pStk, homeSpace, adr, fix: INTEGER;
-		return: B.Object; statseq: Node; obj: B.Proc; next: Proc
-	END;
-	
 	Item = RECORD
 		mode, op, r, rm: BYTE; ref, par: BOOLEAN; type: B.Type;
 		a, b, c, strlen: INTEGER; aLink, bLink: Node; obj: B.Object
@@ -105,16 +94,15 @@ VAR
 	MakeItem0: PROCEDURE(VAR x: Item; obj: B.Object);
 
 	code: ARRAY 400000H OF BYTE; pc: INTEGER;
-	procList, curProc: Proc;
 	sPos, pass, varSize, staticSize, staticBase: INTEGER;
+	
+	procList, curProc: B.ProcList;
 	
 	modInitProc, trapProc, trapProc2, NEWProc, dllInitProc: Proc;
 	modid: B.IdStr; modidStr, errFmtStr, err2FmtStr: B.Str;
 	err3FmtStr, err4FmtStr, rtlName, user32name: B.Str;
 
-	mem: RECORD
-		mod, rm, bas, idx, scl, disp: INTEGER
-	END;
+	mem: RECORD mod, rm, bas, idx, scl, disp: INTEGER END;
 	allocReg, allocXReg: SET;
 	MkItmStat: MakeItemState; (* State for MakeItem procedures in Pass 2 *)
 	
@@ -159,18 +147,16 @@ PROCEDURE IntToSet(n: INTEGER): SET;
 	RETURN SYSTEM.VAL(SET, n)
 END IntToSet;
 
-PROCEDURE NaturalAlign(VAR size: INTEGER);
-BEGIN
-	IF size <= 2 THEN (* nothing *)
-	ELSIF size <= 4 THEN size := 4
-	ELSIF size <= 8 THEN size := 8
-	ELSE size := (size + 15) DIV 16 * 16
-	END
-END NaturalAlign;
-
 PROCEDURE SmallConst(n: INTEGER): BOOLEAN;
 	RETURN (n >= -80000000H) & (n < 80000000H)
 END SmallConst;
+
+PROCEDURE Align(VAR a: INTEGER; align: INTEGER);
+BEGIN
+	IF a > 0 THEN a := (a + align - 1) DIV align * align
+	ELSIF a < 0 THEN a := a DIV align * align
+	END
+END Align;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -477,60 +463,49 @@ END EmitRep;
 (* -------------------------------------------------------------------------- *)
 (* Pass 1 *)
 
-PROCEDURE FindProc(obj: B.Object): Proc;
-	VAR proc: Proc;
-BEGIN proc := procList;
-	WHILE proc.obj # obj DO proc := proc.next END;
-	RETURN proc
-END FindProc;
-
-PROCEDURE MarkSizeError;
-BEGIN S.Mark('Data size limit reached')
-END MarkSizeError;
+PROCEDURE CheckTypeSize(VAR sz: INTEGER);
+BEGIN
+	IF sz > MaxSize THEN S.Mark('type too big'); sz := 8 END
+END CheckTypeSize;
 
 PROCEDURE SetTypeSize*(tp: B.Type);
-	VAR size, align, fAlign: INTEGER;
-		ident: B.Ident; ftype: B.Type;
+	VAR size, align, falg: INTEGER;
+		ident: B.Ident; ftype, btype: B.Type;
 BEGIN
-	IF tp.size = 0 THEN
+	IF tp.size = 0 THEN btype := tp.base;
 		IF tp.form = B.tPtr THEN tp.size := 8; tp.align := 8
-		ELSIF tp.form = B.tProc THEN tp.size := 8; tp.align := 8;
-			ident := tp.fields; size := 0;
+		ELSIF tp.form = B.tProc THEN
+			tp.size := 8; tp.align := 8; ident := tp.fields; size := 0;
 			WHILE ident # NIL DO
 				ftype := ident.obj.type; ident.obj(B.Var).adr := size + 16;
-				IF B.IsOpenArray(ftype)
+				IF B.IsOpenArray(ftype) & ~ftype.notag
 				OR (ftype.form = B.tRec) & (ident.obj(B.Par).varpar)
-				THEN size := size + 16 ELSE size := size + 8
+				THEN INC(size, 16) ELSE INC(size, 8)
 				END;
 				ident := ident.next
 			END;
-			tp.parblksize := size;
+			tp.parblksize := size
 		ELSIF (tp.form = B.tArray) & (tp.len >= 0) THEN
-			SetTypeSize(tp.base); tp.align := tp.base.align;
-			IF (tp.len # 0) & (MaxSize DIV tp.len < tp.base.size) THEN
-				S.Mark('Size of type is too large'); tp.size := 0
-			ELSE tp.size := tp.base.size * tp.len
-			END
+			SetTypeSize(btype); tp.align := btype.align;
+			tp.size := btype.size * tp.len; CheckTypeSize(tp.size)
 		ELSIF tp.form = B.tRec THEN
-			IF tp.base # NIL THEN SetTypeSize(tp.base);
-				size := tp.base.size; align := tp.base.align
+			IF btype # NIL THEN SetTypeSize(btype);
+				align := btype.align; size := 0; ident := btype.fields;
+				IF ident # NIL THEN
+					WHILE ident.next # NIL DO ident := ident.next END;
+					size := ident.obj(B.Field).off + ident.obj.type.size
+				END
 			ELSE size := 0; align := 0
 			END;
 			ident := tp.fields;
-			WHILE ident # NIL DO ftype := ident.obj.type;
-				SetTypeSize(ftype); fAlign := ftype.align;
-				IF fAlign > align THEN align := fAlign END;
-				size := (size + fAlign - 1) DIV fAlign * fAlign;
-				ident.obj(B.Field).off := size; INC(size, ftype.size);
-				IF size > MaxSize THEN
-					S.Mark('Size of type is too large'); size := 0
-				END;
+			WHILE ident # NIL DO
+				ftype := ident.obj.type; SetTypeSize(ftype);
+				IF ftype.align > align THEN align := ftype.align END;
+				Align(size, ftype.align); ident.obj(B.Field).off := size;
+				INC(size, ftype.size); CheckTypeSize(size);
 				ident := ident.next
 			END;
-			size := (size + align - 1) DIV align * align;
-			IF size > MaxSize THEN
-				S.Mark('Size of type is too large'); size := 0
-			END;
+			Align(size, align); CheckTypeSize(size);
 			tp.size := size; tp.align := align
 		ELSE ASSERT(FALSE)
 		END
@@ -538,19 +513,22 @@ BEGIN
 END SetTypeSize;
 
 PROCEDURE SetGlobalVarSize*(x: B.Object);
-	VAR align: INTEGER;
-BEGIN align := x.type.align;
-	varSize := (varSize + align - 1) DIV align * align;
-	varSize := varSize + x.type.size; x(B.Var).adr := -varSize;
-	IF varSize > MaxSize THEN varSize := 0; MarkSizeError END
+BEGIN
+	Align(varSize, x.type.size); INC(varSize, x.type.size);
+	x(B.Var).adr := -varSize;
+	IF varSize > MaxSize THEN varSize := 8;
+		S.Mark('global var size limit reached')
+	END
 END SetGlobalVarSize;
 
 PROCEDURE SetProcVarSize*(proc: B.Proc; x: B.Object);
-	VAR size, align: INTEGER;
-BEGIN size := proc.locblksize; align := x.type.align;
-	size := (size + align - 1) DIV align * align + x.type.size;
+	VAR size: INTEGER;
+BEGIN size := proc.locblksize;
+	Align(size, x.type.align); INC(size, x.type.size);
 	x(B.Var).adr := -size; proc.locblksize := size;
-	IF size > MaxLocBlkSize THEN proc.locblksize := 0; MarkSizeError END
+	IF size > MaxLocBlkSize THEN proc.locblksize := 8;
+		S.Mark('local var size limit reached')
+	END
 END SetProcVarSize;
 
 PROCEDURE AllocImportModules*;
@@ -591,35 +569,28 @@ BEGIN
 		tdSize := (24 + 8*(B.MaxExt + q.type.nptr)) DIV 16 * 16;
 		q.a := tdSize; INC(staticSize, tdSize);
 		q.type.adr := -staticSize; q := q.next
+	END;
+	IF (staticSize + 4095) DIV 4096 * 4096 + varSize > MaxSize THEN
+		Out.String('static variables size too big'); ASSERT(FALSE)
 	END
 END AllocStaticData;
 
-PROCEDURE NewNode(obj: B.Node): Node;
-	VAR node: Node;
-BEGIN
-	NEW(node); node.type := obj.type;
-	node.op := obj.op; node.sPos := obj.sPos;
-	node.left := obj.left; node.right := obj.right;
-	node.regUsed := {}; node.xRegUsed := {};
-	RETURN node
-END NewNode;
-
-PROCEDURE ScanNode(obj: B.Node): Node;
-	VAR node: Node; left, right: B.Object;
+PROCEDURE ScanNode(node: B.Node);
+	VAR left, right: B.Object;
 		fpar: B.Ident; e: INTEGER; 
 	
-	PROCEDURE ScanPar(obj: B.Node; fpar: B.Ident; n: INTEGER): Node;
-		VAR node: Node;
-			vpar, open: BOOLEAN;
+	PROCEDURE ScanPar(node: B.Node; fpar: B.Ident; n: INTEGER);
+		VAR vpar, open: BOOLEAN;
 			i: INTEGER; ftype: B.Type;
 	BEGIN (* ScanPar *)
-		node := NewNode(obj); ftype := fpar.obj.type;
+		ftype := fpar.obj.type;
 		IF node.left IS B.Node THEN
-			node.left := ScanNode(node.left(B.Node));
+			ScanNode(node.left(B.Node));
 			node.regUsed := node.left(Node).regUsed;
 			node.xRegUsed := node.left(Node).xRegUsed
 		END;
-		open := B.IsOpenArray(ftype); vpar := fpar.obj(B.Par).varpar; 
+		open := B.IsOpenArray(ftype) & ~ftype.notag;
+		vpar := fpar.obj(B.Par).varpar; 
 		IF open OR vpar & (ftype.form = B.tRec) THEN i := 2 ELSE i := 1 END;
 		WHILE i > 0 DO 
 			IF (ftype.form # B.tReal) OR vpar THEN
@@ -633,25 +604,24 @@ PROCEDURE ScanNode(obj: B.Node): Node;
 			DEC(i); INC(n)
 		END;
 		IF node.right # NIL THEN
-			node.right := ScanPar(node.right(B.Node), fpar.next, n);
+			ScanPar(node.right(B.Node), fpar.next, n);
 			node.regUsed := node.regUsed + node.right(Node).regUsed;
 			node.xRegUsed := node.xRegUsed + node.right(Node).xRegUsed
-		END;
-		RETURN node
+		END
 	END ScanPar;
 	
 BEGIN (* ScanNode *)
-	node := NewNode(obj); left := node.left; right := node.right;
+	left := node.left; right := node.right;
 	IF node.op # S.call THEN
 		IF (left # NIL) & (left IS B.Node) THEN
-			left := ScanNode(left(B.Node)); node.left := left;
+			ScanNode(left(B.Node));
 			IF node.op # S.semicolon THEN
 				node.regUsed := left(Node).regUsed;
 				node.xRegUsed := left(Node).xRegUsed
 			END
 		END;
 		IF (right # NIL) & (right IS B.Node) THEN
-			right := ScanNode(right(B.Node)); node.right := right;
+			ScanNode(right(B.Node));
 			IF node.op # S.semicolon THEN
 				node.regUsed := right(Node).regUsed;
 				node.xRegUsed := right(Node).xRegUsed
@@ -661,9 +631,8 @@ BEGIN (* ScanNode *)
 			IF (node.type = B.intType) & (right IS B.Const) THEN
 				e := log2(right(B.Const).val);
 				IF e >= 0 THEN
-					node.op := S.sfLSL;
 					right := B.NewConst(B.intType, e);
-					node.right := right
+					node.op := S.sfLSL; node.right := right
 				END
 			END
 		ELSIF (node.op = S.div) OR (node.op = S.mod) THEN e := -1;
@@ -683,57 +652,46 @@ BEGIN (* ScanNode *)
 		END
 	ELSIF node.op = S.call THEN
 		IF left IS B.Node THEN
-			left := ScanNode(left(B.Node)); node.left := left;
+			ScanNode(left(B.Node));
 			node.regUsed := left(Node).regUsed;
 			node.xRegUsed := left(Node).xRegUsed
 		END;
 		node.regUsed := node.regUsed + {0 .. 2, 8 .. 11};
 		node.xRegUsed := node.xRegUsed + {0 .. 5};
 		IF right # NIL THEN
-			fpar := left.type.fields;
-			right := ScanPar(right(B.Node), fpar, 0); node.right := right;
+			fpar := left.type.fields; ScanPar(right(B.Node), fpar, 0);
 			node.regUsed := node.regUsed + right(Node).regUsed;
 			node.xRegUsed := node.xRegUsed + right(Node).xRegUsed
 		END
-	END;
-	RETURN node
+	END
 END ScanNode;
 
-PROCEDURE NewProc(obj: B.Proc);
-	VAR proc: Proc;
+PROCEDURE ScanProc(proc: B.Proc);
 BEGIN
-	NEW(proc); proc.obj := obj; proc.adr := -1; proc.fix := -1;
-	IF curProc = NIL THEN procList := proc; curProc := proc
-	ELSE curProc.next := proc; curProc := proc
+	proc.adr := -1; proc.fix := -1;
+	IF curProc # NIL THEN NEW(curProc.next); curProc := curProc.next
+	ELSIF curProc = NIL THEN NEW(procList); curProc := procList
 	END;
-	IF obj # NIL THEN obj.adr := -1;
-		IF obj.statseq # NIL THEN
-			proc.statseq := ScanNode(obj.statseq);
-			obj.statseq := NIL
-		END;
-		IF obj.return # NIL THEN
-			IF obj.return IS B.Node THEN
-				proc.return := ScanNode(obj.return(B.Node))
-			ELSE proc.return := obj.return
-			END;
-			obj.return := NIL
-		END
+	curProc.obj := proc;
+	IF proc.statseq # NIL THEN ScanNode(proc.statseq) END;
+	IF proc.return # NIL THEN
+		IF proc.return IS B.Node THEN ScanNode(proc.return(B.Node)) END
 	END
-END NewProc;
+END ScanProc;
 
 PROCEDURE ScanDeclaration(decl: B.Ident; lev: INTEGER);
 	VAR ident: B.Ident; obj: B.Object; fixAmount: INTEGER;
 BEGIN ident := decl;
 	WHILE ident # NIL DO obj := ident.obj;
 		IF obj IS B.Proc THEN
-			ScanDeclaration(obj(B.Proc).decl, lev+1); NewProc(obj(B.Proc))
+			ScanDeclaration(obj(B.Proc).decl, lev+1); ScanProc(obj(B.Proc))
 		ELSIF (lev = 0) & (obj IS B.Var) & ~(obj IS B.Str) THEN
 			IF obj.type.nptr > 0 THEN INC(staticSize, obj.type.nptr*8) END
 		END;
 		ident := ident.next
 	END;
 	IF lev = 0 THEN
-		staticSize := (staticSize + 8 + 15) DIV 16 * 16;
+		INC(staticSize, 8); Align(staticSize, 16);
 		modPtrTable := -staticSize; ident := decl;
 		fixAmount := (staticSize + 4095) DIV 4096 * 4096;
 		WHILE ident # NIL DO obj := ident.obj;	
@@ -746,6 +704,16 @@ BEGIN ident := decl;
 	END
 END ScanDeclaration;
 
+PROCEDURE NewProc(VAR proc: Proc; statseq: Node);
+BEGIN
+	proc := B.NewProc(); proc.statseq := statseq;
+	proc.locblksize := 0; proc.adr := -1; proc.fix := -1;
+	IF curProc # NIL THEN NEW(curProc.next); curProc := curProc.next
+	ELSIF curProc = NIL THEN NEW(procList); curProc := procList
+	END;
+	curProc.obj := proc
+END NewProc;
+
 PROCEDURE Pass1(VAR modinit: B.Node);
 	VAR fixAmount: INTEGER; obj: B.Proc;
 BEGIN
@@ -757,16 +725,9 @@ BEGIN
 	rtlName := B.NewStr2(B.Flag.rtl); user32name := B.NewStr2('USER32.DLL');
 	AllocStaticData; ScanDeclaration(B.universe.first, 0);
 	
-	IF modinit # NIL THEN
-		obj := B.NewProc(); obj.locblksize := 0;
-		obj.statseq := modinit(B.Node); modinit := NIL;
-		NewProc(obj); modInitProc := curProc
-	END;
-	
-	NewProc(NIL); trapProc := curProc;
-	NewProc(NIL); trapProc2 := curProc;
-	NewProc(NIL); NEWProc := curProc;
-	NewProc(NIL); dllInitProc := curProc
+	IF modinit # NIL THEN NewProc(modInitProc, modinit) END;
+	NewProc(trapProc, NIL); NewProc(trapProc2, NIL);
+	NewProc(NEWProc, NIL); NewProc(dllInitProc, NIL)
 END Pass1;
 
 (* -------------------------------------------------------------------------- *)
@@ -904,20 +865,8 @@ BEGIN
 	RETURN op
 END IntOpToCc;
 
-PROCEDURE CallProc(obj: B.Proc);
-	VAR L, adr: INTEGER; proc: Proc;
-BEGIN
-	IF pass = 2 THEN INC(pc, 5)
-	ELSIF pass = 3 THEN adr := obj.adr;
-		IF adr >= 0 THEN CallNear(adr-pc-5)
-		ELSE proc := FindProc(obj); CallNear(proc.fix); proc.fix := pc - 4
-		END
-	ELSE ASSERT(FALSE)
-	END
-END CallProc;
-
-PROCEDURE CallProc2(proc: Proc);
-	VAR adr: INTEGER;
+PROCEDURE CallProc(proc: B.Proc);
+	VAR L, adr: INTEGER;
 BEGIN
 	IF pass = 2 THEN INC(pc, 5)
 	ELSIF pass = 3 THEN adr := proc.adr;
@@ -926,16 +875,15 @@ BEGIN
 		END
 	ELSE ASSERT(FALSE)
 	END
-END CallProc2;
+END CallProc;
 
 PROCEDURE LoadProc(reg: INTEGER; obj: B.Proc);
-	VAR adr: INTEGER; proc: Proc;
+	VAR adr: INTEGER;
 BEGIN
 	IF pass = 2 THEN SetRm_RIP(0); EmitRegRm(LEA, reg, 8)
 	ELSIF pass = 3 THEN adr := obj.adr;
 		IF adr >= 0 THEN FixDisp(pc-4, adr-pc, 4)
-		ELSE proc := FindProc(obj);
-			FixDisp(pc-4, proc.fix, 4); proc.fix := pc - 4
+		ELSE FixDisp(pc-4, obj.fix, 4); obj.fix := pc - 4
 		END
 	ELSE ASSERT(FALSE)
 	END
@@ -949,10 +897,10 @@ PROCEDURE Trap(cond, trapno: INTEGER);
 	VAR L, x: INTEGER;
 BEGIN
 	IF ~(cond IN {ccAlways, ccNever}) THEN
-		L := pc; Jcc1(negated(cond), 0); CallProc2(trapProc);
+		L := pc; Jcc1(negated(cond), 0); CallProc(trapProc);
 		WriteDebug(pc, sPos, trapno); Fixup(L, pc)
 	ELSIF cond = ccAlways THEN
-		CallProc2(trapProc); WriteDebug(pc, sPos, trapno)
+		CallProc(trapProc); WriteDebug(pc, sPos, trapno)
 	END
 END Trap;
 
@@ -961,7 +909,7 @@ PROCEDURE ModKeyTrap(cond, errno: INTEGER; imod: B.Module);
 BEGIN
 	L := pc; Jcc1(negated(cond), 0);
 	SetRm_regI(reg_B, imod.adr); EmitRegRm(LEA, reg_C, 8);
-	MoveRI(reg_D, 1, errno); CallProc2(trapProc2); Fixup(L, pc)
+	MoveRI(reg_D, 1, errno); CallProc(trapProc2); Fixup(L, pc)
 END ModKeyTrap;
 
 (* -------------------------------------------------------------------------- *)
@@ -979,11 +927,11 @@ BEGIN oldStat := MkItmStat;
 END ResetMkItmStat2;
 
 PROCEDURE SetAlloc(reg: BYTE);
-BEGIN INCL(allocReg, reg); INCL(curProc.usedReg, reg)
+BEGIN INCL(allocReg, reg); INCL(curProc.obj.usedReg, reg)
 END SetAlloc;
 
 PROCEDURE SetAllocX(reg: BYTE);
-BEGIN INCL(allocXReg, reg); INCL(curProc.usedXReg, reg)
+BEGIN INCL(allocXReg, reg); INCL(curProc.obj.usedXReg, reg)
 END SetAllocX;
 
 PROCEDURE AllocReg(): BYTE;
@@ -1583,9 +1531,9 @@ BEGIN
 	procType := node.left.type; ResetMkItmStat2(oldStat);
 	IF procType.base = NIL THEN allocReg := {}; allocXReg := {} END;
 	oldAlloc := allocReg; oldXAlloc := allocXReg;
-	IF curProc.homeSpace < 32 THEN curProc.homeSpace := 32 END;
-	IF curProc.homeSpace < procType.parblksize THEN
-		curProc.homeSpace := procType.parblksize
+	IF curProc.obj.homeSpace < 32 THEN curProc.obj.homeSpace := 32 END;
+	IF curProc.obj.homeSpace < procType.parblksize THEN
+		curProc.obj.homeSpace := procType.parblksize
 	END;
 	
 	IF node.left IS B.Proc THEN MakeItem0(x, node.left)
@@ -1871,11 +1819,11 @@ BEGIN
 		SetBestReg(reg_C); MakeItem0(x, obj1); LoadAdr(x);
 		IF x.r # reg_C THEN RelocReg(x.r, reg_C) END;
 		SetBestReg(reg_D); TypeDesc(y, obj1.type.base);
-		LoadAdr(y); CallProc2(NEWProc);
-		IF curProc.homeSpace < 32 THEN curProc.homeSpace := 32 END
+		LoadAdr(y); CallProc(NEWProc);
+		IF curProc.obj.homeSpace < 32 THEN curProc.obj.homeSpace := 32 END
 	ELSIF id = S.spASSERT THEN
 		LoadCond(x, obj1); Jump(node, x.bLink, x.c); FixLink(x.aLink);
-		CallProc2(trapProc); WriteDebug(pc, sPos, assertTrap); FixLink(node)
+		CallProc(trapProc); WriteDebug(pc, sPos, assertTrap); FixLink(node)
 	ELSIF id = S.spPACK THEN
 		AvoidUsedBy(obj2); MakeItem0(x, obj1); RefToRegI(x); r := AllocReg();
 		SetRmOperand(x); EmitRegRm(MOVd, r, 8); ResetMkItmStat;
@@ -1928,7 +1876,7 @@ BEGIN
 		FreeReg(reg_C); SetAlloc(reg_A);
 		
 		RefToRegI(x); SetRmOperand(x); EmitRegRm(MOV, reg_A, 8);
-		IF curProc.homeSpace < 32 THEN curProc.homeSpace := 32 END
+		IF curProc.obj.homeSpace < 32 THEN curProc.obj.homeSpace := 32 END
 	ELSIF id = S.spGetProcAddress THEN
 		obj3 := obj2(Node).right; obj2 := obj2(Node).left;
 		MkItmStat.avoid := {0, 1, 2, 8 .. 11}; AvoidUsedBy(obj2);
@@ -1943,7 +1891,7 @@ BEGIN
 		FreeReg(reg_C); FreeReg(reg_D); SetAlloc(reg_A);
 		
 		RefToRegI(x); SetRmOperand(x); EmitRegRm(MOV, reg_A, 8);
-		IF curProc.homeSpace < 32 THEN curProc.homeSpace := 32 END
+		IF curProc.obj.homeSpace < 32 THEN curProc.obj.homeSpace := 32 END
 	ELSIF id = S.spINT3 THEN
 		EmitBare(INT3)
 	ELSE ASSERT(FALSE)
@@ -2124,22 +2072,21 @@ BEGIN
 END SetPtrToNil;
 
 PROCEDURE BeginProc;
-BEGIN
+	VAR proc: Proc;
+BEGIN proc := curProc.obj;
 	IF pass = 2 THEN
-		curProc.homeSpace := 0; curProc.stack := 0;
-		curProc.usedReg := {}; curProc.usedXReg := {}
-	ELSIF pass = 3 THEN curProc.adr := pc;
-		IF curProc.obj # NIL THEN curProc.obj.adr := pc END
+		proc.homeSpace := 0; proc.usedReg := {}; proc.usedXReg := {}
+	ELSIF pass = 3 THEN proc.adr := pc
 	ELSE ASSERT(FALSE)
 	END
 END BeginProc;
 
 PROCEDURE FinishProc;
-	VAR L, L2, adr: INTEGER;
-BEGIN
+	VAR proc: Proc; L, L2, adr: INTEGER;
+BEGIN proc := curProc.obj;
 	IF pass = 3 THEN
 		WHILE pc MOD 16 # 0 DO Put1(90H) END;
-		L := curProc.fix; adr := curProc.adr;
+		proc.lim := pc; L := proc.fix; adr := proc.adr;
 		WHILE L # -1 DO
 			L2 := code[L] + LSL(code[L+1], 8);
 			INC(L2, LSL(code[L+2], 16) + LSL(code[L+3], 24));
@@ -2149,42 +2096,40 @@ BEGIN
 END FinishProc;
 
 PROCEDURE Procedure;
-	VAR locblksize, nSave, nSaveX, n, i, j, L: INTEGER;
+	VAR locblksize, homeSpace, nSave, nSaveX, n, i, j, L: INTEGER;
 		r: BYTE; x: Item; obj: B.Proc;
 		param, ident: B.Ident; pType: B.Type;
 BEGIN
 	BeginProc; obj := curProc.obj;
 	IF pass = 2 THEN
-		curProc.usedReg := {reg_B};
-		locblksize := (obj.locblksize + 7) DIV 8 * 8;
-		curProc.stack := locblksize; curProc.pStk := locblksize
+		obj.usedReg := {reg_B}; Align(obj.locblksize, 8)
 	ELSIF pass = 3 THEN
 		PushR(reg_BP); EmitRR(MOVd, reg_BP, 8, reg_SP);
 		nSave := 0; nSaveX := 0; r := 0;
 		WHILE r < 16 DO
-			IF r IN curProc.usedReg*{3 .. 7, 12 .. 15} THEN INC(nSave) END;
-			IF r IN curProc.usedXReg*{6 .. 15} THEN INC(nSaveX) END;
+			IF r IN obj.usedReg*{3 .. 7, 12 .. 15} THEN INC(nSave) END;
+			IF r IN obj.usedXReg*{6 .. 15} THEN INC(nSaveX) END;
 			INC(r)
 		END;
-		n := ((curProc.stack + nSave*8 + 8) DIV 16 + nSaveX) * 16;
-		curProc.homeSpace := (curProc.homeSpace + 15) DIV 16 * 16;
-		IF n+curProc.homeSpace # 0 THEN
-			IF n+curProc.homeSpace >= 4096 THEN
+		n := ((obj.locblksize + nSave*8 + 8) DIV 16 + nSaveX) * 16;
+		Align(obj.homeSpace, 16); homeSpace := obj.homeSpace;
+		IF n + homeSpace # 0 THEN
+			IF n + homeSpace >= 4096 THEN
 				EmitRR(XOR, reg_A, 4, reg_A); EmitRI(SUBi, reg_A, 8, 4096);
 				L := pc; SetRm_regX(reg_SP, reg_A, 0, 0);
 				EmitRegRm(MOV, reg_A, 1); EmitRI(SUBi, reg_A, 8, 4096);
-				EmitRI(CMPi, reg_A, 8, -(n+curProc.homeSpace)); BJump(L, ccGE)
+				EmitRI(CMPi, reg_A, 8, -(n + homeSpace)); BJump(L, ccGE)
 			END;
-			EmitRI(SUBi, reg_SP, 8, n+curProc.homeSpace)
+			EmitRI(SUBi, reg_SP, 8, n + homeSpace)
 		END;
 		
 		r := 0; i := 0; j := 0;
 		WHILE r < 16 DO
-			IF r IN curProc.usedReg*{3 .. 7, 12 .. 15} THEN
+			IF r IN obj.usedReg*{3 .. 7, 12 .. 15} THEN
 				SetRm_regI(reg_BP, -n+nSaveX*16 + i*8);
 				EmitRegRm(MOV, r, 8); INC(i)
 			END;
-			IF r IN curProc.usedXReg*{6 .. 15} THEN
+			IF r IN obj.usedXReg*{6 .. 15} THEN
 				SetRm_regI(reg_BP, -n + j*16);
 				EmitXmmRm(MOVAPSd, r, 4); INC(j)
 			END;
@@ -2201,7 +2146,7 @@ BEGIN
 				IF pType.form # B.tReal THEN
 					EmitRegRm(MOV, ParReg(i), 8);
 					IF (pType.form = B.tRec) & (param.obj(B.Par).varpar)
-					OR B.IsOpenArray(pType) THEN INC(i);
+					OR B.IsOpenArray(pType) & ~pType.notag THEN INC(i);
 						IF i < 4 THEN
 							SetRm_regI(reg_BP, 16+i*8);
 							EmitRegRm(MOV, ParReg(i), 8)
@@ -2214,7 +2159,7 @@ BEGIN
 		END
 	END;
 	
-	IF (curProc.statseq # NIL) OR (curProc.return # NIL) THEN
+	IF (obj.statseq # NIL) OR (obj.return # NIL) THEN
 		ident := obj.decl;
 		WHILE ident # NIL DO
 			IF (ident.obj IS B.Var) & ~(ident.obj IS B.Par) THEN
@@ -2224,25 +2169,23 @@ BEGIN
 			END;
 			ident := ident.next
 		END;
-		IF curProc.statseq # NIL THEN MakeItem(x, curProc.statseq) END;
-		IF curProc.return # NIL THEN
-			ResetMkItmStat; MakeItem(x, curProc.return); Load(x);
+		IF obj.statseq # NIL THEN MakeItem(x, obj.statseq) END;
+		IF obj.return # NIL THEN ResetMkItmStat;
+			MakeItem(x, obj.return); Load(x);
 			IF x.r # 0 THEN
-				IF x.mode = mReg THEN RelocReg(x.r, 0)
-				ELSE RelocXReg(x.r, 0)
+				IF x.mode = mReg THEN RelocReg(x.r, 0) ELSE RelocXReg(x.r, 0)
 				END
 			END
-		END;
-		locblksize := curProc.stack
+		END
 	END;
 	
 	IF pass = 3 THEN r := 0; i := 0; j := 0;
 		WHILE r < 16 DO
-			IF r IN curProc.usedReg*{3 .. 7, 12 .. 15} THEN
+			IF r IN obj.usedReg*{3 .. 7, 12 .. 15} THEN
 				SetRm_regI(reg_BP, -n+nSaveX*16 + i*8);
 				EmitRegRm(MOVd, r, 8); INC(i)
 			END;
-			IF r IN curProc.usedXReg*{6 .. 15} THEN
+			IF r IN obj.usedXReg*{6 .. 15} THEN
 				SetRm_regI(reg_BP, -n + j*16);
 				EmitXmmRm(MOVAPS, r, 4); INC(j)
 			END;
@@ -2488,7 +2431,7 @@ BEGIN
 		SetRm_regI(reg_B, modPtrTable); EmitRegRm(LEA, reg_A, 8);
 		SetRm_regI(reg_B, -8); EmitRegRm(MOV, reg_A, 8);
 		IF B.Flag.rtl[0] # 0X THEN ImportRTL END;
-		IF modInitProc # NIL THEN CallProc2(modInitProc) END;
+		IF modInitProc # NIL THEN CallProc(modInitProc) END;
 		Linker.entry := dllInitProc.adr;
 
 		IF B.Flag.main THEN EmitRR(XOR, reg_C, 4, reg_C);
@@ -2716,13 +2659,6 @@ END FoldConst;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 (* Linker *)
-
-PROCEDURE Align(VAR a: INTEGER; align: INTEGER);
-BEGIN
-	IF a > 0 THEN a := (a + align - 1) DIV align * align
-	ELSIF a < 0 THEN a := a DIV align * align
-	END
-END Align;
 
 PROCEDURE Write_idata_section;
 	CONST table_len = LEN(Linker.Kernel32Table);
@@ -3064,6 +3000,15 @@ BEGIN
 			Linker.debug_size, Linker.debug_fadr
 		)
 	END;
+	(*Write_SectionHeader (
+		'.debug_info', 40000040H, Linker.debug_info_rva,
+		Linker.debug_info_rawsize, Linker.debug_info_size,
+		Linker.debug_info_fadr
+	);
+	Write_SectionHeader (
+		'.debug_abbrev', 40000040H, Linker.debug_rva, Linker.debug_rawsize,
+		Linker.debug_size, Linker.debug_fadr
+	);*)
 	Write_SectionHeader (
 		'.edata', 40000040H, Linker.edata_rva, Linker.edata_rawsize,
 		Linker.edata_size, Linker.edata_fadr
@@ -3093,26 +3038,24 @@ END Write_debug_section;
 
 PROCEDURE Cleanup;
 BEGIN
-	procList := NIL; curProc := NIL;
-	modInitProc := NIL; trapProc := NIL; trapProc2 := NIL;
-	NEWProc := NIL; dllInitProc := NIL; Rtl.Collect
+	procList := NIL; curProc := NIL; modInitProc := NIL;
+	trapProc := NIL; trapProc2 := NIL; NEWProc := NIL; dllInitProc := NIL;
 END Cleanup;
 
 PROCEDURE Generate*(VAR modinit: B.Node);
 	VAR n: INTEGER; str: B.String;
 BEGIN
 	(* Pass 1 *)
-	pass := 1; Pass1(modinit); Rtl.Collect;
+	pass := 1; Pass1(modinit);
 	
 	(* Pass 2 *)
 	pass := 2; curProc := procList; pc := 0;
 	WHILE curProc # NIL DO
-		IF curProc = modInitProc THEN Procedure
-		ELSIF curProc = trapProc THEN TrapHandler
-		ELSIF curProc = trapProc2 THEN ModKeyTrapHandler
-		ELSIF curProc = dllInitProc THEN DLLInit
-		ELSIF curProc = NEWProc THEN ProcedureNEW
-		ELSE ASSERT(curProc.obj # NIL); Procedure
+		IF curProc.obj = trapProc THEN TrapHandler
+		ELSIF curProc.obj = trapProc2 THEN ModKeyTrapHandler
+		ELSIF curProc.obj = dllInitProc THEN DLLInit
+		ELSIF curProc.obj = NEWProc THEN ProcedureNEW
+		ELSE Procedure
 		END;
 		curProc := curProc.next
 	END;
@@ -3120,12 +3063,11 @@ BEGIN
 	(* Pass 3 *)
 	pass := 3; curProc := procList; pc := 0;
 	WHILE curProc # NIL DO
-		IF curProc = modInitProc THEN Procedure
-		ELSIF curProc = trapProc THEN TrapHandler
-		ELSIF curProc = trapProc2 THEN ModKeyTrapHandler
-		ELSIF curProc = dllInitProc THEN DLLInit
-		ELSIF curProc = NEWProc THEN ProcedureNEW
-		ELSE ASSERT(curProc.obj # NIL); Procedure
+		IF curProc.obj = trapProc THEN TrapHandler
+		ELSIF curProc.obj = trapProc2 THEN ModKeyTrapHandler
+		ELSIF curProc.obj = dllInitProc THEN DLLInit
+		ELSIF curProc.obj = NEWProc THEN ProcedureNEW
+		ELSE Procedure
 		END;
 		curProc := curProc.next
 	END;

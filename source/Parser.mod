@@ -632,11 +632,16 @@ PROCEDURE expression(): B.Object;
 BEGIN x := SimpleExpression();
 	IF (sym >= S.eql) & (sym <= S.geq) THEN
 		CheckLeft(x, sym); op := sym; GetSym; y := SimpleExpression();
-		IF ~CompTypes2(x.type, y.type) THEN Mark('invalid type')
-		ELSIF IsOpenArray0(y.type) THEN Mark('untagged open array')
-		END; StrToCharIfNeed(x, y);
-		IF IsConst(x) & IsConst(y) THEN x := G.FoldConst(op, x, y)
-		ELSE x := NewNode(op, x, y); x.type := B.boolType
+		IF x.type = y.type THEN
+			IF IsConst(x) & IsConst(y) THEN x := G.FoldConst(op, x, y)
+			ELSE x := NewNode(op, x, y); x.type := B.boolType
+			END
+		ELSIF CompTypes2(x.type, y.type) THEN StrToCharIfNeed(x, y);
+			IF IsOpenArray0(y.type) THEN Mark('untagged open array') END;
+			IF IsConst(x) & IsConst(y) THEN x := G.FoldConst(op, x, y)
+			ELSE x := NewNode(op, x, y); x.type := B.boolType
+			END
+		ELSE Mark('invalid type')
 		END
 	ELSIF sym = S.in THEN
 		CheckInt(x); G.CheckSetElement(x);
@@ -841,15 +846,17 @@ BEGIN
 		END;
 		IF sym = S.ident THEN x := designator();
 			IF sym = S.becomes THEN CheckVar(x, FALSE);
-				IF IsOpenArray0(x.type) THEN Mark('untagged open array') END;
+				IF x.type.notag THEN Mark('untagged open array') END;
 				GetSym; y := expression();
-				IF CompTypes(x.type, y.type) THEN
-					IF IsStr(x.type) THEN CheckStrLen(x.type, y) END
+				IF x.type = y.type THEN stat.left := NewNode(S.becomes, x, y)
+				ELSIF CompTypes(x.type, y.type) THEN StrToCharIfNeed(x, y);
+					IF IsStr(x.type) THEN CheckStrLen(x.type, y) END;
+					stat.left := NewNode(S.becomes, x, y)
 				ELSIF CompArray(x.type, y.type) & IsOpenArray(y.type) THEN
-					IF y.type.notag THEN Mark('untagged open array') END
+					IF y.type.notag THEN Mark('untagged open array') END;
+					stat.left := NewNode(S.becomes, x, y)
 				ELSE Mark('Invalid assignment')
-				END;
-				StrToCharIfNeed(x, y); stat.left := NewNode(S.becomes, x, y)
+				END
 			ELSIF sym = S.eql THEN
 				Mark('Should be :='); GetSym; y := expression()
 			ELSIF x.type.form = B.tProc THEN

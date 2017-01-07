@@ -31,8 +31,7 @@ CONST
 	sfADR* = 23; sfSIZE* = 24; sfBIT* = 25; sfVAL* = 26;
 	
 TYPE
-	IdStr* = S.IdStr;
-	String* = S.Str;
+	IdStr* = S.IdStr; String* = S.Str;
 	ModuleKey* = ARRAY 2 OF INTEGER;
 	
 	Type* = POINTER TO TypeDesc;
@@ -50,34 +49,37 @@ TYPE
 	Var* = POINTER TO RECORD (ObjDesc)
 		adr*, expno*, lev*: INTEGER; ronly*: BOOLEAN
 	END;
-	Par* = POINTER TO RECORD (Var)
-		varpar*: BOOLEAN
-	END;
+	Par* = POINTER TO RECORD (Var) varpar*: BOOLEAN END;
+	Str* = POINTER TO RECORD (Var) bufpos*, len*: INTEGER END;
+	SProc* = POINTER TO RECORD (ObjDesc) id*: INTEGER END;
+	
 	Proc* = POINTER TO RECORD (ObjDesc)
-		adr*, expno*, lev*, locblksize*, nptr*: INTEGER;
-		decl*: Ident; statseq*: Node; return*: Object
+		expno*, lev*, nptr*: INTEGER;
+		decl*: Ident; statseq*: Node; return*: Object;
+		
+		adr*, locblksize*: INTEGER; usedReg*, usedXReg*: SET;
+		homeSpace*, fix*, lim*: INTEGER
 	END;
-	Str* = POINTER TO RECORD (Var)
-		bufpos*, len*: INTEGER
-	END;
+	
+	ProcList* = POINTER TO RECORD obj*: Proc; next*: ProcList END;
+	
 	Module* = POINTER TO RECORD (ObjDesc)
 		handleFlag*: BOOLEAN; path*: String; name*: IdStr; 
 		key*: ModuleKey; lev*, adr*: INTEGER;
 		first*, impList*: Ident; types*: TypeList
 	END;
-	SProc* = POINTER TO RECORD (ObjDesc) id*: INTEGER END;
-	
-	IdentDesc* = RECORD
-		export*: BOOLEAN;
-		name*: IdStr; obj*: Object;
-		next*: Ident
-	END;
-	
-	Scope* = POINTER TO RECORD first*: Ident; dsc*: Scope END;
 	
 	NodeDesc* = RECORD (ObjDesc)
-		ronly*: BOOLEAN; op*, sPos*: INTEGER; left*, right*: Object
+		(* Generator independent fields*)
+		ronly*: BOOLEAN; op*, sPos*: INTEGER; left*, right*: Object;
+		(* Generator dependent fields *)
+		link*: Node; jmpSz*, jmpPc*: INTEGER; xRegUsed*, regUsed*: SET
 	END;
+	
+	IdentDesc* = RECORD
+		export*: BOOLEAN; name*: IdStr; obj*: Object; next*: Ident
+	END;
+	Scope* = POINTER TO RECORD first*: Ident; dsc*: Scope END;		
 	
 	TypeDesc* = RECORD
 		notag*: BOOLEAN;

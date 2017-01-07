@@ -16,6 +16,7 @@ cd source
 echo on
 ..\bin\Poc Scanner.mod
 ..\bin\Poc Base.mod
+..\bin\Poc Dwarf2.mod
 ..\bin\Poc Generator.mod
 ..\bin\Poc Parser.mod
 ..\bin\Poc Poc.mod
