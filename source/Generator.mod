@@ -1225,13 +1225,6 @@ BEGIN
 	ResetMkItmStat; MakeItem0(y, node.right); Load(y)
 END LoadLeftRight2;
 
-PROCEDURE LoadLeftRight3(VAR x, y: Item; node: Node);
-BEGIN
-	AvoidUsedBy(node.right); MakeItem0(x, node.left);
-	Load(x); ResetMkItmStat; MakeItem0(y, node.right);
-	IF y.mode = mImm THEN Load(y) ELSE RefToRegI(y) END
-END LoadLeftRight3;
-
 PROCEDURE Add(VAR x: Item; node: Node);
 	VAR y: Item; form: INTEGER;
 BEGIN form := node.type.form;
@@ -1617,8 +1610,8 @@ BEGIN
 END Call;
 
 PROCEDURE StdFunc(VAR x: Item; node: Node);
-	VAR id, op, L: INTEGER; r: BYTE; obj1, obj2: B.Object;
-		oldStat: MakeItemState; y: Item;
+	VAR id, op, L, valSize: INTEGER; r: BYTE; obj1, obj2: B.Object;
+		oldStat: MakeItemState; y: Item; valType: B.Type;
 BEGIN id := node.op; obj1 := node.left; obj2 := node.right;
 	IF id = S.sfABS THEN MakeItem0(x, obj1); Load(x);
 		IF x.type.form = B.tInt THEN
@@ -1677,28 +1670,35 @@ BEGIN id := node.op; obj1 := node.left; obj2 := node.right;
 		END;
 		FreeReg(x.r); SetCond(x, ccC)
 	ELSIF id = S.sfVAL THEN
-		IF node.type = obj1.type THEN MakeItem0(x, obj1); Load(x)
-		ELSIF (node.type = B.realType) & (obj1.type.form # B.tReal) THEN
+		valType := node.type; valSize := valType.size;
+		IF valType = obj1.type THEN MakeItem0(x, obj1); Load(x)
+		ELSIF (valType = B.realType) & (obj1.type.form # B.tReal) THEN
 			oldStat := MkItmStat; r := AllocXReg(); ResetMkItmStat;
 			MakeItem0(x, obj1); Load(x); SetRm_reg(x.r);
 			EmitXmmRm(SseMOVD, r, 8); FreeReg(x.r);
 			x.mode := mXReg; x.r := r; MkItmStat := oldStat
-		ELSIF (obj1.type = B.realType) & (node.type.form # B.tReal) THEN
+		ELSIF (obj1.type = B.realType) & (valType.form # B.tReal) THEN
 			oldStat := MkItmStat; r := AllocReg(); ResetMkItmStat;
-			MakeItem0(x, obj1); Load(x);
-			SetRm_reg(r); EmitXmmRm(SseMOVDd, x.r, 8);
-			FreeXReg(x.r); x.mode := mReg; x.r := r; MkItmStat := oldStat;
-			IF node.type.size < 8 THEN
-				SetRm_reg(x.r); EmitMOVZX(x.r, node.type.size)
+			MakeItem0(x, obj1); Load(x); SetRm_reg(r);
+			EmitXmmRm(SseMOVDd, x.r, 8); FreeXReg(x.r);
+			x.mode := mReg; x.r := r; MkItmStat := oldStat;
+			IF valSize = 8 THEN (* nothing *)
+			ELSIF valSize = 4 THEN EmitRR(MOV, x.r, 4, x.r)
+			ELSE SetRm_reg(x.r); EmitMOVZX(x.r, valSize)
 			END
-		ELSIF (obj1.type.form # B.tReal) & (node.type.form # B.tReal) THEN
+		ELSIF (obj1.type.form # B.tReal) & (valType.form # B.tReal) THEN
 			MakeItem0(x, obj1);
-			IF node.type.size >= obj1.type.size THEN Load(x)
+			IF valSize >= obj1.type.size THEN Load(x)
 			ELSIF x.mode IN {mReg, mRegI} THEN SetRmOperand(x);
-				EmitMOVZX(x.r, obj1.type.size); x.mode := mReg
+				IF valSize = 4 THEN EmitRegRm(MOVd, x.r, 4)
+				ELSE EmitMOVZX(x.r, valSize)
+				END
 			ELSE r := AllocReg(); SetRmOperand(x);
-				EmitMOVZX(r, obj1.type.size); x.mode := mReg; x.r := r
-			END
+				IF valSize = 4 THEN EmitRegRm(MOVd, r, 4)
+				ELSE EmitMOVZX(r, valSize)
+				END; x.r := r
+			END;
+			x.mode := mReg
 		ELSE ASSERT(FALSE)
 		END
 	ELSIF id = S.sfNtCurrentTeb THEN
