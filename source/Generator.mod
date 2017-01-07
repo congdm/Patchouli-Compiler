@@ -1233,29 +1233,29 @@ BEGIN
 END LoadLeftRight3;
 
 PROCEDURE Add(VAR x: Item; node: Node);
-	VAR y: Item; oldStat: MakeItemState; form: INTEGER;
+	VAR y: Item; form: INTEGER;
 BEGIN form := node.type.form;
-	oldStat := MkItmStat; LoadLeftRight3(x, y, node); SetRmOperand(y);
+	LoadLeftRight(x, y, node); SetRmOperand(y);
 	IF form = B.tInt THEN EmitRegRm(ADDd, x.r, 8)
 	ELSIF form = B.tSet THEN EmitRegRm(ORd, x.r, 8)
 	ELSIF node.type = B.realType THEN EmitXmmRm(ADDSD, x.r, 4)
 	ELSE ASSERT(FALSE)
 	END;
-	FreeReg2(y); MkItmStat := oldStat
+	FreeReg2(y)
 END Add;
 
 PROCEDURE Subtract(VAR x: Item; node: Node);
-	VAR y: Item; oldStat: MakeItemState; form: INTEGER;
+	VAR y: Item; form: INTEGER;
 BEGIN form := node.type.form;
 	IF node.right # NIL THEN
-		oldStat := MkItmStat; LoadLeftRight3(x, y, node); SetRmOperand(y);
+		LoadLeftRight(x, y, node); SetRmOperand(y);
 		IF form = B.tInt THEN EmitRegRm(SUBd, x.r, 8)
 		ELSIF form = B.tSet THEN
 			Load(y); EmitR(NOT, y.r, 8); EmitRR(ANDd, x.r, 8, y.r)
 		ELSIF node.type = B.realType THEN EmitXmmRm(SUBSD, x.r, 4)
 		ELSE ASSERT(FALSE)
 		END;
-		FreeReg2(y); MkItmStat := oldStat
+		FreeReg2(y)
 	ELSE MakeItem0(x, node.left); Load(x);
 		IF node.type.form = B.tInt THEN EmitR(NEG, x.r, 8)
 		ELSIF node.type.form = B.tSet THEN EmitR(NOT, x.r, 8)
@@ -1369,17 +1369,17 @@ PROCEDURE Compare(VAR x: Item; node: Node);
 BEGIN
 	ResetMkItmStat2(oldStat); tp := node.left.type;
 	IF tp.form = B.tInt THEN
-		LoadLeftRight3(x, y, node); SetRmOperand(y);
-		EmitRegRm(CMPd, x.r, y.type.size); FreeReg(x.r); FreeReg2(y);
+		LoadLeftRight2(x, y, node); SetRmOperand(y);
+		EmitRegRm(CMPd, x.r, 8); FreeReg(x.r); FreeReg2(y);
 		SetCond(x, IntOpToCc(node.op))
 	ELSIF tp = B.realType THEN
-		LoadLeftRight3(x, y, node); SetRmOperand(y);
+		LoadLeftRight2(x, y, node); SetRmOperand(y);
 		EmitXmmRm(COMISD, x.r, 4); FreeXReg(x.r); FreeReg2(y);
 		SetCond(x, IntOpToCc(node.op))
 	ELSIF tp.form IN B.typScalar THEN
-		LoadLeftRight3(x, y, node); SetRmOperand(y);
+		LoadLeftRight2(x, y, node); SetRmOperand(y);
 		EmitRegRm(CMPd, x.r, y.type.size); FreeReg(x.r); FreeReg2(y);
-		SetCond(x, IntOpToCc(node.op))
+		SetCond(x, OpToCc(node.op))
 	ELSIF B.IsStr(tp) THEN
 		SetBestReg(reg_SI); AvoidUsedBy(node.right); SetAvoid(reg_DI);
 		MakeItem0(x, node.left); LoadAdr(x); ResetMkItmStat;

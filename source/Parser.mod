@@ -173,9 +173,10 @@ BEGIN xtype := x.type; ftype := fpar.type;
 		END
 	ELSIF ~fpar.varpar THEN
 		IF ~CompTypes(ftype, xtype) THEN Mark('invalid par type')
-		ELSIF (ftype.form = B.tArray) & (ftype.len >= 0) THEN
-			IF (x IS B.Str) & (x(B.Str).len > ftype.len) THEN
-				Mark('String is longer than dest array')
+		ELSIF (ftype.form = B.tArray) & IsStr(ftype) & (ftype.len >= 0) THEN
+			IF (x IS B.Str) & (x(B.Str).len > ftype.len)
+			OR (xtype.form = B.tArray) & (xtype.len > ftype.len)
+			THEN Mark('String is longer than dest array')
 			END
 		END
 	ELSIF fpar.varpar THEN
