@@ -16,14 +16,14 @@ VAR
 	edata_rva, edata_size, edata_rawsize, edata_fadr: INTEGER;
 	idata_rva, idata_fadr: INTEGER;
 	reloc_rva, reloc_fadr: INTEGER;
-	debug_rva, debug_size, debug_rawsize, debug_fadr: INTEGER;
+	pdata_rva, pdata_size, pdata_rawsize, pdata_fadr: INTEGER;
 			
 	debug_info_rva, debug_info_size: INTEGER;
 	debug_info_rawsize, debug_info_fadr: INTEGER;	
 	debug_abbrev_rva, debug_abbrev_size: INTEGER;
 	debug_abbrev_rawsize, debug_abbrev_fadr: INTEGER;
 	
-	Kernel32Table: ARRAY 5 OF INTEGER;
+	Kernel32Table: ARRAY 6 OF INTEGER;
 	modPtrTable: INTEGER;
 	
 (* -------------------------------------------------------------------------- *)
@@ -41,7 +41,14 @@ PROCEDURE Write_idata_section;
 		table_size = table_len * 8; table_rva = 40;
 		name_rva = table_rva + table_size; hint_rva = name_rva + 16;
 	VAR i: INTEGER;
-BEGIN
+	
+	PROCEDURE WriteHint(func: ARRAY OF CHAR; VAR off: INTEGER);
+	BEGIN
+		Rtl.Seek(out, idata_fadr + hint_rva + 2 + off); INC(off, 32);
+		Rtl.WriteAnsiStr(out, func); ASSERT(LEN(func) <= 30)
+	END WriteHint;
+	
+BEGIN (* Write_idata_section *)
 	Rtl.Seek(out, idata_fadr);
 	
 	(* Import Directory Entry - Kernel32.dll *)
@@ -60,16 +67,13 @@ BEGIN
 	Kernel32Table[table_len - 1] := 0;
 	
 	Rtl.Seek(out, idata_fadr + name_rva);
-	Rtl.WriteAnsiStr(out, 'KERNEL32.DLL');
+	Rtl.WriteAnsiStr(out, 'KERNEL32.DLL'); i := 0;
 	
-	Rtl.Seek(out, idata_fadr + hint_rva + 2);
-	Rtl.WriteAnsiStr (out, 'GetModuleHandleExW');
-	Rtl.Seek(out, idata_fadr + hint_rva + (32 + 2));
-	Rtl.WriteAnsiStr (out, 'ExitProcess');
-	Rtl.Seek(out, idata_fadr + hint_rva + (64 + 2));
-	Rtl.WriteAnsiStr(out, 'LoadLibraryW');
-	Rtl.Seek(out, idata_fadr + hint_rva + (96 + 2));
-	Rtl.WriteAnsiStr(out, 'GetProcAddress')
+	WriteHint('AddVectoredExceptionHandler', i);
+	WriteHint('GetModuleHandleExW', i);
+	WriteHint('ExitProcess', i);
+	WriteHint('LoadLibraryW', i);
+	WriteHint('GetProcAddress', i)
 END Write_idata_section;
 
 PROCEDURE Write_pointer_offset(offset: INTEGER; type: B.Type);
@@ -163,19 +167,24 @@ BEGIN
 	Rtl.Write2(out, 0)
 END Write_reloc_section;
 
-PROCEDURE Write_debug_section(VAR debug: Rtl.File);
-	VAR data: ARRAY 200H OF BYTE;
-		len, cnt: INTEGER;
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+(* .pdata *)
+
+PROCEDURE Write_pdata_section(VAR debug: Rtl.File);
+	VAR data: ARRAY 200H OF BYTE; len, cnt: INTEGER;
 BEGIN
-	len := Rtl.Pos(debug); Rtl.Seek(debug, 0);
-	Rtl.Seek(out, debug_fadr); Rtl.ReadBytes(debug, data, cnt);
+	Rtl.Seek(out, pdata_fadr+32); len := Rtl.Pos(debug);
+	Rtl.Seek(debug, 0); Rtl.ReadBytes(debug, data, cnt);
 	WHILE len > 0 DO
 		IF cnt > len THEN cnt := len END; DEC(len, cnt);
 		Rtl.WriteBuf(out, SYSTEM.ADR(data), cnt);
 		Rtl.ReadBytes(debug, data, cnt)
 	END;
-	Rtl.Close(debug); Rtl.Delete('.pocDebug')
-END Write_debug_section;
+	Rtl.Close(debug); Rtl.Delete('.pocDebug');
+	pdata_size := Rtl.Pos(out) - pdata_fadr;
+	pdata_rawsize := (pdata_size + 511) DIV 512 * 512
+END Write_pdata_section;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -281,8 +290,8 @@ PROCEDURE Write_DWARF_section;
 	END ScanProc;
 	
 BEGIN (* Write_DWARF_section *)
-	debug_info_rva := debug_rva + debug_size;
-	debug_info_fadr := debug_fadr + debug_rawsize;
+	debug_info_rva := pdata_rva + pdata_size;
+	debug_info_fadr := pdata_fadr + pdata_rawsize;
 	Align(debug_info_rva, 4096);
 	
 	Rtl.Seek(out, debug_info_fadr); WriteHeader(0);
@@ -344,8 +353,8 @@ PROCEDURE Write_edata_section;
 	END NewExport;
 		
 BEGIN (* Write_edata_section *)
-	edata_rva := debug_rva + debug_size; Align(edata_rva, 4096);
-	edata_fadr := debug_fadr + debug_rawsize;
+	edata_rva := pdata_rva + pdata_size; Align(edata_rva, 4096);
+	edata_fadr := pdata_fadr + pdata_rawsize;
 
 	name[0] := 0X; Strings.Append(B.modid, name);
 	IF B.Flag.main THEN Strings.Append('.exe', name)
@@ -443,8 +452,7 @@ BEGIN
 	Rtl.Write4(out, 4550H);
 	
 	Rtl.Write2(out, 8664H); (* Machine = AMD64/Intel 64 *)
-	nSection := 5; IF bss_size > 0 THEN INC(nSection) END;
-	IF debug_size > 0 THEN INC(nSection) END;
+	nSection := 6; IF bss_size > 0 THEN INC(nSection) END;
 	Rtl.Write2(out, nSection); (* NumberOfSections *)
 	Rtl.Write4(out, 0); (* TimeDateStamp *)
 	Rtl.Write4(out, 0); (* PointerToSymbolTable *)
@@ -460,7 +468,7 @@ BEGIN
 	Rtl.Write2(out, 0);
 	Rtl.Write4(out, code_rawsize); (* SizeOfCode *)
 	k := data_rawsize + 200H * 2 + edata_rawsize;
-	k := k + debug_rawsize + debug_info_rawsize + debug_abbrev_rawsize;
+	k := k + pdata_rawsize;
 	Rtl.Write4(out, k); (* SizeOfInitializedData *)
 	Rtl.Write4(out, bss_size); (* SizeOfUninitializedData *)
 	Rtl.Write4(out, code_rva + entry);
@@ -477,11 +485,9 @@ BEGIN
 	Rtl.Write2(out, 0);
 	Rtl.Write4(out, 0);
 	k := 4096 + (code_size + 4095) DIV 4096 * 4096;
-	k := k + (debug_size + 4095) DIV 4096 * 4096;
+	k := k + (pdata_size + 4095) DIV 4096 * 4096;
 	k := k + bss_size + data_size + 4096 + 4096;
 	k := k + (edata_size + 4095) DIV 4096 * 4096;
-	k := k + (debug_info_size + 4095) DIV 4096 * 4096;
-	k := k + (debug_abbrev_size + 4095) DIV 4096 * 4096;
 	Rtl.Write4(out, k); (* SizeOfImage *)
 	Rtl.Write4(out, HeaderSize); (* SizeOfHeaders *)
 	Rtl.Write4(out, 0);
@@ -505,9 +511,9 @@ BEGIN
 	Rtl.Write4(out, edata_size);
 	Rtl.Write4(out, idata_rva);
 	Rtl.Write4(out, 130H);
-	Rtl.Write8(out, 0);
-	Rtl.Write8(out, 0);
-	Rtl.Write8(out, 0);
+	Rtl.Write8(out, 0); (* Resource Table *)
+	Rtl.Write8(out, 0); (* Exception Table *)
+	Rtl.Write8(out, 0); (* Certificate Table *)
 	Rtl.Write4(out, reloc_rva);
 	Rtl.Write4(out, 12);
 	Rtl.Seek(out, Rtl.Pos(out) + 8 * 10);
@@ -529,12 +535,9 @@ BEGIN
 	Write_SectionHeader (
 		'.reloc', 42000040H, reloc_rva, 200H, 12, reloc_fadr
 	);
-	IF debug_size > 0  THEN
-		Write_SectionHeader (
-			'debug', 40000040H, debug_rva, debug_rawsize,
-			debug_size, debug_fadr
-		)
-	END;
+	Write_SectionHeader (
+		'.pdata', 40000040H, pdata_rva, pdata_rawsize, pdata_size, pdata_fadr
+	);
 	(*Write_SectionHeader (
 		'/4', 40000040H, debug_info_rva,
 		debug_info_rawsize, debug_info_size, debug_info_fadr
@@ -549,7 +552,7 @@ BEGIN
 	
 	(* Compiler-specifics data *)
 	Rtl.Seek(out, 400H - 32);
-	Rtl.Write8(out, code_rva); Rtl.Write8(out, debug_rva);
+	Rtl.Write8(out, code_rva); Rtl.Write8(out, pdata_rva+32);
 	Rtl.Write8(out, B.modkey[0]); Rtl.Write8(out, B.modkey[1]);
 	
 	(*
@@ -566,8 +569,7 @@ END Write_PEHeader;
 
 PROCEDURE Link*(
 	out0: Rtl.File; VAR debug: Rtl.File; code: ARRAY OF BYTE;
-	pc0, entry0, staticSize, varSize, modPtrTable0: INTEGER;
-	VAR str: B.String
+	pc0, entry0, staticSize, varSize, modPtrTable0: INTEGER; VAR str: B.String
 );
 	VAR n: INTEGER;
 BEGIN
@@ -582,25 +584,22 @@ BEGIN
 	
 	bss_size := varSize; Align(bss_size, 4096);
 	
-	debug_size := Rtl.Pos(debug);
-	debug_rawsize := (debug_size + 511) DIV 512 * 512;
-	
 	bss_rva := 1000H;
 	data_rva := bss_rva + bss_size;
 	code_rva := data_rva + data_size;
 	n := code_size; Align(n, 4096);
 	idata_rva := code_rva + n;
 	reloc_rva := idata_rva + 4096;
-	debug_rva := reloc_rva + 4096;
+	pdata_rva := reloc_rva + 4096;
 	
 	code_fadr := HeaderSize;
 	idata_fadr := code_fadr + code_rawsize;
 	data_fadr := idata_fadr + 200H;
 	reloc_fadr := data_fadr + data_rawsize;
-	debug_fadr := reloc_fadr + 200H;
+	pdata_fadr := reloc_fadr + 200H;
 	
 	Write_code_section(code); Write_idata_section; Write_data_section;
-	Write_reloc_section; Write_debug_section(debug);
+	Write_reloc_section; Write_pdata_section(debug);
 	Write_edata_section; Write_PEHeader; Rtl.Close(out);
 	
 	(* Rename files *)

@@ -42,7 +42,7 @@ CONST
 	IMULi = 69H (* Special case *);
 	
 	(* Opcodes used with EmitBare *)
-	CQO = 9948H; LEAVE = 0C9H; RET = 0C3H; INT3 = 0CCH;
+	CQO = 9948H; LEAVE = 0C9H; RET = 0C3H; INT3 = 0CCH; UD2 = 0B0FH;
 	CMPSB = 0A6H; CMPSW = 0A766H; CMPSD = 0A7H; CMPSQ = 0A748H;
 	LODSB = 0ACH; LODSW = 0AD66H; LODSD = 0ADH; LODSQ = 0AD48H;
 	STOSB = 0AAH; STOSW = 0AB66H; STOSD = 0ABH; STOSQ = 0AB48H;
@@ -110,6 +110,7 @@ VAR
 	(* Static data address*)
 	(* Win32 specifics *)
 	GetModuleHandleExW, ExitProcess, LoadLibraryW, GetProcAddress: INTEGER;
+	AddVectoredExceptionHandler: INTEGER;
 	MessageBoxW, wsprintfW: INTEGER;
 	(* others *)
 	adrOfNEW, modPtrTable: INTEGER;
@@ -877,17 +878,20 @@ BEGIN
 END LoadProc;
 
 PROCEDURE WriteDebug(pos, spos, trapno: INTEGER);
-BEGIN Rtl.Write8(debug, pos + LSL(spos, 30) + LSL(trapno, 60))
+BEGIN
+	IF pass = 3 THEN
+		Rtl.Write8(debug, pos + LSL(spos, 30) + LSL(trapno, 60))
+	END
 END WriteDebug;
 
 PROCEDURE Trap(cond, trapno: INTEGER);
-	VAR L, x: INTEGER;
+	VAR L: INTEGER;
 BEGIN
 	IF ~(cond IN {ccAlways, ccNever}) THEN
-		L := pc; Jcc1(negated(cond), 0); CallProc(trapProc);
-		WriteDebug(pc, sPos, trapno); Fixup(L, pc)
+		L := pc; Jcc1(negated(cond), 0); EmitBare(UD2);
+		WriteDebug(pc-2, sPos, trapno); Fixup(L, pc)
 	ELSIF cond = ccAlways THEN
-		CallProc(trapProc); WriteDebug(pc, sPos, trapno)
+		EmitBare(UD2); WriteDebug(pc-2, sPos, trapno)
 	END
 END Trap;
 
@@ -1117,6 +1121,7 @@ PROCEDURE TypeTag(VAR x: Item);
 BEGIN
 	IF x.type.form = B.tPtr THEN
 		Load(x); x.mode := mRegI;
+		EmitRR(TEST, x.r, 8, x.r); Trap(ccZ, nilTrap);
 		IF B.Flag.handle THEN x.a := 8 ELSE x.a := -16 END
 	ELSIF x.mode = mBP THEN x.a := x.a + 8; x.ref := FALSE
 	ELSE ASSERT(FALSE)
@@ -1392,8 +1397,8 @@ PROCEDURE TypeCheck(VAR x: Item; node: Node);
 BEGIN
 	MakeItem0(x, node.left); ResetMkItmStat2(oldStat);
 	tp := node.right.type; IF tp.form = B.tPtr THEN tp := tp.base END;
-	TypeDesc(y, tp); LoadAdr(y); TypeTag2(tag, x);
-	Load(tag); SetRm_regI(tag.r, tp.len * 8); EmitRegRm(CMP, y.r, 8);
+	TypeDesc(y, tp); LoadAdr(y); TypeTag2(tag, x); Load(tag);
+	SetRm_regI(tag.r, tp.len * 8); EmitRegRm(CMP, y.r, 8);
 	FreeReg(tag.r); FreeReg(y.r); Trap(ccNZ, typeTrap); MkItmStat := oldStat
 END TypeCheck;
 
@@ -1515,7 +1520,7 @@ BEGIN i := 1;
 END Parameter;
 
 PROCEDURE Call(VAR x: Item; node: Node);
-	VAR y: Item; oldStat: MakeItemState;
+	VAR y: Item; oldStat: MakeItemState; L: INTEGER;
 		oldAlloc, oldXAlloc: SET; procType: B.Type;
 BEGIN
 	procType := node.left.type; ResetMkItmStat2(oldStat);
@@ -1533,8 +1538,7 @@ BEGIN
 	IF node.right # NIL THEN
 		Parameter(node.right(Node), procType.fields, 0)
 	END;
-	IF x.mode = mReg THEN SetRm_reg(x.r); EmitRm(CALL, 4)
-	ELSIF x.ref THEN SetRmOperand(x); EmitRm(CALL, 4)
+	IF (x.mode = mReg) OR x.ref THEN SetRmOperand(x); EmitRm(CALL, 4)
 	ELSE CallProc(x.obj(B.Proc))
 	END;
 	MkItmStat := oldStat; allocReg := oldAlloc; allocXReg := oldXAlloc;
@@ -2187,14 +2191,24 @@ BEGIN
 END Procedure;
 
 PROCEDURE TrapHandler;
-	VAR first: INTEGER;
+	VAR first, L: INTEGER;
 BEGIN
 	BeginProc;
 	IF pass = 3 THEN
-		PopR(reg_D); EmitRI(SUBi, reg_SP, 8, 2064 + 64);
+		EmitRR(XOR, reg_A, 4, reg_A);
+		SetRm_regI(reg_C, 0); EmitRegRm(MOVd, reg_C, 8);
+		SetRm_regI(reg_C, 16); EmitRegRm(MOVd, reg_D, 8);
+		SetRm_RIP(-pc-7); EmitRegRm(LEA, reg_C, 8);
+		EmitRR(CMPd, reg_D, 8, reg_C); Jcc1(ccAE, 1); EmitBare(RET);
+		SetRm_RIP(trapProc.adr - pc - 7); EmitRegRm(LEA, reg_C, 8);
+		EmitRR(CMPd, reg_D, 8, reg_C); Jcc1(ccB, 1); EmitBare(RET);
+		(*SetRm_regI(reg_D, 0); EmitRmImm(CMPi, 1, INT3);
+		Jcc1(ccNZ, 1); EmitBare(RET);*)
+	
+		EmitRI(SUBi, reg_SP, 8, 2064 + 64 + 8);
+		SetRm_RIP(-pc-7); EmitRegRm(LEA, reg_B, 8);
 		
-		EmitRR(MOVd, reg_R12, 8, reg_D);
-		MoveRI(reg_C, 4, 6);
+		EmitRR(MOVd, reg_R12, 8, reg_D); MoveRI(reg_C, 4, 6);
 		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_R8, 8);
 		SetRm_regI(reg_B, GetModuleHandleExW); EmitRm(CALL, 4);
 		
@@ -2391,6 +2405,10 @@ BEGIN
 		SetRm_regI(reg_B, modPtrTable); EmitRegRm(LEA, reg_A, 8);
 		SetRm_regI(reg_B, -8); EmitRegRm(MOV, reg_A, 8);
 		IF B.Flag.rtl[0] # 0X THEN ImportRTL END;
+		EmitRR(XOR, reg_C, 4, reg_C);
+		SetRm_regI(reg_B, trapProc.adr); EmitRegRm(LEA, reg_D, 8);
+		SetRm_regI(reg_B, AddVectoredExceptionHandler); EmitRm(CALL, 4);
+		
 		IF modInitProc # NIL THEN CallProc(modInitProc) END;
 
 		IF B.Flag.main THEN EmitRR(XOR, reg_C, 4, reg_C);
@@ -2642,6 +2660,7 @@ BEGIN
 	wsprintfW := -120;
 	MessageBoxW := -112;
 	
+	AddVectoredExceptionHandler := -48;
 	GetModuleHandleExW := -40;
 	ExitProcess := -32;
 	LoadLibraryW := -24;
