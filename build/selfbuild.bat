@@ -16,6 +16,7 @@ cd source
 echo on
 ..\build\Poc Scanner.mod
 ..\build\Poc Base.mod
+..\build\Poc Linker.mod
 ..\build\Poc Generator.mod
 ..\build\Poc Parser.mod
 ..\build\Poc Poc.mod
