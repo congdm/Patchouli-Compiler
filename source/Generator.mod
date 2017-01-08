@@ -95,11 +95,11 @@ VAR
 
 	code: ARRAY 200000H OF BYTE; pc: INTEGER;
 	sPos, pass, varSize, staticSize, staticBase: INTEGER;
+	modid: B.IdStr;
 	
 	procList, curProc: B.ProcList;
+	modInitProc, trapProc, trapProc2, dllInitProc: Proc;
 	
-	modInitProc, trapProc, trapProc2, NEWProc, dllInitProc: Proc;
-	modid: B.IdStr;
 	modidStr, errFmtStr, err2FmtStr: B.Str;
 	err3FmtStr, err4FmtStr, rtlName, user32name: B.Str;
 
@@ -709,14 +709,12 @@ BEGIN
 	modidStr := B.NewStr2(modid);
 	errFmtStr := B.NewStr2('Error code: %d%sModule: %s%sSource pos: %d');
 	err2FmtStr := B.NewStr2('Module key of %s is mismatched%sModule: %s');
-	err3FmtStr := B.NewStr2('Procedure NEW is not installed%sModule: %s');
 	err4FmtStr := B.NewStr2('Cannot load module %s (not exist?)%sModule: %s');
 	rtlName := B.NewStr2(B.Flag.rtl); user32name := B.NewStr2('USER32.DLL');
 	AllocStaticData; ScanDeclaration(B.universe.first, 0);
 	
 	IF modinit # NIL THEN NewProc(modInitProc, modinit) END;
-	NewProc(trapProc, NIL); NewProc(trapProc2, NIL);
-	NewProc(NEWProc, NIL); NewProc(dllInitProc, NIL)
+	NewProc(trapProc, NIL); NewProc(trapProc2, NIL); NewProc(dllInitProc, NIL)
 END Pass1;
 
 (* -------------------------------------------------------------------------- *)
@@ -1811,7 +1809,7 @@ BEGIN
 		SetBestReg(reg_C); MakeItem0(x, obj1); LoadAdr(x);
 		IF x.r # reg_C THEN RelocReg(x.r, reg_C) END;
 		SetBestReg(reg_D); TypeDesc(y, obj1.type.base);
-		LoadAdr(y); CallProc(NEWProc);
+		LoadAdr(y); SetRm_regI(reg_B, adrOfNEW); EmitRm(CALL, 4);
 		IF curProc.obj.homeSpace < 32 THEN curProc.obj.homeSpace := 32 END
 	ELSIF id = S.spASSERT THEN
 		LoadCond(x, obj1); Jump(node, x.bLink, x.c); FixLink(x.aLink);
@@ -2273,36 +2271,6 @@ BEGIN
 	FinishProc
 END ModKeyTrapHandler;
 
-PROCEDURE ProcedureNEW;
-	VAR L: INTEGER;
-BEGIN
-	BeginProc;
-	IF pass = 3 THEN
-		SetRm_regI(reg_B, adrOfNEW); EmitRmImm(CMPi, 8, 0);
-		L := pc; Jcc1(ccZ, 0); SetRm_regI(reg_B, adrOfNEW); EmitRm(JMP, 4);
-		
-		Fixup(L, pc); PopR(reg_A); EmitRI(SUBi, reg_SP, 8, 2064 + 64);
-		MoveRI(reg_A, 4, 00000000000A000DH); SetRm_regI(reg_SP, 56);
-		EmitRegRm(MOV, reg_A, 8);
-		
-		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_C, 8);
-		SetRm_regI(reg_B, err3FmtStr.adr); EmitRegRm(LEA, reg_D, 8);
-		SetRm_regI(reg_SP, 56); EmitRegRm(LEA, reg_R8, 8);
-		SetRm_regI(reg_B, modidStr.adr); EmitRegRm(LEA, reg_R9, 8);
-		SetRm_regI(reg_B, wsprintfW); EmitRm(CALL, 4);
-		
-		EmitRR(XOR, reg_C, 4, reg_C);
-		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_D, 8);
-		EmitRR(XOR, reg_R8, 4, reg_R8);
-		EmitRR(XOR, reg_R9, 4, reg_R9);
-		SetRm_regI(reg_B, MessageBoxW); EmitRm(CALL, 4);
-		
-		EmitRR(XOR, reg_C, 4, reg_C);
-		SetRm_regI(reg_B, ExitProcess); EmitRm(CALL, 4)
-	END;
-	FinishProc
-END ProcedureNEW;
-
 PROCEDURE ImportRTL;
 BEGIN
 	SetRm_regI(reg_B, rtlName.adr); EmitRegRm(LEA, reg_C, 8);
@@ -2653,55 +2621,8 @@ END FoldConst;
 PROCEDURE Cleanup;
 BEGIN
 	procList := NIL; curProc := NIL; modInitProc := NIL;
-	trapProc := NIL; trapProc2 := NIL; NEWProc := NIL; dllInitProc := NIL;
+	trapProc := NIL; trapProc2 := NIL; dllInitProc := NIL;
 END Cleanup;
-
-PROCEDURE Generate*(VAR modinit: B.Node);
-	VAR str: B.String;
-BEGIN
-	(* Pass 1 *)
-	pass := 1; Pass1(modinit);
-	
-	(* Pass 2 *)
-	pass := 2; curProc := procList; pc := 0;
-	WHILE curProc # NIL DO
-		IF curProc.obj = trapProc THEN TrapHandler
-		ELSIF curProc.obj = trapProc2 THEN ModKeyTrapHandler
-		ELSIF curProc.obj = dllInitProc THEN DLLInit
-		ELSIF curProc.obj = NEWProc THEN ProcedureNEW
-		ELSE Procedure
-		END;
-		curProc := curProc.next
-	END;
-	
-	(* Pass 3 *)
-	pass := 3; curProc := procList; pc := 0;
-	WHILE curProc # NIL DO
-		IF curProc.obj = trapProc THEN TrapHandler
-		ELSIF curProc.obj = trapProc2 THEN ModKeyTrapHandler
-		ELSIF curProc.obj = dllInitProc THEN DLLInit
-		ELSIF curProc.obj = NEWProc THEN ProcedureNEW
-		ELSE Procedure
-		END;
-		curProc := curProc.next
-	END;
-	
-	Linker.Link(
-		out, debug, code,
-		pc, dllInitProc.adr, staticSize, varSize, modPtrTable, str
-	);	
-	endTime := Rtl.Time();
-
-	(* Show statistics *)
-	Cleanup; Out.String('No errors found.'); Out.Ln;
-	Out.String('Code size: '); Out.Int(pc, 0); Out.Ln;
-	Out.String('Global variables size: '); Out.Int(varSize, 0); Out.Ln;
-	Out.String('Static data size: '); Out.Int(staticSize, 0); Out.Ln;
-	Out.String('Compile time: ');
-	Out.Int(Rtl.TimeToMSecs(endTime - startTime), 0);
-	Out.String(' miliseconds'); Out.Ln;
-	Out.String('Created binary file: '); Out.String(str); Out.Ln
-END Generate;
 
 PROCEDURE Init*(modid0: B.IdStr);
 BEGIN
@@ -2730,6 +2651,51 @@ BEGIN
 	Rtl.Rewrite(debug, '.pocDebug');
 	Rtl.Rewrite(out, '.tempOut')
 END Init;
+
+PROCEDURE Generate*(VAR modinit: B.Node);
+	VAR str: B.String;
+BEGIN
+	(* Pass 1 *)
+	pass := 1; Pass1(modinit);
+	
+	(* Pass 2 *)
+	pass := 2; curProc := procList; pc := 0;
+	WHILE curProc # NIL DO
+		IF curProc.obj = trapProc THEN TrapHandler
+		ELSIF curProc.obj = trapProc2 THEN ModKeyTrapHandler
+		ELSIF curProc.obj = dllInitProc THEN DLLInit
+		ELSE Procedure
+		END;
+		curProc := curProc.next
+	END;
+	
+	(* Pass 3 *)
+	pass := 3; curProc := procList; pc := 0;
+	WHILE curProc # NIL DO
+		IF curProc.obj = trapProc THEN TrapHandler
+		ELSIF curProc.obj = trapProc2 THEN ModKeyTrapHandler
+		ELSIF curProc.obj = dllInitProc THEN DLLInit
+		ELSE Procedure
+		END;
+		curProc := curProc.next
+	END;
+	
+	Linker.Link(
+		out, debug, code,
+		pc, dllInitProc.adr, staticSize, varSize, modPtrTable, str
+	);	
+	endTime := Rtl.Time();
+
+	(* Show statistics *)
+	Cleanup; Out.String('No errors found.'); Out.Ln;
+	Out.String('Code size: '); Out.Int(pc, 0); Out.Ln;
+	Out.String('Global variables size: '); Out.Int(varSize, 0); Out.Ln;
+	Out.String('Static data size: '); Out.Int(staticSize, 0); Out.Ln;
+	Out.String('Compile time: ');
+	Out.Int(Rtl.TimeToMSecs(endTime - startTime), 0);
+	Out.String(' miliseconds'); Out.Ln;
+	Out.String('Created binary file: '); Out.String(str); Out.Ln
+END Generate;
 
 BEGIN
 	MakeItem0 := MakeItem

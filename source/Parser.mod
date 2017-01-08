@@ -692,6 +692,7 @@ BEGIN hasParen := TRUE;
 		x := designator(); CheckSet(x); CheckVar(x, FALSE); Check0(S.comma);
 		y := expression(); CheckInt(y); x := NewNode(f.id, x, y)
 	ELSIF f.id = B.spNEW THEN
+		IF B.Flag.rtl[0] = 0X THEN Mark('Must have RTL to call NEW') END;
 		x := designator(); Check1(x, {B.tPtr}); CheckVar(x, FALSE);
 		IF (x.type.base.lev < -1) & (x.type.base.adr = 0) THEN
 			t := x.type.base.obj;
