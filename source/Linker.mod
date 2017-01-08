@@ -144,6 +144,168 @@ BEGIN
 	Rtl.Write8(out, -1)
 END Write_data_section;
 
+PROCEDURE Write_code_section(code: ARRAY OF BYTE);
+	VAR cnt: INTEGER;
+BEGIN
+	Rtl.Seek(out, code_fadr); cnt := pc;
+	Rtl.WriteBuf(out, SYSTEM.ADR(code), cnt)
+END Write_code_section;
+
+PROCEDURE Write_reloc_section;
+BEGIN
+	Rtl.Seek(out, reloc_fadr);
+	Rtl.Write4(out, 4);
+	Rtl.Write4(out, 12);
+	Rtl.Write2(out, 0);
+	Rtl.Write2(out, 0)
+END Write_reloc_section;
+
+PROCEDURE Write_debug_section(VAR debug: Rtl.File);
+	VAR data: ARRAY 200H OF BYTE;
+		len, cnt: INTEGER;
+BEGIN
+	len := Rtl.Pos(debug); Rtl.Seek(debug, 0);
+	Rtl.Seek(out, debug_fadr); Rtl.ReadBytes(debug, data, cnt);
+	WHILE len > 0 DO
+		IF cnt > len THEN cnt := len END; DEC(len, cnt);
+		Rtl.WriteBuf(out, SYSTEM.ADR(data), cnt);
+		Rtl.ReadBytes(debug, data, cnt)
+	END;
+	Rtl.Close(debug); Rtl.Delete('.pocDebug')
+END Write_debug_section;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+(* DWARF2 *)
+
+PROCEDURE Write_DWARF_section;
+	CONST
+		DW_CHILDREN_YES = 1; DW_CHILDREN_NO = 0;
+
+		DW_TAG_compile_unit = 11H;
+		DW_TAG_subroutine_type = 15H;
+		
+		DW_AT_name = 3H;
+		DW_AT_low_pc = 11H;
+		DW_AT_high_pc = 12H;
+		
+		DW_FORM_addr = 1H;
+		DW_FORM_string = 8H;
+	VAR
+		ident: B.Ident; len: INTEGER;
+
+	PROCEDURE Write(x: INTEGER);
+		VAR b: BYTE;
+	BEGIN ASSERT(x >= 0);
+		REPEAT
+			b := x MOD 128; x := ASR(x, 7);
+			IF x # 0 THEN INC(b, 128) END; Rtl.Write1(out, b)
+		UNTIL x = 0
+	END Write;
+		
+	PROCEDURE WriteAbbrev;
+	BEGIN
+		Write(1); (* abbrev code 1 *)
+		Write(DW_TAG_compile_unit); Write(DW_CHILDREN_YES);
+		Write(DW_AT_name); Write(DW_FORM_string);
+		Write(DW_AT_low_pc); Write(DW_FORM_addr);
+		Write(DW_AT_high_pc); Write(DW_FORM_addr);
+		Write(0);
+		
+		Write(2); (* abbrev code 2 *)
+		Write(DW_TAG_subroutine_type); Write(DW_CHILDREN_NO);
+		Write(DW_AT_name); Write(DW_FORM_string);
+		Write(DW_AT_low_pc); Write(DW_FORM_addr);
+		Write(DW_AT_high_pc); Write(DW_FORM_addr);
+		Write(0);
+		
+		Write(3); (* abbrev code 3 *)
+		Write(DW_TAG_subroutine_type); Write(DW_CHILDREN_YES);
+		Write(DW_AT_name); Write(DW_FORM_string);
+		Write(DW_AT_low_pc); Write(DW_FORM_addr);
+		Write(DW_AT_high_pc); Write(DW_FORM_addr);
+		Write(0);
+		
+		Write(0)
+	END WriteAbbrev;
+
+	PROCEDURE WriteHeader(len: INTEGER);
+	BEGIN
+		IF len <= 4 THEN len := 4 END;
+		Rtl.Write4(out, len-4); Rtl.Write2(out, 2);
+		Rtl.Write4(out, 0); Rtl.Write1(out, 8)
+	END WriteHeader;
+
+	PROCEDURE WriteCompileUnit(lo, hi: INTEGER);
+	BEGIN
+		Write(1);
+		Rtl.WriteAnsiStr(out, B.modid);
+		Rtl.Write8(out, lo); Rtl.Write8(out, hi)
+	END WriteCompileUnit;
+
+	PROCEDURE WriteSubroutine(name: B.IdStr; lo, hi: INTEGER);
+	BEGIN
+		Write(2);
+		Rtl.WriteAnsiStr(out, name);
+		Rtl.Write8(out, lo); Rtl.Write8(out, hi)
+	END WriteSubroutine;
+	
+	PROCEDURE WriteSubroutine2(name: B.IdStr; lo, hi: INTEGER);
+	BEGIN
+		Write(3);
+		Rtl.WriteAnsiStr(out, name);
+		Rtl.Write8(out, lo); Rtl.Write8(out, hi)
+	END WriteSubroutine2;
+	
+	PROCEDURE ScanProc(proc: B.Proc);
+		VAR ident: B.Ident; hasChild: BOOLEAN; lo, hi: INTEGER;
+	BEGIN hasChild := FALSE; ident := proc.decl;
+		WHILE (ident # NIL) & ~hasChild DO
+			hasChild := ident.obj IS B.Proc;
+			IF ~hasChild THEN ident := ident.next END
+		END;
+		lo := code_rva + proc.adr; hi := code_rva + proc.lim;
+		IF ~hasChild THEN WriteSubroutine(proc.ident.name, lo, hi)
+		ELSE WriteSubroutine2(proc.ident.name, lo, hi);
+			WHILE ident # NIL DO
+				IF ident.obj IS B.Proc THEN ScanProc(ident.obj(B.Proc)) END;
+				ident := ident.next
+			END;
+			Write(0)
+		END
+	END ScanProc;
+	
+BEGIN (* Write_DWARF_section *)
+	debug_info_rva := debug_rva + debug_size;
+	debug_info_fadr := debug_fadr + debug_rawsize;
+	Align(debug_info_rva, 4096);
+	
+	Rtl.Seek(out, debug_info_fadr); WriteHeader(0);
+	WriteCompileUnit(code_rva, code_rva+pc);
+	ident := B.universe.first;
+	WHILE ident # NIL DO
+		IF ident.obj IS B.Proc THEN ScanProc(ident.obj(B.Proc)) END;
+		ident := ident.next
+	END;
+	Write(0);
+	
+	len := Rtl.Pos(out) - debug_info_fadr;
+	Rtl.Seek(out, debug_info_fadr); WriteHeader(len);
+	debug_info_size := len; Align(len, 512); debug_info_rawsize := len;
+	
+	debug_abbrev_rva := debug_info_rva + debug_info_size;
+	debug_abbrev_fadr := debug_info_fadr + debug_info_rawsize;
+	Align(debug_abbrev_rva, 4096);
+	
+	Rtl.Seek(out, debug_abbrev_fadr); WriteAbbrev;
+	len := Rtl.Pos(out) - debug_abbrev_fadr; debug_abbrev_size := len;
+	Align(len, 512); debug_abbrev_rawsize := len
+END Write_DWARF_section;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+(* .edata *)
+
 PROCEDURE Write_edata_section;
 	CONST dirSz = 40;	
 	TYPE
@@ -177,6 +339,9 @@ PROCEDURE Write_edata_section;
 	END NewExport;
 		
 BEGIN (* Write_edata_section *)
+	edata_rva := debug_abbrev_rva + debug_abbrev_size; Align(edata_rva, 4096);
+	edata_fadr := debug_abbrev_fadr + debug_abbrev_rawsize;
+
 	name[0] := 0X; Strings.Append(B.modid, name);
 	IF B.Flag.main THEN Strings.Append('.exe', name)
 	ELSE Strings.Append('.dll', name)
@@ -239,14 +404,9 @@ BEGIN (* Write_edata_section *)
 	END
 END Write_edata_section;
 
-PROCEDURE Write_reloc_section;
-BEGIN
-	Rtl.Seek(out, reloc_fadr);
-	Rtl.Write4(out, 4);
-	Rtl.Write4(out, 12);
-	Rtl.Write2(out, 0);
-	Rtl.Write2(out, 0)
-END Write_reloc_section;
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+(* PE Header *)
 
 PROCEDURE Write_SectionHeader (
 	name: ARRAY OF CHAR; chr, rva, rawsize, size, fileadr: INTEGER
@@ -278,12 +438,12 @@ BEGIN
 	Rtl.Write4(out, 4550H);
 	
 	Rtl.Write2(out, 8664H); (* Machine = AMD64/Intel 64 *)
-	nSection := 5; IF bss_size > 0 THEN INC(nSection) END;
+	nSection := 7; IF bss_size > 0 THEN INC(nSection) END;
 	IF debug_size > 0 THEN INC(nSection) END;
 	Rtl.Write2(out, nSection); (* NumberOfSections *)
-	Rtl.Write4(out, 0);
-	Rtl.Write4(out, 0);
-	Rtl.Write4(out, 0);
+	Rtl.Write4(out, 0); (* TimeDateStamp *)
+	Rtl.Write4(out, 400H); (* PointerToSymbolTable *)
+	Rtl.Write4(out, 0); (* NumberOfSymbols *)
 	Rtl.Write2(out, 240);
 	
 	(* Characteristics *)
@@ -295,7 +455,7 @@ BEGIN
 	Rtl.Write2(out, 0);
 	Rtl.Write4(out, code_rawsize); (* SizeOfCode *)
 	k := data_rawsize + 200H * 2 + edata_rawsize;
-	k := k + debug_rawsize;
+	k := k + debug_rawsize + debug_info_rawsize + debug_abbrev_rawsize;
 	Rtl.Write4(out, k); (* SizeOfInitializedData *)
 	Rtl.Write4(out, bss_size); (* SizeOfUninitializedData *)
 	Rtl.Write4(out, code_rva + entry);
@@ -315,8 +475,10 @@ BEGIN
 	k := k + (debug_size + 4095) DIV 4096 * 4096;
 	k := k + bss_size + data_size + 4096 + 4096;
 	k := k + (edata_size + 4095) DIV 4096 * 4096;
+	k := k + (debug_info_size + 4095) DIV 4096 * 4096;
+	k := k + (debug_abbrev_size + 4095) DIV 4096 * 4096;
 	Rtl.Write4(out, k); (* SizeOfImage *)
-	Rtl.Write4(out, 400H);
+	Rtl.Write4(out, 600H); (* SizeOfHeaders *)
 	Rtl.Write4(out, 0);
 	IF B.Flag.console THEN Rtl.Write2(out, 3) (* Subsys = Console *)
 	ELSE Rtl.Write2(out, 2) (* Subsys = GUI *)
@@ -351,20 +513,16 @@ BEGIN
 		)
 	END;
 	Write_SectionHeader (
-		'.data', -1073741760, data_rva, data_rawsize,
-		data_size, data_fadr
+		'.data', -1073741760, data_rva, data_rawsize, data_size, data_fadr
 	);
 	Write_SectionHeader (
-		'.text', 60000020H, code_rva, code_rawsize,
-		code_size, code_fadr
+		'.text', 60000020H, code_rva, code_rawsize, code_size, code_fadr
 	);
 	Write_SectionHeader (
-		'.idata', -1073741760, idata_rva, 200H,
-		130H, idata_fadr
+		'.idata', -1073741760, idata_rva, 200H, 130H, idata_fadr
 	);
 	Write_SectionHeader (
-		'.reloc', 42000040H, reloc_rva, 200H,
-		12, reloc_fadr
+		'.reloc', 42000040H, reloc_rva, 200H, 12, reloc_fadr
 	);
 	IF debug_size > 0  THEN
 		Write_SectionHeader (
@@ -373,39 +531,31 @@ BEGIN
 		)
 	END;
 	Write_SectionHeader (
-		'.edata', 40000040H, edata_rva, edata_rawsize,
-		edata_size, edata_fadr
-	);
-	(*Write_SectionHeader (
-		'.debug_info', 40000040H, debug_info_rva,
+		'/4', 40000040H, debug_info_rva,
 		debug_info_rawsize, debug_info_size, debug_info_fadr
 	);
 	Write_SectionHeader (
-		'.debug_abbrev', 40000040H, debug_abbrev_rva,
+		'/16', 40000040H, debug_abbrev_rva,
 		debug_abbrev_rawsize, debug_abbrev_size, debug_abbrev_fadr
-	)*)
+	);
+	Write_SectionHeader (
+		'.edata', 40000040H, edata_rva, edata_rawsize, edata_size, edata_fadr
+	);
+	
+	(* Compiler-specifics data *)
+	Rtl.Seek(out, 400H - 32);
+	Rtl.Write8(out, code_rva); Rtl.Write8(out, debug_rva);
+	Rtl.Write8(out, B.modkey[0]); Rtl.Write8(out, B.modkey[1]);
+	
+	(* String table *)
+	Rtl.Seek(out, 400H + 4);
+	Rtl.WriteAnsiStr(out, '.debug_info');
+	Rtl.WriteAnsiStr(out, '.debug_abbrev');
+	k := Rtl.Pos(out) - 400H; Rtl.Seek(out, 400H); Rtl.Write4(out, k)
 END Write_PEHeader;
 
-PROCEDURE Write_code_section(code: ARRAY OF BYTE);
-	VAR cnt: INTEGER;
-BEGIN
-	Rtl.Seek(out, 400H); cnt := pc;
-	Rtl.WriteBuf(out, SYSTEM.ADR(code), cnt)
-END Write_code_section;
-
-PROCEDURE Write_debug_section(VAR debug: Rtl.File);
-	VAR data: ARRAY 200H OF BYTE;
-		len, cnt: INTEGER;
-BEGIN
-	len := Rtl.Pos(debug); Rtl.Seek(debug, 0);
-	Rtl.Seek(out, debug_fadr); Rtl.ReadBytes(debug, data, cnt);
-	WHILE len > 0 DO
-		IF cnt > len THEN cnt := len END; DEC(len, cnt);
-		Rtl.WriteBuf(out, SYSTEM.ADR(data), cnt);
-		Rtl.ReadBytes(debug, data, cnt)
-	END;
-	Rtl.Close(debug); Rtl.Delete('.pocDebug')
-END Write_debug_section;
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
 
 PROCEDURE Link*(
 	out0: Rtl.File; VAR debug: Rtl.File; code: ARRAY OF BYTE;
@@ -435,24 +585,16 @@ BEGIN
 	idata_rva := code_rva + n;
 	reloc_rva := idata_rva + 4096;
 	debug_rva := reloc_rva + 4096;
-	n := debug_size; Align(n, 4096);
-	edata_rva := debug_rva + n;
 	
-	code_fadr := 400H;
+	code_fadr := 600H;
 	idata_fadr := code_fadr + code_rawsize;
 	data_fadr := idata_fadr + 200H;
 	reloc_fadr := data_fadr + data_rawsize;
 	debug_fadr := reloc_fadr + 200H;
-	edata_fadr := debug_fadr + debug_rawsize;
-	
-	Rtl.Seek(out, 400H - 32);
-	Rtl.Write8(out, code_rva); Rtl.Write8(out, debug_rva);
-	Rtl.Write8(out, B.modkey[0]); Rtl.Write8(out, B.modkey[1]);
 	
 	Write_code_section(code); Write_idata_section; Write_data_section;
-	Write_reloc_section; Write_debug_section(debug); Write_edata_section;
-	
-	Write_PEHeader; Rtl.Close(out);
+	Write_reloc_section; Write_debug_section(debug); Write_DWARF_section;
+	Write_edata_section; Write_PEHeader; Rtl.Close(out);
 	
 	(* Rename files *)
 	str[0] := 0X; Strings.Append(B.modid, str);
