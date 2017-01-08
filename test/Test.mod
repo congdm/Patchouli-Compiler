@@ -17,5 +17,6 @@ BEGIN
 	WHILE str[i] # 0X DO ansiStr[i] := ORD(str[i]); INC(i) END;
 	SYSTEM.LoadLibraryW(user32, 'User32.dll');
 	SYSTEM.GetProcAddress(MessageBoxW, user32, SYSTEM.ADR(ansiStr));
-	MessageBoxW(0, 'Hello, world!', 'Test', 0)
+	MessageBoxW(0, 'Hello, world!', 'Test', 0);
+	MessageBoxW(0, 'Πάντα ῥεῖ - Ἡράκλειτος ὁ Ἐφέσιος', 'Test utf8 str', 0)
 END Test.

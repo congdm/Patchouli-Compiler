@@ -127,17 +127,17 @@ BEGIN i := 0;
 END Identifier;
 
 PROCEDURE String(quoteCh: CHAR);
-	VAR i: INTEGER;
+	VAR i: INTEGER; utf8str: ARRAY MaxStrLen+1 OF BYTE;
 BEGIN
 	i := 0; Read;
 	WHILE ~eof & (ch # quoteCh) DO
-		IF i < MaxStrLen THEN str[i] := ch; INC(i)
+		IF i < MaxStrLen THEN utf8str[i] := ORD(ch); INC(i)
 		ELSE Mark('String too long')
 		END;
 		Read
 	END;
-	str[i] := 0X; Read; slen := i + 1;
-	IF ch = '@' THEN Read; ansiStr := TRUE ELSE ansiStr := FALSE END
+	Read; utf8str[i] := 0;
+	slen := Rtl.Utf8ToUnicode(utf8str, str)
 END String;
 
 PROCEDURE HexString;
