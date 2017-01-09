@@ -7,3 +7,6 @@ lib/*.dll
 *.vs/
 build/*.dll
 build/*.exe
+.pocDebug
+.tempOut
+.tempSymfile

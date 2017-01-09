@@ -118,7 +118,6 @@ END SameProc;
 PROCEDURE CompTypes(t1, t2: B.Type): BOOLEAN;
 	RETURN (t1 = t2)
 	OR (t1.form = B.tInt) & (t2.form = B.tInt)
-	OR (t1.form = B.tChar) & IsStr(t2) & (t2.len <= 2)
 	OR IsStr(t1) & IsStr(t2)
 	OR (t1.form IN {B.tProc, B.tPtr}) & (t2 = B.nilType)
 	OR (t1.form IN {B.tRec, B.tPtr}) & (t1.form = t2.form) & IsExt(t2, t1)
@@ -128,6 +127,10 @@ END CompTypes;
 PROCEDURE CompTypes2(t1, t2: B.Type): BOOLEAN;
 	RETURN CompTypes(t1, t2) OR CompTypes(t2, t1)
 END CompTypes2;
+
+PROCEDURE IsCharStr(x: B.Object): BOOLEAN;
+	RETURN (x IS B.Str) & (x(B.Str).len <= 2)
+END IsCharStr;
 
 PROCEDURE CheckInt(x: B.Object);
 BEGIN
@@ -193,7 +196,10 @@ BEGIN xtype := x.type; ftype := fpar.type;
 		ELSE Mark('invalid par type')
 		END
 	ELSIF ~fpar.varpar THEN
-		IF ~CompTypes(ftype, xtype) THEN Mark('invalid par type')
+		IF ~CompTypes(ftype, xtype) THEN
+			IF (ftype = B.charType) & (x IS B.Str) & (x(B.Str).len <= 2)
+			THEN (*valid*) ELSE Mark('invalid par type')
+			END
 		ELSIF IsStr(ftype) THEN CheckStrLen(ftype, x)
 		END
 	ELSIF fpar.varpar THEN
@@ -225,14 +231,9 @@ BEGIN
 	IF ~(x.type.form IN forms) THEN Mark(ivlType) END
 END Check1;
 
-PROCEDURE StrToCharIfNeed(VAR x, y: B.Object);
-BEGIN
-	IF (x.type = B.charType) & (y IS B.Str) & (y(B.Str).len <= 2) THEN
-		y := B.NewConst(B.charType, ORD(B.strbuf[y(B.Str).bufpos]))
-	ELSIF (y.type = B.charType) & (x IS B.Str) & (x(B.Str).len <= 2) THEN
-		x := B.NewConst(B.charType, ORD(B.strbuf[x(B.Str).bufpos]))
-	END
-END StrToCharIfNeed;
+PROCEDURE StrToChar(x: B.Object): B.Object;
+	RETURN B.NewConst(B.charType, ORD(B.strbuf[x(B.Str).bufpos]))
+END StrToChar;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -637,11 +638,15 @@ BEGIN x := SimpleExpression();
 			IF IsConst(x) & IsConst(y) THEN x := G.FoldConst(op, x, y)
 			ELSE x := NewNode(op, x, y); x.type := B.boolType
 			END
-		ELSIF CompTypes2(x.type, y.type) THEN StrToCharIfNeed(x, y);
+		ELSIF CompTypes2(x.type, y.type) THEN
 			IF IsOpenArray0(y.type) THEN Mark('untagged open array') END;
 			IF IsConst(x) & IsConst(y) THEN x := G.FoldConst(op, x, y)
 			ELSE x := NewNode(op, x, y); x.type := B.boolType
 			END
+		ELSIF (x.type = B.charType) & IsCharStr(y) THEN
+			x := NewNode(op, x, StrToChar(y)); x.type := B.boolType
+		ELSIF (y.type = B.charType) & IsCharStr(x) THEN
+			x := NewNode(op, StrToChar(x), y); x.type := B.boolType
 		ELSE Mark('invalid type')
 		END
 	ELSIF sym = S.in THEN
@@ -852,9 +857,11 @@ BEGIN
 				IF x.type.notag THEN Mark('untagged open array') END;
 				GetSym; y := expression();
 				IF x.type = y.type THEN stat.left := NewNode(S.becomes, x, y)
-				ELSIF CompTypes(x.type, y.type) THEN StrToCharIfNeed(x, y);
+				ELSIF CompTypes(x.type, y.type) THEN
 					IF IsStr(x.type) THEN CheckStrLen(x.type, y) END;
 					stat.left := NewNode(S.becomes, x, y)
+				ELSIF (x.type = B.charType) & IsCharStr(y) THEN
+					stat.left := NewNode(S.becomes, x, StrToChar(y))
 				ELSIF CompArray(x.type, y.type) & IsOpenArray(y.type) THEN
 					IF y.type.notag THEN Mark('untagged open array') END;
 					stat.left := NewNode(S.becomes, x, y)
