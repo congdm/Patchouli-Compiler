@@ -451,7 +451,8 @@ PROCEDURE WriteSymfile*;
 BEGIN
 	refno := 0; expno := 0;
 	Rtl.Rewrite(symfile, 'sym.temp_'); Rtl.Seek(symfile, 16);
-	WriteInt(symfile, modlev); WriteInt(symfile, ORD(Flag.handle));
+	WriteInt(symfile, modlev);
+	WriteInt(symfile, ORD(Flag.handle));
 	
 	FOR i := 0 TO modno-1 DO
 		mod := modList[i];

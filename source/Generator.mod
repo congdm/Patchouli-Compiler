@@ -236,7 +236,7 @@ BEGIN
 	Put1(op); EmitModRM(reg)
 END EmitRegRm;
 
-PROCEDURE EmitRm (op, rsize: INTEGER);
+PROCEDURE EmitRm(op, rsize: INTEGER);
 	CONST w = 1;
 	VAR op3bits, org: INTEGER;
 BEGIN
@@ -1101,7 +1101,7 @@ BEGIN
 	ELSIF B.IsNormalArray(obj.type) THEN x.mode := mImm; x.a := obj.type.len
 	ELSE ASSERT(FALSE)
 	END;
-	x.type := B.intType; x.ref := FALSE
+	x.type := B.card32Type; x.ref := FALSE
 END ArrayLen;
 
 PROCEDURE SizeOf(VAR x: Item; obj: B.Object);
@@ -1110,15 +1110,14 @@ BEGIN
 	IF obj IS B.Str THEN x.mode := mImm; x.a := obj(B.Str).len*2
 	ELSIF B.IsOpenArray(obj.type) THEN size := obj.type.base.size;
 		IF size = 0 THEN x.mode := mImm; x.a := 0
-		ELSE MakeItem0(x, obj); INC(x.a, 8); x.type := B.intType;
-			x.ref := FALSE; Load(x); e := log2(size);
+		ELSE ArrayLen(x, obj); Load(x); e := log2(size);
 			IF e > 0 THEN EmitRI(SHLi, x.r, 8, e)
 			ELSIF e < 0 THEN EmitRI(IMULi, x.r, 8, size)
 			END
 		END
 	ELSE x.mode := mImm; x.a := obj.type.size
 	END;
-	x.type := B.intType; x.ref := FALSE
+	x.type := B.card32Type; x.ref := FALSE
 END SizeOf;
 
 PROCEDURE TypeTag(VAR x: Item);
@@ -1328,23 +1327,17 @@ BEGIN
 		IF x.r # reg_SI THEN RelocReg(x.r, reg_SI) END;
 		cx := AllocReg2({}); EmitRR(XOR, cx, 4, cx);
 		
-		first := pc; EmitRI(ADDi, cx, 8, 1);
+		first := pc; EmitRI(ADDi, cx, 4, 1);
 		
 		ArrayLen(len, node.left);
-		IF len.mode = mImm THEN
-			IF SmallConst(len.a) THEN EmitRI(CMPi, cx, 8, len.a)
-			ELSE Load(len); EmitRR(CMPd, cx, 8, len.r); FreeReg(len.r)
-			END
-		ELSE SetRmOperand(len); EmitRegRm(CMPd, cx, 8); FreeReg2(len)
+		IF len.mode = mImm THEN EmitRI(CMPi, cx, 4, len.a)
+		ELSE SetRmOperand(len); EmitRegRm(CMPd, cx, 4); FreeReg2(len)
 		END;
 		Trap(ccA, stringTrap);
 		
 		ArrayLen(len, node.right);
-		IF len.mode = mImm THEN
-			IF SmallConst(len.a) THEN EmitRI(CMPi, cx, 8, len.a)
-			ELSE Load(len); EmitRR(CMPd, cx, 8, len.r); FreeReg(len.r)
-			END
-		ELSE SetRmOperand(len); EmitRegRm(CMPd, cx, 8); FreeReg2(len)
+		IF len.mode = mImm THEN EmitRI(CMPi, cx, 4, len.a)
+		ELSE SetRmOperand(len); EmitRegRm(CMPd, cx, 4); FreeReg2(len)
 		END;
 		Trap(ccA, stringTrap);
 		
@@ -1414,15 +1407,15 @@ BEGIN oldStat := MkItmStat; AvoidUsedBy(node.right);
 	IF node.right IS B.Const THEN idx := node.right(B.Const).val;
 		IF B.IsOpenArray(x.type) & ~x.type.notag THEN
 			ArrayLen(len, node.left); SetRmOperand(len);
-			EmitRmImm(CMPi, 8, idx); Trap(ccBE, arrayTrap)
+			EmitRmImm(CMPi, 4, idx); Trap(ccBE, arrayTrap)
 		END;
 		IF x.ref THEN INC(x.b, idx*size) ELSE INC(x.a, idx*size) END
 	ELSE RefToRegI(x);
 		IF x.mode # mRegI THEN LoadAdr(x); x.mode := mRegI; x.a := 0 END;
 		ResetMkItmStat; MakeItem0(y, node.right); Load(y);
 		IF ~x.type.notag THEN ArrayLen(len, node.left);
-			IF len.mode = mImm THEN EmitRI(CMPi, y.r, 8, len.a)
-			ELSE SetRmOperand(len); EmitRegRm(CMPd, y.r, 8)
+			IF len.mode = mImm THEN EmitRI(CMPi, y.r, 4, len.a)
+			ELSE SetRmOperand(len); EmitRegRm(CMPd, y.r, 4)
 			END; Trap(ccAE, arrayTrap)
 		END;
 		IF size > 0 THEN e := log2(size);
@@ -1510,7 +1503,7 @@ BEGIN i := 1;
 			ELSE SizeOf(y, par.left)
 			END; Load(y);
 			IF B.IsStr(ftype) & (ftype.len >= 0) & B.IsOpenArray(x.type) THEN
-				EmitRI(CMPi, y.r, 8, ftype.len); Trap(ccA, stringTrap)
+				EmitRI(CMPi, y.r, 4, ftype.len); Trap(ccA, stringTrap)
 			END
 		ELSIF (par.left IS B.Par) & par.left(B.Par).varpar THEN
 			MakeItem0(y, par.left); TypeTag(y); Load(y)
@@ -1676,7 +1669,7 @@ BEGIN
 		IF y.type = B.strType THEN cx := y.strlen * 2;
 			IF B.IsOpenArray(x.type) THEN
 				ArrayLen(z, node.left); SetRmOperand(z);
-				EmitRmImm(CMPi, 8, y.strlen); Trap(ccB, stringTrap)			
+				EmitRmImm(CMPi, 4, y.strlen); Trap(ccB, stringTrap)			
 			END;
 			IF cx MOD 8 = 0 THEN cx := cx DIV 8; rsize := 8
 			ELSIF cx MOD 4 = 0 THEN cx := cx DIV 4; rsize := 4
@@ -1686,25 +1679,30 @@ BEGIN
 		ELSIF B.IsStr(x.type) THEN
 			SetAlloc(reg_A); SetAlloc(reg_C);
 			EmitRR(XOR, reg_C, 4, reg_C); EmitRR(XOR, reg_A, 4, reg_A);
-			first := pc; EmitRI(ADDi, reg_C, 8, 1);
-			IF B.IsOpenArray(x.type) THEN
-				ArrayLen(z, node.left); SetRmOperand(z);
-				EmitRegRm(CMPd, reg_C, 8); Trap(ccA, stringTrap)
-			ELSE EmitRI(CMPi, reg_C, 8, x.type.len); Trap(ccA, stringTrap)
-			END;
-			IF B.IsOpenArray(y.type) THEN
-				ArrayLen(z, node.right); SetRmOperand(z);
-				EmitRegRm(CMPd, reg_C, 8); Trap(ccA, stringTrap)
-			ELSE EmitRI(CMPi, reg_C, 8, y.type.len); Trap(ccA, stringTrap)
-			END;
+			first := pc; EmitRI(ADDi, reg_C, 4, 1);
+			
+			ArrayLen(z, node.left);
+			IF z.mode = mImm THEN EmitRI(CMPi, reg_C, 4, z.a)
+			ELSE SetRmOperand(z); EmitRegRm(CMPd, reg_C, 4)
+			END; Trap(ccA, stringTrap);
+			ArrayLen(z, node.right);
+			IF z.mode = mImm THEN EmitRI(CMPi, reg_C, 4, z.a)
+			ELSE SetRmOperand(z); EmitRegRm(CMPd, reg_C, 4)
+			END; Trap(ccA, stringTrap);
+			
 			EmitBare(LODSW); EmitBare(STOSW);
 			EmitRR(TEST, reg_A, 4, reg_A); BJump(first, ccNZ)
 		ELSIF B.IsOpenArray(y.type) THEN
-			SetAlloc(reg_C); ArrayLen(z, node.right); SetRmOperand(z);
-			EmitRegRm(MOVd, reg_C, 8); EmitRI(CMPi, reg_C, 8, x.type.len);
+			SetBestReg(reg_C); ArrayLen(z, node.right); Load(z);
+			IF z.r # reg_C THEN RelocReg(z.r, reg_C) END;
+			
+			ArrayLen(z, node.left);
+			IF z.mode = mImm THEN EmitRI(CMPi, reg_C, 4, z.a)
+			ELSE SetRmOperand(z); EmitRegRm(CMPd, reg_C, 4)
+			END; Trap(ccA, stringTrap);
+			
 			rsize := y.type.base.align; cx := y.type.base.size DIV rsize;
-			Trap(ccA, stringTrap); EmitRI(IMULi, reg_C, 8, cx);
-			EmitRep(MOVSrep, rsize, 1)
+			EmitRI(IMULi, reg_C, 8, cx); EmitRep(MOVSrep, rsize, 1)
 		ELSE cx := x.type.size;
 			IF cx MOD 8 = 0 THEN cx := cx DIV 8; rsize := 8
 			ELSIF cx MOD 4 = 0 THEN cx := cx DIV 4; rsize := 4
@@ -1975,7 +1973,7 @@ PROCEDURE MakeItem(VAR x: Item; obj: B.Object);
 BEGIN
 	x.type := obj.type; x.ref := FALSE; x.a := 0; x.b := 0; x.c := 0;
 	IF obj IS B.Const THEN x.mode := mImm; x.a := obj(B.Const).val
-	ELSIF obj IS B.Var THEN
+	ELSIF obj IS B.Var THEN x.obj := obj;
 		objv := obj(B.Var); x.a := objv.adr; form := objv.type.form;
 		IF objv.lev <= 0 THEN x.mode := mBX ELSE x.mode := mBP END;
 		IF objv.lev < 0 THEN x.ref := TRUE END;

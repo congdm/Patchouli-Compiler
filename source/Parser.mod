@@ -65,7 +65,7 @@ PROCEDURE IsStr(t: B.Type): BOOLEAN;
 END IsStr;
 
 PROCEDURE IsExt0(t1, t2: B.Type): BOOLEAN;
-	RETURN (t1 = t2) OR (t1.len > t2.len) & IsExt0(t1.base, t2)
+	RETURN (t1 = t2) OR (t1 # NIL) & IsExt0(t1.base, t2)
 END IsExt0;
 
 PROCEDURE IsExt(t1, t2: B.Type): BOOLEAN;
@@ -200,7 +200,7 @@ BEGIN xtype := x.type; ftype := fpar.type;
 	ELSIF fpar.varpar THEN
 		CheckVar(x, fpar.ronly); xform := xtype.form; fform := ftype.form;
 		IF (xtype = ftype) OR CompArray(xtype, ftype) & (ftype.len = xtype.len)
-		OR (fform = B.tRec) & (xform = B.tRec) & IsExt(xtype, ftype)
+		OR (fform = B.tRec) & (xform = B.tRec) & IsExt0(xtype, ftype)
 		THEN (*valid*) ELSE Mark('invalid par type')
 		END
 	END
@@ -402,15 +402,16 @@ BEGIN x := qualident();
 	ELSIF (sym = S.lparen) & TypeTestable(x) DO
 		xtype := x.type; GetSym; y := NIL;
 		IF sym = S.ident THEN y := qualident() ELSE Missing(S.ident) END;
-		IF (y # NIL) & (y.class = B.cType) THEN ytype := y.type
+		IF (y # NIL) & (y.class = B.cType) THEN ytype := y.type;
+			IF y.type.form = xtype.form THEN (*valid*)
+			ELSE Mark('invalid type'); ytype := xtype
+			END
 		ELSE Mark('not type'); ytype := xtype
 		END;
-		x := NewNode(S.lparen, x, y); x(B.Node).ronly := ronly;
-		IF (xtype.form = ytype.form) & IsExt(ytype, xtype) THEN
+		IF ytype # xtype THEN
+			x := NewNode(S.lparen, x, y); x(B.Node).ronly := ronly;
+			IF ~IsExt(ytype, xtype) THEN Mark('not extension') END;
 			x.type := ytype
-		ELSIF (xtype.form = B.tRec) & IsExt(ytype, xtype) THEN
-			x.type := ytype.base
-		ELSE Mark('invalid type')
 		END;
 		Check0(S.rparen)
 	END;
@@ -628,7 +629,7 @@ BEGIN
 END SimpleExpression;
 
 PROCEDURE expression(): B.Object;
-	VAR x, y: B.Object; tp: B.Type; op: INTEGER;
+	VAR x, y: B.Object; xt, tp: B.Type; op: INTEGER;
 BEGIN x := SimpleExpression();
 	IF (sym >= S.eql) & (sym <= S.geq) THEN
 		CheckLeft(x, sym); op := sym; GetSym; y := SimpleExpression();
@@ -650,16 +651,19 @@ BEGIN x := SimpleExpression();
 		ELSE x := NewNode(S.in, x, y); x.type := B.boolType
 		END
 	ELSIF sym = S.is THEN
-		CheckLeft(x, S.is); GetSym;
+		CheckLeft(x, S.is); GetSym; xt := x.type;
 		IF sym = S.ident THEN y := qualident() ELSE Missing(S.ident) END;
 		IF (y # NIL) & (y.class = B.cType) THEN tp := y.type;
-			IF (tp.form = B.tPtr) & (tp.base # NIL) & IsExt(tp, x.type)
-			OR (tp.form = B.tRec) & IsExt(tp, x.type)
-			THEN (*valid*) ELSE Mark('invalid type')
+			IF xt.form = tp.form THEN (* valid *)
+			ELSE Mark('invalid type'); tp := xt
 			END
-		ELSE Mark('not type')
+		ELSE Mark('not type'); tp := xt
 		END;
-		x := NewNode(S.is, x, y); x.type := B.boolType
+		IF xt # tp THEN
+			IF ~IsExt(tp, xt) THEN Mark('not extension') END;
+			x := NewNode(S.is, x, y); x.type := B.boolType
+		ELSE x := B.NewConst(B.boolType, 1)
+		END
 	END;
 	RETURN x
 END expression;
@@ -794,23 +798,21 @@ PROCEDURE Case(): B.Node;
 	VAR x, y: B.Object; case, prevbar, bar: B.Node;
 		
 	PROCEDURE TypeCase(x: B.Object): B.Node;
-		VAR bar: B.Node; y: B.Object; xtype: B.Type;
-			xform, yform: INTEGER;
+		VAR bar: B.Node; y: B.Object; org, xt, yt: B.Type;
 	BEGIN
-		bar := NewNode(S.bar, NIL, NIL); y := qualident();
-		xtype := x.type; xform := x.type.form; yform := y.type.form;
-		IF (y # NIL) & (y.class = B.cType) THEN
-			IF (xform = B.tPtr) & (yform = B.tPtr) & IsExt(y.type, xtype)
-			OR (xform = B.tRec) & (yform = B.tRec) & IsExt(y.type, xtype)
-			THEN x.type := y.type
-			ELSIF (xform = B.tRec) & (yform = B.tPtr) & IsExt(y.type, xtype)
-			THEN x.type := y.type.base
-			ELSE Mark('invalid type')
+		bar := NewNode(S.bar, NIL, NIL);
+		y := qualident(); xt := x.type; org := x.type;
+		IF (y # NIL) & (y.class = B.cType) THEN yt := y.type;
+			IF xt.form = yt.form THEN (* valid *)
+			ELSE Mark('invalid type'); yt := xt
 			END
-		ELSE Mark('not type')
+		ELSE Mark('not type'); yt := xt
+		END;
+		IF yt # xt THEN
+			IF IsExt(yt, xt) THEN x.type := yt ELSE Mark('not extension') END
 		END;
 		Check0(S.colon); bar.left := NewNode(S.null, y, StatementSequence0());
-		x.type := xtype;
+		x.type := org;
 		RETURN bar
 	END TypeCase;
 		
@@ -1038,7 +1040,9 @@ PROCEDURE length(): INTEGER;
 	VAR x: B.Object; n: INTEGER;
 BEGIN x := ConstExpression(); n := 0;
 	IF x.type.form = B.tInt THEN n := x(B.Const).val ELSE Mark('not int') END;
-	IF n < 0 THEN Mark('invalid array length') END;
+	IF n < 0 THEN Mark('invalid array length')
+	ELSIF n >= 80000000H THEN Mark('too long')
+	END;
 	RETURN n
 END length;
 
