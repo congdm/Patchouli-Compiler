@@ -17,6 +17,7 @@ TYPE
 	Bool = SYSTEM.CARD32;
 	Int = SYSTEM.CARD32;
 	Dword = SYSTEM.CARD32;
+	Ulong = SYSTEM.CARD32;
 	Uint = SYSTEM.CARD32;
 	
 	File* = RECORD hFile: INTEGER END;
@@ -26,6 +27,9 @@ VAR
 
 	(* Utility *)
 	ExitProcess: PROCEDURE(uExitCode: INTEGER);
+	AddVectoredExceptionHandler: PROCEDURE(
+		FirstHandler: Ulong; VectoredHandler: Pointer
+	);
 	MessageBoxW: PROCEDURE(hWnd, lpText, lpCaption, uType: INTEGER): Int;
 	GetSystemTimeAsFileTime: PROCEDURE(lpSystemTimeAsFileTime: Pointer);
 	GetCommandLineW: PROCEDURE(): Pointer;
@@ -415,6 +419,13 @@ BEGIN
 	INC(nMod); SYSTEM.PUT(modList+nMod*8-8, modAdr)
 END Register;
 
+PROCEDURE TrapHandler(ExceptionInfo: INTEGER): INTEGER;
+	VAR ExceptionRecord: INTEGER;
+BEGIN
+	SYSTEM.GET(ExceptionInfo, ExceptionRecord);
+	RETURN 0
+END TrapHandler;
+
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 (* Heap management *)
@@ -616,6 +627,9 @@ END InitHeap;
 
 BEGIN
 	Import(ExitProcess, Kernel32, 'ExitProcess');
+	Import(
+		AddVectoredExceptionHandler, Kernel32, 'AddVectoredExceptionHandler'
+	);
 	Import(MessageBoxW, 'USER32.DLL', 'MessageBoxW');
 	Import(GetSystemTimeAsFileTime, Kernel32, 'GetSystemTimeAsFileTime');
 	Import(GetCommandLineW, Kernel32, 'GetCommandLineW');

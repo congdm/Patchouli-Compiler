@@ -710,6 +710,10 @@ BEGIN
 	modidStr := B.NewStr2(modid);
 	errFmtStr := B.NewStr2('Error code: %d%sModule: %s%sSource pos: %d');
 	err2FmtStr := B.NewStr2('Module key of %s is mismatched%sModule: %s');
+	err3FmtStr := B.NewStr2('Unknown exception
+Pc: %x
+Module: %s'
+	);
 	err4FmtStr := B.NewStr2('Cannot load module %s (not exist?)%sModule: %s');
 	rtlName := B.NewStr2(B.Flag.rtl); user32name := B.NewStr2('USER32.DLL');
 	AllocStaticData; ScanDeclaration(B.universe.first, 0);
@@ -2202,8 +2206,8 @@ BEGIN
 		EmitRR(CMPd, reg_D, 8, reg_C); Jcc1(ccAE, 1); EmitBare(RET);
 		SetRm_RIP(trapProc.adr - pc - 7); EmitRegRm(LEA, reg_C, 8);
 		EmitRR(CMPd, reg_D, 8, reg_C); Jcc1(ccB, 1); EmitBare(RET);
-		(*SetRm_regI(reg_D, 0); EmitRmImm(CMPi, 1, INT3);
-		Jcc1(ccNZ, 1); EmitBare(RET);*)
+		SetRm_regI(reg_D, 0); EmitRmImm(CMPi, 1, INT3);
+		Jcc1(ccNZ, 1); EmitBare(RET);
 	
 		EmitRI(SUBi, reg_SP, 8, 2064 + 64 + 8);
 		SetRm_RIP(-pc-7); EmitRegRm(LEA, reg_B, 8);
@@ -2218,6 +2222,7 @@ BEGIN
 		SetRm_regI(reg_SI, 400H-32); EmitRegRm(SUBd, reg_R12, 8);
 		
 		first := pc; EmitRI(ADDi, reg_DI, 8, 8); SetRm_regI(reg_DI, -8);
+		EmitRmImm(CMPi, 8, -1); L := pc; Jcc1(ccZ, 0); SetRm_regI(reg_DI, -8);
 		EmitRegRm(MOVd, reg_C, 4); EmitRI(ANDi, reg_C, 4, 40000000H-1);
 		EmitRR(CMPd, reg_C, 8, reg_R12); BJump(first, ccNZ);
 		
@@ -2237,6 +2242,23 @@ BEGIN
 		SetRm_regI(reg_SP, 32); EmitRegRm(MOV, reg_R10, 8);
 		SetRm_regI(reg_SP, 40); EmitRegRm(MOV, reg_R9, 8);
 		SetRm_regI(reg_SP, 48); EmitRegRm(MOV, reg_R13, 8);
+		SetRm_regI(reg_B, wsprintfW); EmitRm(CALL, 4);
+		
+		EmitRR(XOR, reg_C, 4, reg_C);
+		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_D, 8);
+		EmitRR(XOR, reg_R8, 4, reg_R8);
+		EmitRR(XOR, reg_R9, 4, reg_R9);
+		SetRm_regI(reg_B, MessageBoxW); EmitRm(CALL, 4);
+		
+		EmitRR(XOR, reg_C, 4, reg_C);
+		SetRm_regI(reg_B, ExitProcess); EmitRm(CALL, 4);
+		
+		Fixup(L, pc);
+		SetRm_regI(reg_SI, 400H-32); EmitRegRm(ADDd, reg_R12, 8);
+		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_C, 8);
+		SetRm_regI(reg_B, err3FmtStr.adr); EmitRegRm(LEA, reg_D, 8);
+		EmitRR(MOVd, reg_R8, 8, reg_R12);
+		SetRm_regI(reg_B, modidStr.adr); EmitRegRm(LEA, reg_R9, 8);
 		SetRm_regI(reg_B, wsprintfW); EmitRm(CALL, 4);
 		
 		EmitRR(XOR, reg_C, 4, reg_C);

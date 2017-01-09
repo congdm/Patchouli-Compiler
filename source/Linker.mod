@@ -181,7 +181,7 @@ BEGIN
 		Rtl.WriteBuf(out, SYSTEM.ADR(data), cnt);
 		Rtl.ReadBytes(debug, data, cnt)
 	END;
-	Rtl.Close(debug); Rtl.Delete('.pocDebug');
+	Rtl.Write8(out, -1); Rtl.Close(debug); Rtl.Delete('.pocDebug');
 	pdata_size := Rtl.Pos(out) - pdata_fadr;
 	pdata_rawsize := (pdata_size + 511) DIV 512 * 512
 END Write_pdata_section;
