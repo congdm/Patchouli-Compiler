@@ -1,0 +1,11 @@
+..\lib\Crypt.mod
+..\lib\Strings.mod
+..\lib\Rtl.mod
+..\lib\Out.mod
+
+..\source\Scanner.mod
+..\source\Base.mod
+..\source\Linker.mod
+..\source\Generator.mod
+..\source\Parser.mod
+..\source\Poc.mod

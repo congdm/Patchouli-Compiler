@@ -2656,12 +2656,6 @@ END FoldConst;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE Cleanup;
-BEGIN
-	procList := NIL; curProc := NIL; modInitProc := NIL;
-	trapProc := NIL; trapProc2 := NIL; dllInitProc := NIL;
-END Cleanup;
-
 PROCEDURE Init*(modid0: B.IdStr);
 BEGIN
 	modid := modid0; varSize := 0; staticSize := 128;
@@ -2692,7 +2686,6 @@ BEGIN
 END Init;
 
 PROCEDURE Generate*(VAR modinit: B.Node);
-	VAR str: B.String;
 BEGIN
 	(* Pass 1 *)
 	pass := 1; Pass1(modinit);
@@ -2721,20 +2714,30 @@ BEGIN
 	
 	Linker.Link(
 		out, debug, code,
-		pc, dllInitProc.adr, staticSize, varSize, modPtrTable, str
-	);	
-	endTime := Rtl.Time();
+		pc, dllInitProc.adr, staticSize, varSize, modPtrTable
+	)
+END Generate;
 
+PROCEDURE Cleanup*;
+BEGIN
+	procList := NIL; curProc := NIL; modInitProc := NIL;
+	trapProc := NIL; trapProc2 := NIL; dllInitProc := NIL;
+	errFmtStr := NIL; err2FmtStr := NIL; err3FmtStr := NIL; err4FmtStr := NIL;
+	modidStr := NIL; rtlName := NIL; user32name := NIL
+END Cleanup;
+
+PROCEDURE DisplayInfo*;
+BEGIN
+	endTime := Rtl.Time();
 	(* Show statistics *)
-	Cleanup; Out.String('No errors found.'); Out.Ln;
+	(* Out.String(': No errors found'); Out.Ln; *)
 	Out.String('Code size: '); Out.Int(pc, 0); Out.Ln;
 	Out.String('Global variables size: '); Out.Int(varSize, 0); Out.Ln;
 	Out.String('Static data size: '); Out.Int(staticSize, 0); Out.Ln;
 	Out.String('Compile time: ');
 	Out.Int(Rtl.TimeToMSecs(endTime - startTime), 0);
-	Out.String(' miliseconds'); Out.Ln;
-	Out.String('Created binary file: '); Out.String(str); Out.Ln
-END Generate;
+	Out.String(' miliseconds'); Out.Ln
+END DisplayInfo;
 
 BEGIN
 	MakeItem0 := MakeItem

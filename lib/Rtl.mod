@@ -61,6 +61,7 @@ VAR
 	SetFilePointerEx: PROCEDURE(
 		hFile, liDistanceToMove, lpNewFilePointer, dwMoveMethod: INTEGER
 	): Bool;
+	FlushFileBuffers: PROCEDURE(hFile: Handle): Bool;
 	
 	(* Unicode *)
 	WideCharToMultiByte: PROCEDURE(
@@ -229,6 +230,10 @@ BEGIN
 		0, 0, CREATE_ALWAYS, 0, 0
 	)
 END Rewrite;
+
+PROCEDURE Flush*(f: File);
+BEGIN ASSERT(FlushFileBuffers(f.hFile) # 0)
+END Flush;
 
 PROCEDURE Close*(VAR f: File);
 	VAR bRes: Bool;
@@ -644,6 +649,7 @@ BEGIN
 	Import(ReadFile, Kernel32, 'ReadFile');
 	Import(WriteFile, Kernel32, 'WriteFile');
 	Import(SetFilePointerEx, Kernel32, 'SetFilePointerEx');
+	Import(FlushFileBuffers, Kernel32, 'FlushFileBuffers');
 	
 	Import(WideCharToMultiByte, Kernel32, 'WideCharToMultiByte');
 	Import(MultiByteToWideChar, Kernel32, 'MultiByteToWideChar');

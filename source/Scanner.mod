@@ -350,7 +350,7 @@ END Get;
 
 PROCEDURE Init*(f: Rtl.File; pos: INTEGER);
 BEGIN
-	errpos := pos; errcnt := 0;
+	errpos := pos; errcnt := 0; eof := FALSE;
 	Rtl.Seek(f, pos); filePos := pos; bufPos := 0;
 	Rtl.ReadBytes(f, buffer, bufSize); Read
 END Init;

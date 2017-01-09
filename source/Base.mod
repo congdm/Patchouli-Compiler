@@ -1,6 +1,7 @@
 MODULE Base;
 IMPORT
-	SYSTEM, Rtl, Strings, Crypt, S := Scanner;
+	SYSTEM, Strings, Crypt, Rtl, Out,
+	S := Scanner;
 
 CONST
 	MaxExt* = 7; MaxRecTypes* = 512;
@@ -91,28 +92,30 @@ TYPE
 	END;
 
 VAR
-	(* Predefined Types *)
-	intType*, byteType*, realType*: Type;
-	card16Type*, card32Type*: Type;
-	boolType*, setType*, charType*, nilType*, strType*: Type;
-	noType*: Type; predefinedTypes: ARRAY 32 OF Type;
-	
 	topScope*, universe*, systemScope: Scope;
 	curLev*, modlev*: INTEGER;
 	modid*: IdStr; modkey*: ModuleKey;
 	expList*, lastExp, strList*: Ident; recList*: TypeList;
 	
-	symfile: Rtl.File;
-	refno, preTypeNo, expno*, modno*: INTEGER;
-	impTypes: ARRAY MaxExpTypes OF Type;
-	modList*: ARRAY MaxImpMod OF Module;
-	
-	strbuf*: ARRAY 100000H OF CHAR; strbufSize*: INTEGER;
+	(* Predefined Types *)
+	intType*, byteType*, realType*: Type;
+	card16Type*, card32Type*: Type;
+	boolType*, setType*, charType*, nilType*, strType*: Type;
+	noType*: Type;
 	
 	Flag*: RECORD
 		main*, console*, debug*, handle*: BOOLEAN;
 		rtl*: String
 	END;
+	
+	symfileName*: String; symfile: Rtl.File;
+	refno, preTypeNo, expno*, modno*: INTEGER;
+	
+	strbufSize*: INTEGER;
+	strbuf*: ARRAY 100000H OF CHAR;
+	predefinedTypes: ARRAY 16 OF Type;
+	impTypes: ARRAY MaxExpTypes OF Type;
+	modList*: ARRAY MaxImpMod OF Module;
 	
 	ExportType0: PROCEDURE(typ: Type);
 	ImportType0: PROCEDURE(VAR typ: Type);
@@ -171,6 +174,11 @@ PROCEDURE SetFlag*(flag: ARRAY OF CHAR);
 BEGIN
 	IF flag = 'handle' THEN Flag.handle := TRUE END
 END SetFlag;
+
+PROCEDURE InitCompilerFlag;
+BEGIN
+	Flag.rtl := 'RTL.DLL'
+END InitCompilerFlag;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -447,12 +455,10 @@ END WriteModkey;
 PROCEDURE WriteSymfile*;
 	VAR ident, exp: Ident; i, k, n, size: INTEGER; mod: Module;
 		hash: Crypt.MD5Hash; chunk: ARRAY 64 OF BYTE;
-		filename: String;
 BEGIN
 	refno := 0; expno := 0;
-	Rtl.Rewrite(symfile, 'sym.temp_'); Rtl.Seek(symfile, 16);
-	WriteInt(symfile, modlev);
-	WriteInt(symfile, ORD(Flag.handle));
+	Rtl.Rewrite(symfile, '.tempSymfile'); Rtl.Seek(symfile, 16);
+	WriteInt(symfile, modlev); WriteInt(symfile, ORD(Flag.handle));
 	
 	FOR i := 0 TO modno-1 DO
 		mod := modList[i];
@@ -509,10 +515,12 @@ BEGIN
 	WriteModkey(modkey);
 	Rtl.Close(symfile);
 	
-	IF S.errcnt = 0 THEN filename[0] := 0X;
-		Strings.Append(modid, filename); Strings.Append('.sym', filename);
-		Rtl.Delete(filename); Rtl.Rename('sym.temp_', filename)
-	ELSE Rtl.Delete('sym.temp_')
+	IF S.errcnt = 0 THEN
+		symfileName[0] := 0X;
+		Strings.Append(modid, symfileName);
+		Strings.Append('.sym', symfileName);
+		Rtl.Delete(symfileName); Rtl.Rename('.tempSymfile', symfileName)
+	ELSE Rtl.Delete('.tempSymfile')
 	END
 END WriteSymfile;
 
@@ -695,9 +703,9 @@ BEGIN
 			END;
 			ReadInt(symfile, cls)
 		END;
-		module.first := topScope.first; CloseScope
+		Rtl.Close(symfile); module.first := topScope.first; CloseScope
 	END;
-	Rtl.Close(symfile); curLev := 0
+	curLev := 0
 END ImportModules;
 
 PROCEDURE NewModule*(modident: Ident; modname: IdStr);
@@ -739,7 +747,7 @@ BEGIN
 	NEW(universe); topScope := universe; curLev := -1;
 	modid := modname; modno := 0; strbufSize := 0;
 	expList := NIL; lastExp := NIL; strList := NIL; recList := NIL;
-	Flag.rtl := 'RTL.DLL';
+	InitCompilerFlag;
 	
 	Enter(NewTypeObj(intType), 'INTEGER');
 	Enter(NewTypeObj(byteType), 'BYTE');
@@ -789,6 +797,15 @@ BEGIN
 	
 	curLev := 0
 END Init;
+
+PROCEDURE Cleanup*;
+	VAR i: INTEGER;
+BEGIN
+	universe := NIL; topScope := NIL; systemScope := NIL;
+	expList := NIL; lastExp := NIL; strList := NIL; recList := NIL;
+	i := 0; WHILE i < LEN(modList) DO modList[i] := NIL; INC(i) END;
+	i := 0; WHILE i < LEN(impTypes) DO impTypes[i] := NIL; INC(i) END
+END Cleanup;
 
 BEGIN
 	ExportType0 := ExportType; ImportType0 := ImportType;

@@ -7,7 +7,7 @@ CONST
 	HeaderSize = 400H;
 	
 VAR
-	out: Rtl.File;
+	out: Rtl.File; fname*: B.String;
 	imagebase, entry, pc: INTEGER;
 	
 	code_rva, code_size, code_rawsize, code_fadr: INTEGER;
@@ -569,7 +569,7 @@ END Write_PEHeader;
 
 PROCEDURE Link*(
 	out0: Rtl.File; VAR debug: Rtl.File; code: ARRAY OF BYTE;
-	pc0, entry0, staticSize, varSize, modPtrTable0: INTEGER; VAR str: B.String
+	pc0, entry0, staticSize, varSize, modPtrTable0: INTEGER
 );
 	VAR n: INTEGER;
 BEGIN
@@ -603,11 +603,11 @@ BEGIN
 	Write_edata_section; Write_PEHeader; Rtl.Close(out);
 	
 	(* Rename files *)
-	str[0] := 0X; Strings.Append(B.modid, str);
-	IF B.Flag.main THEN Strings.Append('.exe', str)
-	ELSE Strings.Append('.dll', str)
+	fname[0] := 0X; Strings.Append(B.modid, fname);
+	IF B.Flag.main THEN Strings.Append('.exe', fname)
+	ELSE Strings.Append('.dll', fname)
 	END;
-	Rtl.Delete(str); Rtl.Rename('.tempOut', str)
+	Rtl.Delete(fname); Rtl.Rename('.tempOut', fname)
 END Link;
 
 END Linker.

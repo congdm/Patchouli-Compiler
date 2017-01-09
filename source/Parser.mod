@@ -10,7 +10,6 @@ TYPE
 	
 VAR
 	sym: INTEGER;
-	modid*: B.IdStr; modinit: B.Node;
 	undefList: UndefPtrList;
 	
 	type0: PROCEDURE(): B.Type;
@@ -340,6 +339,7 @@ BEGIN (* Call *)
 		ELSIF sym = S.rparen THEN
 			IF proc.nfpar # 0 THEN Mark('need params') END; GetSym
 		END
+	ELSIF proc.nfpar # 0 THEN Mark('need params')
 	END;
 	RETURN call
 END Call;
@@ -1126,7 +1126,9 @@ BEGIN
 				END
 			END
 		END;
-		IF undefList # NIL THEN Mark('some pointers didnt have base type') END
+		IF undefList # NIL THEN
+			undefList := NIL; Mark('some pointers didnt have base type')
+		END
 	END;
 	IF sym = S.var THEN GetSym;
 		WHILE sym = S.ident DO
@@ -1204,6 +1206,7 @@ BEGIN GetSym;
 END ImportList;
 
 PROCEDURE Module*;
+	VAR modid: B.IdStr; modinit: B.Node;
 BEGIN
 	GetSym; modid[0] := 0X;
 	IF sym = S.ident THEN modid := S.id; GetSym ELSE Missing(S.ident) END;
@@ -1222,10 +1225,8 @@ BEGIN
 	END;
 	IF S.errcnt = 0 THEN B.WriteSymfile END;
 	IF S.errcnt = 0 THEN G.Generate(modinit) END;
-	IF S.errcnt = 0 THEN
-		Out.String('Created symbol file: ');
-		Out.String(modid); Out.String('.sym'); Out.Ln
-	END
+	G.Cleanup; B.Cleanup; Rtl.Collect;
+	IF S.errcnt = 0 THEN G.DisplayInfo END
 END Module;
 	
 BEGIN
