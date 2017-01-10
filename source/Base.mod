@@ -1,6 +1,6 @@
 MODULE Base;
 IMPORT
-	SYSTEM, Strings, Crypt, Rtl, Out,
+	SYSTEM, Strings, Crypt, Rtl,
 	S := Scanner;
 
 CONST
@@ -108,7 +108,7 @@ VAR
 		rtl*: String
 	END;
 	
-	symfileName*: String; symfile: Rtl.File;
+	symfileName: String; symfile: Rtl.File;
 	refno, preTypeNo, expno*, modno*: INTEGER;
 	
 	strbufSize*: INTEGER;
@@ -117,7 +117,7 @@ VAR
 	impTypes: ARRAY MaxExpTypes OF Type;
 	modList*: ARRAY MaxImpMod OF Module;
 	symPath: ARRAY 1024 OF CHAR;
-	srcPath: ARRAY 1024 OF CHAR;
+	srcPath: String;
 	
 	ExportType0: PROCEDURE(typ: Type);
 	ImportType0: PROCEDURE(VAR typ: Type);
@@ -491,6 +491,7 @@ BEGIN
 	
 	IF S.errcnt = 0 THEN
 		symfileName[0] := 0X;
+		Strings.Append(srcPath, symfileName);
 		Strings.Append(modid, symfileName);
 		Strings.Append('.sym', symfileName);
 		Rtl.Delete(symfileName); Rtl.Rename('.tempSymfile', symfileName)
@@ -775,8 +776,10 @@ BEGIN
 END SetSymPath;
 
 PROCEDURE SetSrcPath*(path: ARRAY OF CHAR);
+	VAR i: INTEGER;
 BEGIN
-	srcPath := path
+	srcPath := path; i := 0; WHILE srcPath[i] # 0X DO INC(i) END;
+	WHILE (srcPath[i] # '\') & (i >= 0) DO DEC(i) END; srcPath[i+1] := 0X
 END SetSrcPath;
 
 (* -------------------------------------------------------------------------- *)

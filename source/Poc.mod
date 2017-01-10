@@ -6,14 +6,14 @@ IMPORT
 	S := Scanner, B := Base, P := Parser;
 	
 VAR
-	str, fname: ARRAY 1024 OF CHAR;
-	i: INTEGER; buildMode: BOOLEAN;
+	arg, fname: ARRAY 1024 OF CHAR;
+	argIdx: INTEGER; buildMode, errFlag: BOOLEAN;
 	
 PROCEDURE Compile(fname: ARRAY OF CHAR);
 	VAR srcfile: Rtl.File; sym: INTEGER;
 BEGIN
 	Out.String('Compile '); Out.String(fname); Out.Ln;
-	Rtl.Reset(srcfile, fname); sym := 0;
+	B.SetSrcPath(fname); Rtl.Reset(srcfile, fname); sym := 0;
 	S.Init(srcfile, 0); Rtl.Close(srcfile); S.Get(sym);
 	IF sym = S.module THEN P.Module ELSE S.Mark('MODULE?') END
 END Compile;
@@ -46,18 +46,44 @@ BEGIN
 	Out.Int(Rtl.TimeToMSecs(end-start), 0);
 	Out.String(' miliseconds'); Out.Ln
 END Build;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+
+PROCEDURE Get;
+BEGIN INC(argIdx); Rtl.GetArg(arg, argIdx)
+END Get;
+
+PROCEDURE Mark(msg: ARRAY OF CHAR);
+BEGIN
+	Out.String('arg '); Out.Int(argIdx, 0); Out.String(': ');
+	Out.String(msg); Out.Ln; errFlag := TRUE
+END Mark;
+
+PROCEDURE Arguments;
+	PROCEDURE Option;
+	BEGIN Rtl.LowerCase(arg);
+		IF arg = '/b' THEN buildMode := TRUE; Get; Arguments
+		ELSIF arg = '/sym' THEN Get;
+			IF arg[0] = '/' THEN Mark('path to symbols?'); Option
+			ELSE B.SetSymPath(arg); Get; Arguments
+			END
+		ELSE (* unhandled *) Get; Arguments
+		END
+	END Option;
+BEGIN (* Arguments *)
+	IF arg = 0X THEN (* end parsing *)
+	ELSIF arg[0] # '/' THEN
+		IF fname[0] = 0X THEN fname := arg
+		ELSE Mark('another filename?')
+		END;
+		Get; Arguments
+	ELSIF arg[0] = '/' THEN Option
+	END
+END Arguments;
 	
 BEGIN
-	fname[0] := 0X; i := 1; Rtl.GetArg(str, i);
-	WHILE str[0] # 0X DO
-		IF (str[0] # '/') & (fname[0] = 0X) THEN fname := str
-		ELSIF str[0] = '/' THEN Rtl.LowerCase(str);
-			IF str = '/h' THEN B.SetFlag('handle')
-			ELSIF (str = '/b') THEN buildMode := TRUE
-			END
-		END;
-		INC(i); Rtl.GetArg(str, i)
-	END;
+	Get; Arguments;
 	IF fname[0] # 0X THEN
 		IF Rtl.ExistFile(fname) THEN
 			IF ~buildMode THEN Compile(fname) ELSE Build(fname) END
