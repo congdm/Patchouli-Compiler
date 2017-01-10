@@ -800,43 +800,91 @@ BEGIN
 END For;
 
 PROCEDURE Case(): B.Node;
-	VAR x, y: B.Object; case, prevbar, bar: B.Node;
+	VAR x, y: B.Object; xform: INTEGER;
+		case: B.Node; isTypeCase: BOOLEAN;
 		
 	PROCEDURE TypeCase(x: B.Object): B.Node;
-		VAR bar: B.Node; y: B.Object; org, xt, yt: B.Type;
+		VAR bar, colon: B.Node; y, z: B.Object; org, xt, yt: B.Type;
 	BEGIN
-		bar := NewNode(S.bar, NIL, NIL);
-		y := qualident(); xt := x.type; org := x.type;
-		IF (y # NIL) & (y.class = B.cType) THEN yt := y.type;
-			IF xt.form = yt.form THEN (* valid *)
-			ELSE Mark('invalid type'); yt := xt
-			END
-		ELSE Mark('not type'); yt := xt
+		IF sym = S.ident THEN
+			xt := x.type; org := x.type; y := qualident();
+			IF (y # NIL) & (y.class = B.cType) THEN yt := y.type;
+				IF xt.form = yt.form THEN (* valid *)
+				ELSE Mark('invalid type'); yt := xt
+				END
+			ELSE Mark('not type'); yt := xt
+			END;
+			IF yt # xt THEN y := NewNode(S.is, x, y);
+				IF IsExt(yt, xt) THEN x.type := yt
+				ELSE Mark('not extension')
+				END
+			ELSE y := B.NewConst(B.boolType, 1)
+			END;
+			Check0(S.colon); z := StatementSequence0(); x.type := org;
+			colon := NewNode(S.colon, z, NIL);
+			IF sym = S.bar THEN GetSym; colon.right := TypeCase(x) END;
+			bar := NewNode(S.bar, y, colon)
+		ELSIF sym = S.bar THEN GetSym; bar := TypeCase(x)
 		END;
-		IF yt # xt THEN
-			IF IsExt(yt, xt) THEN x.type := yt ELSE Mark('not extension') END
-		END;
-		Check0(S.colon); bar.left := NewNode(S.null, y, StatementSequence0());
-		x.type := org;
 		RETURN bar
 	END TypeCase;
+	
+	PROCEDURE LabelRange(x: B.Object): B.Node;
+		CONST errMsg = 'invalid value';
+		VAR y: B.Object; cond: B.Node;
+	BEGIN
+		IF sym = S.int THEN y := factor();
+			IF x.type.form # B.tInt THEN Mark(errMsg) END
+		ELSIF (sym = S.string) & (S.slen <= 2) THEN
+			IF x.type.form # B.tChar THEN Mark(errMsg) END;
+			y := B.NewConst(B.charType, ORD(S.str[0])); GetSym
+		END;
+		IF sym # S.upto THEN cond := NewNode(S.eql, x, y)
+		ELSE cond := NewNode(S.geq, x, y); GetSym;
+			IF sym = S.int THEN y := factor();
+				IF x.type.form # B.tInt THEN Mark(errMsg) END
+			ELSIF (sym = S.string) & (S.slen <= 2) THEN
+				IF x.type.form # B.tChar THEN Mark(errMsg) END;
+				y := B.NewConst(B.charType, ORD(S.str[0])); GetSym
+			END;
+			cond := NewNode(S.and, cond, NewNode(S.leq, x, y))
+		END;
+		RETURN cond
+	END LabelRange;
+	
+	PROCEDURE NumericCase(x: B.Object): B.Node;
+		VAR bar, colon: B.Node; y: B.Node;
+	BEGIN
+		IF (sym = S.int) OR (sym = S.string) THEN
+			y := LabelRange(x);
+			WHILE sym = S.comma DO
+				GetSym; y := NewNode(S.or, y, LabelRange(x))
+			END; Check0(S.colon);
+			colon := NewNode(S.colon, StatementSequence0(), NIL);
+			IF sym = S.bar THEN GetSym; colon.right := NumericCase(x) END;
+			bar := NewNode(S.bar, y, colon)
+		ELSIF sym = S.bar THEN GetSym; bar := NumericCase(x)
+		END
+		RETURN bar
+	END NumericCase;
 		
 BEGIN (* Case *)
 	case := NewNode(S.case, NIL, NIL);
-	GetSym; x := expression(); case.left := x;
-	IF TypeTestable(x) & (x.class = B.cVar) THEN (*valid*)
+	GetSym; x := expression(); xform := x.type.form;
+	isTypeCase := (x.class = B.cVar) & TypeTestable(x);
+	IF xform = B.tInt THEN
+		y := B.NewConst(B.intType, 0);
+		case.left := NewNode(S.becomes, y, x) (* y is placeholder *)
+	ELSIF (xform = B.tChar) OR IsCharStr(x) THEN
+		y := B.NewConst(B.charType, 0);
+		case.left := NewNode(S.becomes, y, x) (* y is placeholder *)
+	ELSIF isTypeCase THEN (*valid*)
 	ELSE Mark('invalid case expression')
 	END;
 	Check0(S.of);
-	REPEAT
-		IF sym = S.bar THEN GetSym END;
-		IF sym # S.bar THEN bar := TypeCase(x);
-			IF case.right = NIL THEN case.right := bar
-			ELSE prevbar.right := bar
-			END;
-			prevbar := bar
-		END
-	UNTIL sym # S.bar;
+	IF isTypeCase THEN case.right := TypeCase(x)
+	ELSE case.right := NumericCase(y)
+	END;
 	Check0(S.end);
 	RETURN case
 END Case;

@@ -55,11 +55,12 @@ TYPE
 	SProc* = POINTER TO RECORD (ObjDesc) id*: INTEGER END;
 	
 	Proc* = POINTER TO RECORD (ObjDesc)
+		(* Generator independent fields*)
 		expno*, lev*, nptr*: INTEGER;
 		decl*: Ident; statseq*: Node; return*: Object;
-		
+		(* Generator dependent fields *)
 		adr*, locblksize*: INTEGER; usedReg*, usedXReg*: SET;
-		homeSpace*, fix*, lim*: INTEGER
+		homeSpace*, stack*, fix*, lim*: INTEGER
 	END;
 	
 	ProcList* = POINTER TO RECORD obj*: Proc; next*: ProcList END;

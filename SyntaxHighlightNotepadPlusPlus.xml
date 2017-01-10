@@ -24,7 +24,7 @@
             <Keywords name="Folders in comment, open"></Keywords>
             <Keywords name="Folders in comment, middle"></Keywords>
             <Keywords name="Folders in comment, close"></Keywords>
-            <Keywords name="Keywords1">MODULE IMPORT CONST TYPE VAR PROCEDURE BEGIN END IF THEN ELSE ELSIF WHILE DO REPEAT UNTIL RETURN RECORD ARRAY POINTER TO FOR OF</Keywords>
+            <Keywords name="Keywords1">MODULE IMPORT CONST TYPE VAR PROCEDURE BEGIN END IF THEN ELSE ELSIF WHILE DO REPEAT UNTIL RETURN RECORD ARRAY POINTER TO FOR OF CASE</Keywords>
             <Keywords name="Keywords2">SYSTEM</Keywords>
             <Keywords name="Keywords3"></Keywords>
             <Keywords name="Keywords4"></Keywords>

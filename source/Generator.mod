@@ -93,7 +93,7 @@ VAR
 	(* forward decl *)
 	MakeItem0: PROCEDURE(VAR x: Item; obj: B.Object);
 
-	code: ARRAY 200000H OF BYTE; pc: INTEGER;
+	code: ARRAY 200000H OF BYTE; pc, stack: INTEGER;
 	sPos, pass, varSize, staticSize, baseOffset: INTEGER;
 	modid: B.IdStr;
 	
@@ -1771,6 +1771,23 @@ BEGIN
 	BJump(first, ccAlways); FixLink(node)
 END For;
 
+PROCEDURE Case(node: Node);
+	PROCEDURE TypeCase(obj: B.Object);
+		VAR x, y: Item; node, colon: B.Node;
+	BEGIN node := obj(B.Node);
+		LoadCond(x, node.left); Jump(node, x.aLink, negated(x.c));
+		FixLink(x.bLink); colon := node.right(Node);
+		MakeItem0(y, colon.left); Jump(colon, NIL, ccAlways); FixLink(node);	
+		IF colon.right # NIL THEN TypeCase(colon.right) END; FixLink(colon)
+	END TypeCase;
+	
+BEGIN (* Case *)
+	IF node.left = NIL (* type case *) THEN
+		IF node.right # NIL THEN TypeCase(node.right) END
+	ELSE ASSERT(FALSE)
+	END
+END Case;
+
 PROCEDURE StdProc(node: Node);
 	VAR id, size: INTEGER; r, r2: BYTE;
 		x, y, z: Item; obj1, obj2, obj3: B.Object;
@@ -2019,7 +2036,7 @@ BEGIN
 			ELSIF node.op = S.while THEN While(node, -1)
 			ELSIF node.op = S.repeat THEN Repeat(node)
 			ELSIF node.op = S.for THEN For(node)
-			ELSIF node.op = S.case THEN Rtl.Halt('CASE not supported yet')
+			ELSIF node.op = S.case THEN Case(node)
 			ELSE StdProc(node)
 			END;
 			ResetMkItmStat; allocReg := {}; allocXReg := {}
@@ -2038,23 +2055,23 @@ BEGIN
 	END
 END MakeItem;
 
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+
 PROCEDURE SetPtrToNil(adr: INTEGER; type: B.Type);
 	VAR i: INTEGER; fld: B.Ident;
 BEGIN
-	IF type.form = B.tPtr THEN SetRm_regI(reg_BP, adr); EmitRmImm(MOVi, 8, 0)
+	IF (type.form = B.tPtr) OR (type.form = B.tProc) THEN
+		SetRm_regI(reg_BP, adr); EmitRmImm(MOVi, 8, 0)
 	ELSIF type.form = B.tArray THEN
 		FOR i := 0 TO type.len-1 DO
 			SetPtrToNil(adr+i*type.base.size, type.base)
 		END
-	ELSIF type.form = B.tRec THEN
-		fld := type.fields; ASSERT(fld # NIL);
-		REPEAT
-			IF fld.obj.type.nptr > 0 THEN
-				SetPtrToNil(adr+fld.obj(B.Field).off, fld.obj.type)
-			END;
+	ELSIF type.form = B.tRec THEN fld := type.fields;
+		WHILE fld # NIL DO
+			SetPtrToNil(adr+fld.obj(B.Field).off, fld.obj.type);
 			fld := fld.next
-		UNTIL fld = NIL
-	ELSE ASSERT(FALSE)
+		END
 	END
 END SetPtrToNil;
 
@@ -2089,7 +2106,8 @@ PROCEDURE Procedure;
 BEGIN
 	BeginProc; obj := curProc.obj;
 	IF pass = 2 THEN
-		obj.usedReg := {reg_B}; Align(obj.locblksize, 8)
+		obj.usedReg := {reg_B}; Align(obj.locblksize, 8);
+		obj.stack := obj.locblksize; stack := obj.locblksize
 	ELSIF pass = 3 THEN
 		PushR(reg_BP); EmitRR(MOVd, reg_BP, 8, reg_SP);
 		nSave := 0; nSaveX := 0; r := 0;
@@ -2098,7 +2116,7 @@ BEGIN
 			IF r IN obj.usedXReg*{6 .. 15} THEN INC(nSaveX) END;
 			INC(r)
 		END;
-		n := ((obj.locblksize + nSave*8 + 8) DIV 16 + nSaveX) * 16;
+		n := ((obj.stack + nSave*8 + 8) DIV 16 + nSaveX) * 16;
 		Align(obj.homeSpace, 16); homeSpace := obj.homeSpace;
 		IF n + homeSpace # 0 THEN
 			IF n + homeSpace >= 4096 THEN
@@ -2150,9 +2168,7 @@ BEGIN
 		ident := obj.decl;
 		WHILE ident # NIL DO
 			IF (ident.obj IS B.Var) & ~(ident.obj IS B.Par) THEN
-				IF ident.obj.type.nptr > 0 THEN
-					SetPtrToNil(ident.obj(B.Var).adr, ident.obj.type)
-				END
+				SetPtrToNil(ident.obj(B.Var).adr, ident.obj.type)
 			END;
 			ident := ident.next
 		END;
