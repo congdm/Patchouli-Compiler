@@ -10,7 +10,7 @@ BEGIN
 	FOR i := 0 TO Rtl.nMod-1 DO
 		Out.String('Module '); Out.Int(i, 0); Out.String(' address (code): ');
 		SYSTEM.GET(Rtl.modList+i*8, adr); Out.Hex(adr, 0); Out.Ln;
-		Out.String('	Pointer table:'); Out.Ln; SYSTEM.GET(adr-8, ptrTable);
+		Out.String('	Pointer table:'); Out.Ln; SYSTEM.GET(adr+112, ptrTable);
 		REPEAT
 			SYSTEM.GET(ptrTable, off); Out.Char('	');
 			Out.Int(off, 0); INC(ptrTable, 8)

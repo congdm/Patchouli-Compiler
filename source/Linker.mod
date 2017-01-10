@@ -56,8 +56,7 @@ BEGIN (* Write_idata_section *)
 	Rtl.Write4(out, 0);
 	Rtl.Write4(out, 0);
 	Rtl.Write4(out, idata_rva + name_rva);
-	i := data_rva + data_size - table_size;
-	Rtl.Write4(out, i);
+	Rtl.Write4(out, data_rva);
 
 	Rtl.Seek(out, idata_fadr + table_rva); i := 0;
 	WHILE i <= table_len - 2 DO
@@ -69,11 +68,11 @@ BEGIN (* Write_idata_section *)
 	Rtl.Seek(out, idata_fadr + name_rva);
 	Rtl.WriteAnsiStr(out, 'KERNEL32.DLL'); i := 0;
 	
-	WriteHint('AddVectoredExceptionHandler', i);
-	WriteHint('GetModuleHandleExW', i);
-	WriteHint('ExitProcess', i);
+	WriteHint('GetProcAddress', i);
 	WriteHint('LoadLibraryW', i);
-	WriteHint('GetProcAddress', i)
+	WriteHint('ExitProcess', i);
+	WriteHint('GetModuleHandleExW', i);
+	WriteHint('AddVectoredExceptionHandler', i)
 END Write_idata_section;
 
 PROCEDURE Write_pointer_offset(offset: INTEGER; type: B.Type);
@@ -110,8 +109,8 @@ PROCEDURE Write_data_section;
 		imod: B.Module; ident: B.Ident;
 		x: B.Str; t: B.TypeList; obj: B.Object;
 BEGIN
-	basefadr := data_fadr + data_size;
-	Rtl.Seek(out, basefadr - LEN(Kernel32Table)*8); i := 0;
+	basefadr := data_fadr;
+	Rtl.Seek(out, basefadr); i := 0;
 	WHILE i < LEN(Kernel32Table) DO
 		Rtl.Write8(out, Kernel32Table[i]); INC(i)
 	END; i := 0;
@@ -255,10 +254,10 @@ BEGIN (* Write_edata_section *)
 	(* Export address table *)
 	Rtl.Seek(out, edata_fadr + dirSz); ident := B.expList;
 	WHILE ident # NIL DO x := ident.obj;
-		IF x.class = B.cType THEN rva := x.type.adr
-		ELSIF x IS B.Var THEN rva := x(B.Var).adr
-		ELSIF x IS B.Proc THEN rva := x(B.Proc).adr
-		END; INC(rva, code_rva);
+		IF x.class = B.cType THEN rva := data_rva + x.type.adr
+		ELSIF x IS B.Var THEN rva := data_rva + x(B.Var).adr
+		ELSIF x IS B.Proc THEN rva := code_rva + x(B.Proc).adr
+		END;
 		Rtl.Write4(out, rva); ident := ident.next
 	END;
 	
@@ -433,14 +432,15 @@ BEGIN
 	code_size := pc;
 	code_rawsize := (code_size + 511) DIV 512 * 512;
 	
-	data_size := staticSize; Align(data_size, 4096);
-	data_rawsize := data_size;
+	data_size := staticSize;
+	data_rawsize := (data_size+511) DIV 512 * 512;
 	
 	bss_size := varSize; Align(bss_size, 4096);
 	
 	bss_rva := 1000H;
 	data_rva := bss_rva + bss_size;
-	code_rva := data_rva + data_size;
+	n := data_size; Align(n, 4096);
+	code_rva := data_rva + n;
 	n := code_size; Align(n, 4096);
 	idata_rva := code_rva + n;
 	reloc_rva := idata_rva + 4096;

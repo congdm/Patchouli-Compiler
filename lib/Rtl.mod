@@ -602,7 +602,7 @@ PROCEDURE Collect*;
 	VAR i, modBase, ptrTable, off: INTEGER;
 BEGIN i := 0;
 	WHILE i < nMod DO
-		SYSTEM.GET(modList+i*8, modBase); SYSTEM.GET(modBase-8, ptrTable);
+		SYSTEM.GET(modList+i*8, modBase); SYSTEM.GET(modBase+112, ptrTable);
 		Mark(ptrTable, modBase); INC(i)
 	END;
 	Scan

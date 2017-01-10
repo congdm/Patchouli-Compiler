@@ -94,7 +94,7 @@ VAR
 	MakeItem0: PROCEDURE(VAR x: Item; obj: B.Object);
 
 	code: ARRAY 200000H OF BYTE; pc: INTEGER;
-	sPos, pass, varSize, staticSize, staticBase: INTEGER;
+	sPos, pass, varSize, staticSize, baseOffset: INTEGER;
 	modid: B.IdStr;
 	
 	procList, curProc: B.ProcList;
@@ -113,7 +113,7 @@ VAR
 	AddVectoredExceptionHandler: INTEGER;
 	MessageBoxW, wsprintfW: INTEGER;
 	(* others *)
-	adrOfNEW, modPtrTable: INTEGER;
+	adrOfNEW, modPtrTable, adrOfPtrTable: INTEGER;
 	
 	out, debug: Rtl.File;
 	startTime, endTime: INTEGER;
@@ -526,16 +526,16 @@ PROCEDURE AllocImportModules*;
 BEGIN i := 0;
 	WHILE i < B.modno DO
 		imod := B.modList[i]; j := 0; WHILE imod.name[j] # 0X DO INC(j) END;
-		size := ((j+5)*2 + 15) DIV 16 * 16; INC(staticSize, size);
-		imod.adr := -staticSize; INC(i)
-	END
+		size := (j+5)*2; imod.adr := staticSize; INC(staticSize, size); INC(i)
+	END;
+	Align(staticSize, 16)
 END AllocImportModules;
 
 PROCEDURE AllocImport*(x: B.Object; module: B.Module);
 	VAR p: B.Ident; adr: INTEGER;
 BEGIN
 	NEW(p); p.obj := x; p.next := module.impList;
-	module.impList := p; INC(staticSize, 8); adr := -staticSize;
+	module.impList := p; adr := staticSize; INC(staticSize, 8);
 	IF x IS B.Var THEN x(B.Var).adr := adr
 	ELSIF x IS B.Proc THEN x(B.Proc).adr := adr
 	ELSIF x.class = B.cType THEN
@@ -551,16 +551,16 @@ PROCEDURE AllocStaticData;
 BEGIN
 	staticSize := (staticSize + 15) DIV 16 * 16; p := B.strList;
 	WHILE p # NIL DO
-		x := p.obj; strSize := 2*x(B.Str).len; INC(staticSize, strSize);
-		x(B.Str).adr := -staticSize; p := p.next
+		x := p.obj; strSize := 2*x(B.Str).len;
+		x(B.Str).adr := staticSize; INC(staticSize, strSize); p := p.next
 	END;
 	staticSize := (staticSize + 15) DIV 16 * 16; q := B.recList;
 	WHILE q # NIL DO
 		tdSize := (24 + 8*(B.MaxExt + q.type.nptr)) DIV 16 * 16;
-		q.a := tdSize; INC(staticSize, tdSize);
-		q.type.adr := -staticSize; q := q.next
+		q.a := tdSize; q.type.adr := staticSize;
+		INC(staticSize, tdSize); q := q.next
 	END;
-	IF (staticSize + 4095) DIV 4096 * 4096 + varSize > MaxSize THEN
+	IF staticSize + varSize > MaxSize THEN
 		Out.String('static variables size too big'); ASSERT(FALSE)
 	END
 END AllocStaticData;
@@ -670,8 +670,9 @@ BEGIN
 END ScanProc;
 
 PROCEDURE ScanDeclaration(decl: B.Ident; lev: INTEGER);
-	VAR ident: B.Ident; obj: B.Object; fixAmount: INTEGER;
+	VAR ident: B.Ident; obj: B.Object;
 BEGIN ident := decl;
+	IF lev = 0 THEN Align(staticSize, 16); modPtrTable := staticSize END;
 	WHILE ident # NIL DO obj := ident.obj;
 		IF obj IS B.Proc THEN
 			ScanDeclaration(obj(B.Proc).decl, lev+1); ScanProc(obj(B.Proc))
@@ -680,18 +681,7 @@ BEGIN ident := decl;
 		END;
 		ident := ident.next
 	END;
-	IF lev = 0 THEN
-		INC(staticSize, 8); Align(staticSize, 16);
-		modPtrTable := -staticSize; ident := decl;
-		fixAmount := (staticSize + 4095) DIV 4096 * 4096;
-		WHILE ident # NIL DO obj := ident.obj;	
-			IF (obj IS B.Var) & ~(obj IS B.Str) THEN
-				(* fix global var address *)
-				DEC(obj(B.Var).adr, fixAmount)
-			END;
-			ident := ident.next
-		END
-	END
+	IF lev = 0 THEN INC(staticSize, 8) (* for -1 at the end of table *) END
 END ScanDeclaration;
 
 PROCEDURE NewProc(VAR proc: Proc; statseq: Node);
@@ -717,6 +707,7 @@ Module: %s'
 	err4FmtStr := B.NewStr2('Cannot load module %s (not exist?)%sModule: %s');
 	rtlName := B.NewStr2(B.Flag.rtl); user32name := B.NewStr2('USER32.DLL');
 	AllocStaticData; ScanDeclaration(B.universe.first, 0);
+	baseOffset := (-staticSize) DIV 4096 * 4096;
 	
 	IF modinit # NIL THEN NewProc(modInitProc, modinit) END;
 	NewProc(trapProc, NIL); NewProc(trapProc2, NIL); NewProc(dllInitProc, NIL)
@@ -2133,7 +2124,7 @@ BEGIN
 		END;
 
 		(* Load the base of current module to RBX *)
-		SetRm_RIP(-pc-7); EmitRegRm(LEA, reg_B, 8);
+		SetRm_RIP(baseOffset-pc-7); EmitRegRm(LEA, reg_B, 8);
 		
 		IF obj.type # NIL THEN
 			param := obj.type.fields; i := 0;
@@ -2208,7 +2199,8 @@ BEGIN
 		Jcc1(ccNZ, 1); EmitBare(RET);
 	
 		EmitRI(SUBi, reg_SP, 8, 2064 + 64 + 8);
-		SetRm_RIP(-pc-7); EmitRegRm(LEA, reg_B, 8);
+		(* Load the base of current module to RBX *)
+		SetRm_RIP(baseOffset-pc-7); EmitRegRm(LEA, reg_B, 8);
 		
 		EmitRR(MOVd, reg_R12, 8, reg_D); MoveRI(reg_C, 4, 6);
 		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_R8, 8);
@@ -2344,7 +2336,8 @@ BEGIN
 		
 		PushR(reg_SI); PushR(reg_DI);
 		PushR(reg_B); EmitRI(SUBi, reg_SP, 8, 64);
-		SetRm_RIP(-pc-7); EmitRegRm(LEA, reg_B, 8);
+		(* Load the base of current module to RBX *)
+		SetRm_RIP(baseOffset-pc-7); EmitRegRm(LEA, reg_B, 8);
 		
 		(* Import USER32.DLL *)
 		SetRm_regI(reg_B, user32name.adr); EmitRegRm(LEA, reg_C, 8); 
@@ -2423,10 +2416,11 @@ BEGIN
 		END;
 		
 		SetRm_regI(reg_B, modPtrTable); EmitRegRm(LEA, reg_A, 8);
-		SetRm_regI(reg_B, -8); EmitRegRm(MOV, reg_A, 8);
+		SetRm_regI(reg_B, adrOfPtrTable); EmitRegRm(MOV, reg_A, 8);
 		IF B.Flag.rtl[0] # 0X THEN ImportRTL END;
+		
 		EmitRR(XOR, reg_C, 4, reg_C);
-		SetRm_regI(reg_B, trapProc.adr); EmitRegRm(LEA, reg_D, 8);
+		SetRm_RIP(trapProc.adr-pc-7); EmitRegRm(LEA, reg_D, 8);
 		SetRm_regI(reg_B, AddVectoredExceptionHandler); EmitRm(CALL, 4);
 		
 		IF modInitProc # NIL THEN CallProc(modInitProc) END;
@@ -2659,7 +2653,7 @@ END FoldConst;
 PROCEDURE Init*(modid0: B.IdStr);
 BEGIN
 	modid := modid0; varSize := 0; staticSize := 128;
-	procList := NIL; curProc := NIL; pc := 0;
+	procList := NIL; curProc := NIL;
 	B.intType.size := 8; B.intType.align := 8;
 	B.byteType.size := 1; B.byteType.align := 1;
 	B.charType.size := 2; B.charType.align := 2;
@@ -2670,15 +2664,16 @@ BEGIN
 	B.card16Type.size := 2; B.card16Type.align := 2;
 	B.card32Type.size := 4; B.card32Type.align := 4;
 	
-	adrOfNEW := -128;
-	wsprintfW := -120;
-	MessageBoxW := -112;
+	adrOfNEW := 120;
+	adrOfPtrTable := 112;
+	wsprintfW := 104;
+	MessageBoxW := 96;
 	
-	AddVectoredExceptionHandler := -48;
-	GetModuleHandleExW := -40;
-	ExitProcess := -32;
-	LoadLibraryW := -24;
-	GetProcAddress := -16;
+	AddVectoredExceptionHandler := 32;
+	GetModuleHandleExW := 24;
+	ExitProcess := 16;
+	LoadLibraryW := 8;
+	GetProcAddress := 0;
 
 	startTime := Rtl.Time();
 	Rtl.Rewrite(debug, '.pocDebug');
@@ -2688,7 +2683,7 @@ END Init;
 PROCEDURE Generate*(VAR modinit: B.Node);
 BEGIN
 	(* Pass 1 *)
-	pass := 1; Pass1(modinit);
+	pass := 1; pc := 0; Pass1(modinit);
 	
 	(* Pass 2 *)
 	pass := 2; curProc := procList; pc := 0;

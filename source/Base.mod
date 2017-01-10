@@ -779,7 +779,7 @@ PROCEDURE SetSrcPath*(path: ARRAY OF CHAR);
 	VAR i: INTEGER;
 BEGIN
 	srcPath := path; i := 0; WHILE srcPath[i] # 0X DO INC(i) END;
-	WHILE (srcPath[i] # '\') & (i >= 0) DO DEC(i) END; srcPath[i+1] := 0X
+	WHILE (i >= 0) & (srcPath[i] # '\') DO DEC(i) END; srcPath[i+1] := 0X
 END SetSrcPath;
 
 (* -------------------------------------------------------------------------- *)
