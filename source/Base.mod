@@ -116,69 +116,11 @@ VAR
 	predefinedTypes: ARRAY 16 OF Type;
 	impTypes: ARRAY MaxExpTypes OF Type;
 	modList*: ARRAY MaxImpMod OF Module;
+	symPath: ARRAY 1024 OF CHAR;
+	srcPath: ARRAY 1024 OF CHAR;
 	
 	ExportType0: PROCEDURE(typ: Type);
 	ImportType0: PROCEDURE(VAR typ: Type);
-	
-(* -------------------------------------------------------------------------- *)
-(* -------------------------------------------------------------------------- *)
-(* Read/Write for symfile *)
-
-PROCEDURE WriteInt*(f: Rtl.File; n: INTEGER);
-	VAR finish: BOOLEAN; b: INTEGER;
-BEGIN
-	REPEAT b := n MOD 128; finish := (n >= -64) & (n < 64);
-		IF finish THEN b := b + 128 ELSE n := n DIV 128 END;
-		Rtl.Write1(f, b)
-	UNTIL finish
-END WriteInt;
-
-PROCEDURE ReadInt*(f: Rtl.File; VAR n: INTEGER);
-	CONST MaxInt = 9223372036854775807; MinInt = -MaxInt - 1;
-	VAR finish: BOOLEAN; i, b, k: INTEGER;
-BEGIN n := 0; i := 1; k := 1;
-	REPEAT Rtl.Read1(f, b);
-		IF i < 10 THEN
-			finish := b >= 128; b := b MOD 128; n := n + b * k;
-			IF i # 9 THEN k := k * 128 END; INC (i);
-			IF finish & (b >= 64) THEN
-				IF i # 9 THEN n := n + (-1 * k) ELSE n := n + MinInt END
-			END
-		ELSIF i = 10 THEN
-			finish := TRUE; IF b = 127 THEN n := n + MinInt END
-		ELSE ASSERT(FALSE)
-		END
-	UNTIL finish
-END ReadInt;
-
-(* -------------------------------------------------------------------------- *)
-(* -------------------------------------------------------------------------- *)
-(* Compiler Flag *)
-
-PROCEDURE SetCompilerFlag(pragma: ARRAY OF CHAR);
-	VAR i: INTEGER;
-BEGIN
-	IF pragma = 'MAIN' THEN Flag.main := TRUE
-	ELSIF pragma = 'CONSOLE' THEN
-		Flag.main := TRUE; Flag.console := TRUE
-	ELSIF pragma = 'DEBUG' THEN Flag.debug := TRUE
-	(*ELSIF Strings.Pos('RTL ', pragma, 0) = 0 THEN i := 0;
-		WHILE pragma[i+4] # 0X DO Flag.rtl[i] := pragma[i+4]; INC(i) END*)
-	ELSIF pragma = 'HANDLE' THEN Flag.handle := TRUE
-	ELSIF pragma = 'POINTER' THEN Flag.handle := FALSE
-	ELSIF pragma = 'RTL-' THEN Flag.rtl[0] := 0X
-	END
-END SetCompilerFlag;
-
-PROCEDURE SetFlag*(flag: ARRAY OF CHAR);
-BEGIN
-	IF flag = 'handle' THEN Flag.handle := TRUE END
-END SetFlag;
-
-PROCEDURE InitCompilerFlag;
-BEGIN
-	Flag.rtl := 'RTL.DLL'
-END InitCompilerFlag;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -197,6 +139,7 @@ END IsStr;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
+(* Symbol table *)
 
 PROCEDURE NewVar*(tp: Type): Var;
 	VAR v: Var;
@@ -363,6 +306,37 @@ BEGIN
 	ident.obj := x; x.ident := ident;
 	ident.next := topScope.first; topScope.first := ident
 END Enter;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+(* Read/Write for symfile *)
+
+PROCEDURE WriteInt*(f: Rtl.File; n: INTEGER);
+	VAR finish: BOOLEAN; b: INTEGER;
+BEGIN
+	REPEAT b := n MOD 128; finish := (n >= -64) & (n < 64);
+		IF finish THEN b := b + 128 ELSE n := n DIV 128 END;
+		Rtl.Write1(f, b)
+	UNTIL finish
+END WriteInt;
+
+PROCEDURE ReadInt*(f: Rtl.File; VAR n: INTEGER);
+	CONST MaxInt = 9223372036854775807; MinInt = -MaxInt - 1;
+	VAR finish: BOOLEAN; i, b, k: INTEGER;
+BEGIN n := 0; i := 1; k := 1;
+	REPEAT Rtl.Read1(f, b);
+		IF i < 10 THEN
+			finish := b >= 128; b := b MOD 128; n := n + b * k;
+			IF i # 9 THEN k := k * 128 END; INC (i);
+			IF finish & (b >= 64) THEN
+				IF i # 9 THEN n := n + (-1 * k) ELSE n := n + MinInt END
+			END
+		ELSIF i = 10 THEN
+			finish := TRUE; IF b = 127 THEN n := n + MinInt END
+		ELSE ASSERT(FALSE)
+		END
+	UNTIL finish
+END ReadInt;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -708,17 +682,41 @@ BEGIN
 	curLev := 0
 END ImportModules;
 
-PROCEDURE NewModule*(modident: Ident; modname: IdStr);
-	VAR path: String; module: Module; x: INTEGER;
+PROCEDURE NewSystemModule*(modident: Ident);
+	VAR mod: Module;
 BEGIN
-	path[0] := 0X; Strings.Append(modname, path); Strings.Append('.sym', path);
-	IF modname = 'SYSTEM' THEN
-		NEW(module); module.name := modname;
-		module.lev := -1; module.first := systemScope.first;
-		IF modident # NIL THEN
-			modident.obj := module; module.ident := modident
+	NEW(mod); mod.name := 'SYSTEM';
+	mod.lev := -1; mod.first := systemScope.first;
+	modident.obj := mod; mod.ident := modident
+END NewSystemModule;
+
+PROCEDURE NewModule*(modident: Ident; modname: IdStr);
+	VAR path, symfname: String; module: Module;
+		x, i, len: INTEGER; found: BOOLEAN;
+	
+	PROCEDURE GetPath(VAR path: String; VAR i: INTEGER): INTEGER;
+		VAR j: INTEGER;
+	BEGIN j := 0;
+		WHILE (symPath[i] # 0X) & (symPath[i] # ';') DO
+			path[j] := symPath[i]; INC(i); INC(j)
+		END;
+		IF symPath[i] = ';' THEN INC(i) END; path[j] := 0X;
+		RETURN j
+	END GetPath;
+	
+BEGIN (* NewModule *)
+	symfname := 0X;
+	Strings.Append(modname, symfname); Strings.Append('.sym', symfname);
+	path := symfname; i := 0; found := Rtl.ExistFile(path);
+	WHILE (symPath[i] # 0X) & ~found DO
+		len := GetPath(path, i);
+		IF len # 0 THEN
+			IF path[len-1] # '\' THEN path[len] := '\'; path[len+1] := 0X END;
+			Strings.Append(symfname, path); found := Rtl.ExistFile(path)
 		END
-	ELSIF Rtl.ExistFile(path) THEN
+	END;
+	
+	IF found THEN
 		NEW(module); module.name := modname;
 		module.path := path; module.lev := 0; module.adr := 0;
 		IF modident # NIL THEN
@@ -741,6 +739,48 @@ BEGIN
 	ELSE S.Mark('Symbol file not existed')
 	END;
 END NewModule;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+(* Compiler Flag *)
+
+PROCEDURE SetCompilerFlag(pragma: ARRAY OF CHAR);
+	VAR i: INTEGER;
+BEGIN
+	IF pragma = 'MAIN' THEN Flag.main := TRUE
+	ELSIF pragma = 'CONSOLE' THEN
+		Flag.main := TRUE; Flag.console := TRUE
+	ELSIF pragma = 'DEBUG' THEN Flag.debug := TRUE
+	(*ELSIF Strings.Pos('RTL ', pragma, 0) = 0 THEN i := 0;
+		WHILE pragma[i+4] # 0X DO Flag.rtl[i] := pragma[i+4]; INC(i) END*)
+	ELSIF pragma = 'HANDLE' THEN Flag.handle := TRUE
+	ELSIF pragma = 'POINTER' THEN Flag.handle := FALSE
+	ELSIF pragma = 'RTL-' THEN Flag.rtl[0] := 0X
+	END
+END SetCompilerFlag;
+
+PROCEDURE SetFlag*(flag: ARRAY OF CHAR);
+BEGIN
+	IF flag = 'handle' THEN Flag.handle := TRUE END
+END SetFlag;
+
+PROCEDURE InitCompilerFlag;
+BEGIN
+	Flag.rtl := 'RTL.DLL'
+END InitCompilerFlag;
+
+PROCEDURE SetSymPath*(path: ARRAY OF CHAR);
+BEGIN
+	symPath := path
+END SetSymPath;
+
+PROCEDURE SetSrcPath*(path: ARRAY OF CHAR);
+BEGIN
+	srcPath := path
+END SetSrcPath;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
 
 PROCEDURE Init*(modname: IdStr);
 BEGIN

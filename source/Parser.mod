@@ -1192,14 +1192,15 @@ BEGIN
 END DeclarationSequence;
 
 PROCEDURE import;
-	VAR ident: B.Ident; modname: B.IdStr;
-BEGIN ident := NewIdent(S.id); modname := S.id; GetSym;
+	VAR ident: B.Ident; name: B.IdStr;
+BEGIN
+	ident := NewIdent(S.id); name := S.id; GetSym;
 	IF sym = S.becomes THEN GetSym;
-		IF sym = S.ident THEN modname := S.id; GetSym
-		ELSE Missing(S.ident)
-		END
+		IF sym = S.ident THEN name := S.id; GetSym ELSE Missing(S.ident) END
 	END;
-	B.NewModule(ident, modname)
+	IF name # 'SYSTEM' THEN B.NewModule(ident, name)
+	ELSE B.NewSystemModule(ident)
+	END
 END import;
 
 PROCEDURE ImportList;
@@ -1228,7 +1229,7 @@ BEGIN
 			IF S.id # modid THEN Mark('wrong module name') END; GetSym
 		ELSE Missing(S.ident)
 		END;
-		Check0(S.period);
+		Check0(S.period)
 	END;
 	IF S.errcnt = 0 THEN B.WriteSymfile END;
 	IF S.errcnt = 0 THEN G.Generate(modinit) END;

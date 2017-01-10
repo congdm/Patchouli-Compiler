@@ -7,7 +7,7 @@ IMPORT
 	
 VAR
 	str, fname: ARRAY 1024 OF CHAR;
-	len, i: INTEGER; buildMode: BOOLEAN;
+	i: INTEGER; buildMode: BOOLEAN;
 	
 PROCEDURE Compile(fname: ARRAY OF CHAR);
 	VAR srcfile: Rtl.File; sym: INTEGER;
@@ -48,15 +48,15 @@ BEGIN
 END Build;
 	
 BEGIN
-	fname[0] := 0X; i := 1; Rtl.GetArg(str, len, i);
+	fname[0] := 0X; i := 1; Rtl.GetArg(str, i);
 	WHILE str[0] # 0X DO
 		IF (str[0] # '/') & (fname[0] = 0X) THEN fname := str
-		ELSIF str[0] = '/' THEN
+		ELSIF str[0] = '/' THEN Rtl.LowerCase(str);
 			IF str = '/h' THEN B.SetFlag('handle')
-			ELSIF (str = '/b') OR (str = '/B') THEN buildMode := TRUE
+			ELSIF (str = '/b') THEN buildMode := TRUE
 			END
 		END;
-		INC(i); Rtl.GetArg(str, len, i)
+		INC(i); Rtl.GetArg(str, i)
 	END;
 	IF fname[0] # 0X THEN
 		IF Rtl.ExistFile(fname) THEN

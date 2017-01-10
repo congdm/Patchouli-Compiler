@@ -2720,6 +2720,10 @@ END Generate;
 
 PROCEDURE Cleanup*;
 BEGIN
+	IF S.errcnt # 0 THEN
+		Rtl.Close(out); Rtl.Close(debug);
+		Rtl.Delete('.pocDebug'); Rtl.Delete('.tempOut')
+	END;
 	procList := NIL; curProc := NIL; modInitProc := NIL;
 	trapProc := NIL; trapProc2 := NIL; dllInitProc := NIL;
 	errFmtStr := NIL; err2FmtStr := NIL; err3FmtStr := NIL; err4FmtStr := NIL;

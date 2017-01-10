@@ -24,6 +24,7 @@ TYPE
 
 VAR
 	modList*, nMod*: INTEGER;
+	argv, numArgs*: INTEGER;
 
 	(* Utility *)
 	ExitProcess: PROCEDURE(uExitCode: INTEGER);
@@ -33,6 +34,7 @@ VAR
 	MessageBoxW: PROCEDURE(hWnd, lpText, lpCaption, uType: INTEGER): Int;
 	GetSystemTimeAsFileTime: PROCEDURE(lpSystemTimeAsFileTime: Pointer);
 	GetCommandLineW: PROCEDURE(): Pointer;
+	CommandLineToArgvW: PROCEDURE(lpCmdLine, pNumArgs: Pointer): Pointer;
 
 	(* Heap *)
 	VirtualAlloc: PROCEDURE(
@@ -81,6 +83,7 @@ VAR
 		lpWideCharStr: Pointer;
 		cchWideChar: Int
 	): Int;
+	CharLowerBuffW: PROCEDURE(lpsz: Pointer; cchLength: Dword): Dword;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -160,26 +163,15 @@ PROCEDURE Parse*(type: INTEGER; src: ARRAY OF CHAR; VAR dst: ARRAY OF BYTE);
 BEGIN ASSERT(FALSE)
 END Parse;
 
-PROCEDURE GetArg*(VAR out: ARRAY OF CHAR; VAR paramLen: INTEGER; n: INTEGER);
-	CONST chSize = 2;
-	VAR i, k: INTEGER; buf: Pointer; ch: CHAR;
-BEGIN buf := GetCommandLineW(); i := 0;
-	WHILE n > 0 DO
-		SYSTEM.GET(buf, ch);
-		WHILE (ch # ' ') & (ch # 0X) DO
-			buf := buf + chSize; SYSTEM.GET(buf, ch)
-		END;
-		IF ch = 0X THEN n := 0
-		ELSIF ch = ' ' THEN DEC(n);
-			WHILE ch = ' ' DO buf := buf + chSize; SYSTEM.GET(buf, ch) END
-		END
-	END;
-	k := 0; paramLen := 0;
-	WHILE (ch # ' ') & (ch # 0X) DO
-		IF k < LEN(out) THEN out[k] := ch END;
-		INC(k); INC(paramLen); buf := buf + chSize; SYSTEM.GET(buf, ch)
-	END;
-	IF k < LEN(out) THEN out[k] := 0X END
+PROCEDURE GetArg*(VAR out: ARRAY OF CHAR; n: INTEGER);
+	VAR i, arg: INTEGER;
+BEGIN (* GetArg *)
+	ASSERT(argv # 0);
+	IF (n < numArgs) & (n >= 0) THEN i := 0;
+		SYSTEM.GET(argv+n*8, arg); ASSERT(arg # 0); SYSTEM.GET(arg, out[i]);
+		WHILE out[i] # 0X DO INC(arg, 2); INC(i); SYSTEM.GET(arg, out[i]) END
+	ELSE out[0] := 0X
+	END
 END GetArg;
 
 PROCEDURE Time*(): INTEGER;
@@ -410,6 +402,11 @@ PROCEDURE SizeInUtf8*(str: ARRAY OF CHAR): INTEGER;
 	RETURN WideCharToMultiByte(CP_UTF8, 0, SYSTEM.ADR(str), -1, 0, 0, 0, 0)
 END SizeInUtf8;
 
+PROCEDURE LowerCase*(VAR str: ARRAY OF CHAR);
+BEGIN
+	ASSERT(CharLowerBuffW(SYSTEM.ADR(str), LEN(str)) = LEN(str))
+END LowerCase;
+
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 (* Module management *)
@@ -630,6 +627,13 @@ END InitHeap;
 (* -------------------------------------------------------------------------- *)
 (* Init *)
 
+PROCEDURE GetArgv;
+	VAR pCmdLine: Pointer;
+BEGIN
+	pCmdLine := GetCommandLineW();
+	argv := CommandLineToArgvW(pCmdLine, SYSTEM.ADR(numArgs))
+END GetArgv;
+
 BEGIN
 	Import(ExitProcess, Kernel32, 'ExitProcess');
 	Import(
@@ -638,6 +642,7 @@ BEGIN
 	Import(MessageBoxW, 'USER32.DLL', 'MessageBoxW');
 	Import(GetSystemTimeAsFileTime, Kernel32, 'GetSystemTimeAsFileTime');
 	Import(GetCommandLineW, Kernel32, 'GetCommandLineW');
+	Import(CommandLineToArgvW, 'Shell32.dll', 'CommandLineToArgvW');
 
 	Import(VirtualAlloc, Kernel32, 'VirtualAlloc');
 	
@@ -653,6 +658,7 @@ BEGIN
 	
 	Import(WideCharToMultiByte, Kernel32, 'WideCharToMultiByte');
 	Import(MultiByteToWideChar, Kernel32, 'MultiByteToWideChar');
+	Import(CharLowerBuffW, 'User32.dll', 'CharLowerBuffW');
 	
-	InitHeap
+	GetArgv; InitHeap
 END Rtl.
