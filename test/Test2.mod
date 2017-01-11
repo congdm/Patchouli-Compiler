@@ -1,7 +1,10 @@
 MODULE Test2;(*$CONSOLE*)
 IMPORT Out;
-TYPE Rec = RECORD a: ARRAY 8 OF BYTE END;
-VAR x: Rec;
+TYPE
+	Rec = RECORD a: ARRAY 8 OF BYTE END;
+	Rec2 = RECORD END;
+VAR
+	x: Rec;
 
 PROCEDURE Proc(y: Rec);
 BEGIN

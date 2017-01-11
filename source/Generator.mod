@@ -1870,7 +1870,7 @@ BEGIN
 		IF curProc.obj.homeSpace < 32 THEN curProc.obj.homeSpace := 32 END
 	ELSIF id = S.spASSERT THEN
 		LoadCond(x, obj1); Jump(node, x.bLink, x.c); FixLink(x.aLink);
-		CallProc(trapProc); WriteDebug(pc, sPos, assertTrap); FixLink(node)
+		EmitBare(UD2); WriteDebug(pc-2, sPos, assertTrap); FixLink(node)
 	ELSIF id = S.spPACK THEN
 		AvoidUsedBy(obj2); MakeItem0(x, obj1); RefToRegI(x); r := AllocReg();
 		SetRmOperand(x); EmitRegRm(MOVd, r, 8); ResetMkItmStat;

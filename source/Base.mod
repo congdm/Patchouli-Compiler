@@ -94,7 +94,7 @@ TYPE
 
 VAR
 	topScope*, universe*, systemScope: Scope;
-	curLev*, modlev*: INTEGER;
+	curLev*, modlev*: INTEGER; system*: BOOLEAN;
 	modid*: IdStr; modkey*: ModuleKey;
 	expList*, lastExp: ObjList; strList*: StrList; recList*: TypeList;
 	
@@ -697,7 +697,7 @@ END ImportModules;
 PROCEDURE NewSystemModule*(modident: Ident);
 	VAR mod: Module;
 BEGIN
-	NEW(mod); mod.name := 'SYSTEM';
+	NEW(mod); mod.name := 'SYSTEM'; system := TRUE;
 	mod.lev := -1; mod.first := systemScope.first;
 	modident.obj := mod; mod.ident := modident
 END NewSystemModule;
@@ -799,7 +799,7 @@ END SetSrcPath;
 PROCEDURE Init*(modname: IdStr);
 BEGIN
 	NEW(universe); topScope := universe; curLev := -1;
-	modid := modname; modno := 0; strbufSize := 0;
+	system := FALSE; modid := modname; modno := 0; strbufSize := 0;
 	expList := NIL; lastExp := NIL; strList := NIL; recList := NIL;
 	InitCompilerFlag;
 	

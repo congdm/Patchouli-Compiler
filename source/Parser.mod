@@ -979,7 +979,7 @@ BEGIN tp := B.intType;
 		tp := B.NewArray(-1); GetSym;
 		IF sym = S.lbrak THEN GetSym;
 			IF (sym = S.ident) & (S.id = 'untagged') THEN
-				IF B.Flag.rtl = 0X THEN tp.notag := TRUE
+				IF B.system THEN tp.notag := TRUE
 				ELSE Mark('untagged not allowed')
 				END; GetSym
 			END; Check0(S.rbrak)
