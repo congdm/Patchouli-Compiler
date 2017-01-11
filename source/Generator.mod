@@ -1464,14 +1464,20 @@ BEGIN
 END ParReg;
 
 PROCEDURE LoadParam(VAR x: Item; par: Node; n: INTEGER; ref: BOOLEAN);
-	VAR obj: B.Object;
+	VAR obj: B.Object; tp: B.Type;
 BEGIN
-	IF n < 4 THEN AvoidUsedBy(par.right) END; obj := par.left;
+	IF n < 4 THEN AvoidUsedBy(par.right) END;
+	obj := par.left; tp := obj.type;
 	IF ~ref THEN
-		IF obj.type.form # B.tReal THEN SetBestReg(ParReg(n))
+		IF tp.form # B.tReal THEN SetBestReg(ParReg(n))
 		ELSIF n < 4 THEN MkItmStat.bestXReg := n
-		END;
-		MakeItem0(x, obj); Load(x)
+		END; MakeItem0(x, obj);
+		IF tp.form # B.tRec THEN Load(x)
+		ELSIF tp.size >= 8 THEN x.type := B.intType; Load(x)
+		ELSIF tp.size >= 4 THEN x.type := B.card32Type; Load(x)
+		ELSIF tp.size >= 2 THEN x.type := B.card16Type; Load(x)
+		ELSIF tp.size = 1 THEN x.type := B.byteType; Load(x)
+		END
 	ELSE SetBestReg(ParReg(n)); MakeItem0(x, obj); LoadAdr(x)
 	END;
 	IF n >= 4 THEN SetRm_regI(reg_SP, n*8);
@@ -1488,8 +1494,12 @@ BEGIN i := 1;
 	IF ftype.form = B.tArray THEN LoadParam(x, par, n, TRUE);
 		IF B.IsOpenArray(ftype) & ~ftype.notag THEN INC(i) END
 	ELSIF ftype = B.strType THEN LoadParam(x, par, n, TRUE)
-	ELSIF ftype.form = B.tRec THEN LoadParam(x, par, n, TRUE);
-		IF varpar THEN INC(i) END
+	ELSIF ftype.form = B.tRec THEN
+		IF varpar THEN LoadParam(x, par, n, TRUE); INC(i)
+		ELSIF (ftype.size < 9) & (ftype.size IN {0, 1, 2, 4, 8}) THEN
+			LoadParam(x, par, n, FALSE)
+		ELSE LoadParam(x, par, n, TRUE)
+		END
 	ELSE LoadParam(x, par, n, varpar)
 	END;
 	IF par.right # NIL THEN Parameter(par.right(Node), fpar.next, n+i) END;
@@ -2020,7 +2030,9 @@ BEGIN
 		IF objv.lev < 0 THEN x.ref := TRUE END;
 		IF objv IS B.Str THEN x.mode := mBX; x.strlen := objv(B.Str).len
 		ELSIF objv IS B.Par THEN
-			x.ref := objv(B.Par).varpar OR (form = B.tArray) OR (form = B.tRec)
+			size := objv.type.size;
+			x.ref := objv(B.Par).varpar OR (form = B.tArray)
+				OR (form = B.tRec) & ((size > 8) OR (size IN {3, 5, 6, 7}))
 		ELSIF objv IS B.TempVar THEN x.mode := mBP
 		END
 	ELSIF obj IS B.Proc THEN
