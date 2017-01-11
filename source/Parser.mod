@@ -829,25 +829,39 @@ PROCEDURE Case(): B.Node;
 		RETURN bar
 	END TypeCase;
 	
-	PROCEDURE LabelRange(x: B.Object): B.Node;
+	PROCEDURE label(x: B.Object; VAR y: B.Object);
 		CONST errMsg = 'invalid value';
-		VAR y: B.Object; cond: B.Node;
-	BEGIN
+		VAR xform: INTEGER;
+	BEGIN xform := x.type.form;
 		IF sym = S.int THEN y := factor();
-			IF x.type.form # B.tInt THEN Mark(errMsg) END
-		ELSIF (sym = S.string) & (S.slen <= 2) THEN
-			IF x.type.form # B.tChar THEN Mark(errMsg) END;
+			IF xform # B.tInt THEN Mark(errMsg) END
+		ELSIF sym = S.string THEN
+			IF xform # B.tChar THEN Mark(errMsg) END;
+			IF S.slen > 2 THEN Mark('not char') END;
 			y := B.NewConst(B.charType, ORD(S.str[0])); GetSym
-		END;
-		IF sym # S.upto THEN cond := NewNode(S.eql, x, y)
-		ELSE cond := NewNode(S.geq, x, y); GetSym;
-			IF sym = S.int THEN y := factor();
-				IF x.type.form # B.tInt THEN Mark(errMsg) END
-			ELSIF (sym = S.string) & (S.slen <= 2) THEN
-				IF x.type.form # B.tChar THEN Mark(errMsg) END;
+		ELSIF sym = S.ident THEN y := qualident();
+			IF y = NIL THEN Mark(errMsg)
+			ELSIF y IS B.Const THEN
+				IF xform = B.tInt THEN CheckInt(y)
+				ELSIF xform = B.tChar THEN
+					IF y.type.form # B.tChar THEN Mark('not char') END
+				END
+			ELSIF y IS B.Str THEN
+				IF xform # B.tChar THEN Mark(errMsg) END; 
+				IF y(B.Str).len > 2 THEN Mark('not char') END;
 				y := B.NewConst(B.charType, ORD(S.str[0])); GetSym
-			ELSE Mark('need integer or string (ident not allowed)')
-			END;
+			ELSE Mark(errMsg); y := NIL
+			END
+		ELSE Mark('need integer or char value')
+		END
+	END label;
+	
+	PROCEDURE LabelRange(x: B.Object): B.Node;
+		VAR y: B.Object; cond: B.Node;
+	BEGIN label(x, y);
+		IF sym # S.upto THEN cond := NewNode(S.eql, x, y)
+		ELSE
+			cond := NewNode(S.geq, x, y); GetSym; label(x, y);
 			cond := NewNode(S.and, cond, NewNode(S.leq, x, y))
 		END;
 		RETURN cond
@@ -856,7 +870,7 @@ PROCEDURE Case(): B.Node;
 	PROCEDURE NumericCase(x: B.Object): B.Node;
 		VAR bar, colon: B.Node; y: B.Node;
 	BEGIN
-		IF (sym = S.int) OR (sym = S.string) THEN
+		IF (sym = S.int) OR (sym = S.string) OR (sym = S.ident) THEN
 			y := LabelRange(x);
 			WHILE sym = S.comma DO
 				GetSym; y := NewNode(S.or, y, LabelRange(x))

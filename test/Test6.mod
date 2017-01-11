@@ -1,6 +1,7 @@
 MODULE Test6;
 (*$CONSOLE*)
 IMPORT Out;
+CONST MinInt = 8000000000000000H; MaxInt = MinInt - 1; MinusOne = -1;
 TYPE
 	R0 = RECORD END; P0 = POINTER TO R0;
 	R1 = RECORD (R0) END; P1 = POINTER TO R1;
@@ -18,11 +19,11 @@ BEGIN
 	END;
 	Out.Ln; int := 4364364;
 	CASE int OF
-		201 .. 7FFFFFFFFFFFFFFFH: Out.String('200 < int') |
+		201 .. MaxInt: Out.String('200 < int') |
 		100 .. 200: Out.String('99 < int <= 200') |
 		1 .. 99: Out.String('0 < int <= 99') |
 		0: Out.String('int = 0') |
-		8000000000000000H .. 0FFFFFFFFFFFFFFFFH: Out.String('int < 0')
+		MinInt .. MinusOne: Out.String('int < 0')
 	END;
 	Out.Ln; Out.String('ch is '); ch := 90X;
 	CASE ch OF
