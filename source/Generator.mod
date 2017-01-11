@@ -75,6 +75,7 @@ CONST
 	nilProcTrap = 5;
 	divideTrap = 6;
 	assertTrap = 7;
+	rtlTrap = 8;
 	
 TYPE
 	Proc = B.Proc;
@@ -100,8 +101,8 @@ VAR
 	procList, curProc: B.ProcList;
 	modInitProc, trapProc, trapProc2, dllInitProc: Proc;
 	
-	modidStr, errFmtStr, err2FmtStr: B.Str;
-	err3FmtStr, err4FmtStr, rtlName, user32name: B.Str;
+	modidStr, errFmtStr, err2FmtStr, err3FmtStr: B.Str;
+	err4FmtStr, err5FmtStr, err6FmtStr, rtlName, user32name: B.Str;
 
 	mem: RECORD mod, rm, bas, idx, scl, disp: INTEGER END;
 	allocReg, allocXReg: SET;
@@ -695,21 +696,23 @@ END NewProc;
 
 PROCEDURE Pass1(VAR modinit: B.Node);
 	VAR fixAmount: INTEGER; obj: B.Proc;
+		str: B.String;
 BEGIN
 	modidStr := B.NewStr2(modid);
-	errFmtStr := B.NewStr2('Error code: %d%sModule: %s%sSource pos: %d');
-	err2FmtStr := B.NewStr2('Module key of %s is mismatched%sModule: %s');
-	err3FmtStr := B.NewStr2('Unknown exception
-Pc: %x
-Module: %s'
-	);
-	err4FmtStr := B.NewStr2('Cannot load module %s (not exist?)%sModule: %s');
+	errFmtStr := B.NewStr2('Error code: %d; Source pos: %d');
+	err2FmtStr := B.NewStr2('Module key of %s is mismatched');
+	err3FmtStr := B.NewStr2('Unknown exception; Pc: %x');
+	err4FmtStr := B.NewStr2('Cannot load module %s (not exist?)');
 	rtlName := B.NewStr2(B.Flag.rtl); user32name := B.NewStr2('USER32.DLL');
+	
+	str := 'Error in module '; Strings.Append(modid, str);
+	err5FmtStr := B.NewStr2(str);
+	
 	AllocStaticData; ScanDeclaration(B.universe.first, 0);
 	baseOffset := (-staticSize) DIV 4096 * 4096;
 	
 	IF modinit # NIL THEN NewProc(modInitProc, modinit) END;
-	NewProc(trapProc, NIL); NewProc(trapProc2, NIL); NewProc(dllInitProc, NIL)
+	NewProc(dllInitProc, NIL); NewProc(trapProc, NIL); NewProc(trapProc2, NIL)
 END Pass1;
 
 (* -------------------------------------------------------------------------- *)
@@ -863,7 +866,8 @@ PROCEDURE LoadProc(reg: INTEGER; obj: B.Proc);
 	VAR adr: INTEGER;
 BEGIN
 	IF pass = 2 THEN SetRm_RIP(0); EmitRegRm(LEA, reg, 8)
-	ELSIF pass = 3 THEN adr := obj.adr;
+	ELSIF pass = 3 THEN
+		SetRm_RIP(0); EmitRegRm(LEA, reg, 8); adr := obj.adr;
 		IF adr >= 0 THEN FixDisp(pc-4, adr-pc, 4)
 		ELSE FixDisp(pc-4, obj.fix, 4); obj.fix := pc - 4
 		END
@@ -1058,11 +1062,7 @@ BEGIN RefToRegI(x);
 				ELSE EmitMOVZX(r, size)
 				END
 			ELSIF x.mode = mProc THEN
-				IF ~x.ref THEN
-					IF x.a >= 0 THEN SetRm_RIP(0);
-						EmitRegRm(LEA, r, 8); FixDisp(pc-4, x.a-pc, 4)
-					ELSE LoadProc(r, x.obj(B.Proc))
-					END
+				IF ~x.ref THEN LoadProc(r, x.obj(B.Proc))
 				ELSE SetRmOperand(x); EmitRegRm(MOVd, r, 8); x.ref := FALSE
 				END
 			ELSIF x.mode = mCond THEN
@@ -2234,124 +2234,12 @@ BEGIN
 	FinishProc
 END Procedure;
 
-PROCEDURE TrapHandler;
-	VAR first, L: INTEGER;
-BEGIN
-	BeginProc;
-	IF pass = 3 THEN
-		EmitRR(XOR, reg_A, 4, reg_A);
-		SetRm_regI(reg_C, 0); EmitRegRm(MOVd, reg_C, 8);
-		SetRm_regI(reg_C, 16); EmitRegRm(MOVd, reg_D, 8);
-		SetRm_RIP(-pc-7); EmitRegRm(LEA, reg_C, 8);
-		EmitRR(CMPd, reg_D, 8, reg_C); Jcc1(ccAE, 1); EmitBare(RET);
-		SetRm_RIP(trapProc.adr - pc - 7); EmitRegRm(LEA, reg_C, 8);
-		EmitRR(CMPd, reg_D, 8, reg_C); Jcc1(ccB, 1); EmitBare(RET);
-		SetRm_regI(reg_D, 0); EmitRmImm(CMPi, 1, INT3);
-		Jcc1(ccNZ, 1); EmitBare(RET);
-	
-		EmitRI(SUBi, reg_SP, 8, 2064 + 64 + 8);
-		(* Load the base of current module to RBX *)
-		SetRm_RIP(baseOffset-pc-7); EmitRegRm(LEA, reg_B, 8);
-		
-		EmitRR(MOVd, reg_R12, 8, reg_D); MoveRI(reg_C, 4, 6);
-		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_R8, 8);
-		SetRm_regI(reg_B, GetModuleHandleExW); EmitRm(CALL, 4);
-		
-		SetRm_regI(reg_SP, 64); EmitRegRm(MOVd, reg_SI, 8);
-		SetRm_regI(reg_SI, 400H-24); EmitRegRm(MOVd, reg_DI, 8);
-		EmitRR(ADDd, reg_DI, 8, reg_SI); EmitRR(SUBd, reg_R12, 8, reg_SI);
-		SetRm_regI(reg_SI, 400H-32); EmitRegRm(SUBd, reg_R12, 8);
-		
-		first := pc; EmitRI(ADDi, reg_DI, 8, 8); SetRm_regI(reg_DI, -8);
-		EmitRmImm(CMPi, 8, -1); L := pc; Jcc1(ccZ, 0); SetRm_regI(reg_DI, -8);
-		EmitRegRm(MOVd, reg_C, 4); EmitRI(ANDi, reg_C, 4, 40000000H-1);
-		EmitRR(CMPd, reg_C, 8, reg_R12); BJump(first, ccNZ);
-		
-		SetRm_regI(reg_DI, -8); EmitRegRm(MOVd, reg_R12, 8);
-		EmitRI(SHRi, reg_R12, 8, 60);
-		SetRm_regI(reg_DI, -8); EmitRegRm(MOVd, reg_R13, 8);
-		EmitRI(SHRi, reg_R13, 8, 30); EmitRI(ANDi, reg_R13, 4, 40000000H-1);
-		
-		MoveRI(reg_A, 4, 00000000000A000DH);
-		SetRm_regI(reg_SP, 56); EmitRegRm(MOV, reg_A, 8);
-		
-		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_C, 8);
-		SetRm_regI(reg_B, errFmtStr.adr); EmitRegRm(LEA, reg_D, 8);
-		EmitRR(MOVd, reg_R8, 8, reg_R12);
-		SetRm_regI(reg_SP, 56); EmitRegRm(LEA, reg_R9, 8);
-		SetRm_regI(reg_B, modidStr.adr); EmitRegRm(LEA, reg_R10, 8);
-		SetRm_regI(reg_SP, 32); EmitRegRm(MOV, reg_R10, 8);
-		SetRm_regI(reg_SP, 40); EmitRegRm(MOV, reg_R9, 8);
-		SetRm_regI(reg_SP, 48); EmitRegRm(MOV, reg_R13, 8);
-		SetRm_regI(reg_B, wsprintfW); EmitRm(CALL, 4);
-		
-		EmitRR(XOR, reg_C, 4, reg_C);
-		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_D, 8);
-		EmitRR(XOR, reg_R8, 4, reg_R8);
-		EmitRR(XOR, reg_R9, 4, reg_R9);
-		SetRm_regI(reg_B, MessageBoxW); EmitRm(CALL, 4);
-		
-		EmitRR(XOR, reg_C, 4, reg_C);
-		SetRm_regI(reg_B, ExitProcess); EmitRm(CALL, 4);
-		
-		Fixup(L, pc);
-		SetRm_regI(reg_SI, 400H-32); EmitRegRm(ADDd, reg_R12, 8);
-		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_C, 8);
-		SetRm_regI(reg_B, err3FmtStr.adr); EmitRegRm(LEA, reg_D, 8);
-		EmitRR(MOVd, reg_R8, 8, reg_R12);
-		SetRm_regI(reg_B, modidStr.adr); EmitRegRm(LEA, reg_R9, 8);
-		SetRm_regI(reg_B, wsprintfW); EmitRm(CALL, 4);
-		
-		EmitRR(XOR, reg_C, 4, reg_C);
-		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_D, 8);
-		EmitRR(XOR, reg_R8, 4, reg_R8);
-		EmitRR(XOR, reg_R9, 4, reg_R9);
-		SetRm_regI(reg_B, MessageBoxW); EmitRm(CALL, 4);
-		
-		EmitRR(XOR, reg_C, 4, reg_C);
-		SetRm_regI(reg_B, ExitProcess); EmitRm(CALL, 4)
-	END;
-	FinishProc
-END TrapHandler;
-
-PROCEDURE ModKeyTrapHandler;
-	VAR L, L2: INTEGER;
-BEGIN
-	BeginProc;
-	IF pass = 3 THEN
-		EmitRR(MOVd, reg_R13, 8, reg_C);
-		PopR(reg_A); EmitRI(SUBi, reg_SP, 8, 2064 + 64);
-		
-		MoveRI(reg_A, 4, 00000000000A000DH);
-		SetRm_regI(reg_SP, 56); EmitRegRm(MOV, reg_A, 8);
-
-		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_C, 8);
-		EmitRR(TEST, reg_D, 1, reg_D); L := pc; Jcc1(ccNZ, 0);
-		SetRm_regI(reg_B, err2FmtStr.adr); EmitRegRm(LEA, reg_D, 8);
-		L2 := pc; Jmp1(0); Fixup(L, pc);
-		SetRm_regI(reg_B, err4FmtStr.adr); EmitRegRm(LEA, reg_D, 8);
-		Fixup(L2, pc); EmitRR(MOVd, reg_R8, 8, reg_R13);
-		SetRm_regI(reg_SP, 56); EmitRegRm(LEA, reg_R9, 8);
-		SetRm_regI(reg_B, modidStr.adr); EmitRegRm(LEA, reg_R10, 8);
-		SetRm_regI(reg_SP, 32); EmitRegRm(MOV, reg_R10, 8);
-		SetRm_regI(reg_B, wsprintfW); EmitRm(CALL, 4);
-		
-		EmitRR(XOR, reg_C, 4, reg_C);
-		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_D, 8);
-		EmitRR(XOR, reg_R8, 4, reg_R8);
-		EmitRR(XOR, reg_R9, 4, reg_R9);
-		SetRm_regI(reg_B, MessageBoxW); EmitRm(CALL, 4);
-		
-		EmitRR(XOR, reg_C, 4, reg_C);
-		SetRm_regI(reg_B, ExitProcess); EmitRm(CALL, 4)
-	END;
-	FinishProc
-END ModKeyTrapHandler;
-
 PROCEDURE ImportRTL;
+	VAR L: INTEGER;
 BEGIN
 	SetRm_regI(reg_B, rtlName.adr); EmitRegRm(LEA, reg_C, 8);
 	SetRm_regI(reg_B, LoadLibraryW); EmitRm(CALL, 4);
+	EmitRR(TEST, reg_A, 8, reg_A); Trap(ccZ, rtlTrap);
 	EmitRR(MOVd, reg_SI, 8, reg_A);
 	
 	MoveRI(reg_A, 4, 0077654EH); (* New *)
@@ -2359,6 +2247,7 @@ BEGIN
 	EmitRR(MOVd, reg_C, 8, reg_SI);
 	SetRm_regI(reg_SP, 32); EmitRegRm(LEA, reg_D, 8);
 	SetRm_regI(reg_B, GetProcAddress); EmitRm(CALL, 4);
+	EmitRR(TEST, reg_A, 8, reg_A); Trap(ccZ, rtlTrap);
 	SetRm_regI(reg_B, adrOfNEW); EmitRegRm(MOV, reg_A, 8);
 	
 	MoveRI(reg_A, 8, 7265747369676552H); (* Register *)
@@ -2367,6 +2256,7 @@ BEGIN
 	EmitRR(MOVd, reg_C, 8, reg_SI);
 	SetRm_regI(reg_SP, 32); EmitRegRm(LEA, reg_D, 8);
 	SetRm_regI(reg_B, GetProcAddress); EmitRm(CALL, 4);
+	EmitRR(TEST, reg_A, 8, reg_A); Trap(ccZ, rtlTrap);
 	
 	EmitRR(MOVd, reg_C, 8, reg_B);
 	SetRm_reg(reg_A); EmitRm(CALL, 4)
@@ -2390,10 +2280,6 @@ BEGIN
 		(* Load the base of current module to RBX *)
 		SetRm_RIP(baseOffset-pc-7); EmitRegRm(LEA, reg_B, 8);
 		
-		SetRm_regI(reg_B, modPtrTable); EmitRegRm(LEA, reg_A, 8);
-		SetRm_regI(reg_B, adrOfPtrTable); EmitRegRm(MOV, reg_A, 8);
-		IF B.Flag.rtl[0] # 0X THEN ImportRTL END;
-		
 		(* Import USER32.DLL *)
 		SetRm_regI(reg_B, user32name.adr); EmitRegRm(LEA, reg_C, 8); 
 		SetRm_regI(reg_B, LoadLibraryW); EmitRm(CALL, 4);
@@ -2416,6 +2302,15 @@ BEGIN
 		SetRm_regI(reg_SP, 32); EmitRegRm(LEA, reg_D, 8);
 		SetRm_regI(reg_B, GetProcAddress); EmitRm(CALL, 4);
 		SetRm_regI(reg_B, MessageBoxW); EmitRegRm(MOV, reg_A, 8);
+		
+		(* Register Trap Handler *)
+		EmitRR(XOR, reg_C, 4, reg_C); LoadProc(reg_D, trapProc);
+		SetRm_regI(reg_B, AddVectoredExceptionHandler); EmitRm(CALL, 4);
+		
+		(* Set pointer to Module Pointer Table and import RTL *)
+		SetRm_regI(reg_B, modPtrTable); EmitRegRm(LEA, reg_A, 8);
+		SetRm_regI(reg_B, adrOfPtrTable); EmitRegRm(MOV, reg_A, 8);
+		IF B.Flag.rtl[0] # 0X THEN ImportRTL END;
 		
 		(* Import modules, if there are any *)
 		i := 0;
@@ -2470,10 +2365,6 @@ BEGIN
 			t := t.next
 		END;
 		
-		EmitRR(XOR, reg_C, 4, reg_C);
-		SetRm_RIP(trapProc.adr-pc-7); EmitRegRm(LEA, reg_D, 8);
-		SetRm_regI(reg_B, AddVectoredExceptionHandler); EmitRm(CALL, 4);
-		
 		IF modInitProc # NIL THEN CallProc(modInitProc) END;
 
 		IF B.Flag.main THEN EmitRR(XOR, reg_C, 4, reg_C);
@@ -2485,6 +2376,104 @@ BEGIN
 	END;
 	FinishProc
 END DLLInit;
+
+PROCEDURE TrapHandler;
+	VAR first, L: INTEGER;
+BEGIN
+	BeginProc;
+	IF pass = 3 THEN
+		EmitRR(XOR, reg_A, 4, reg_A);
+		SetRm_regI(reg_C, 0); EmitRegRm(MOVd, reg_C, 8);
+		SetRm_regI(reg_C, 16); EmitRegRm(MOVd, reg_D, 8);
+		SetRm_RIP(-pc-7); EmitRegRm(LEA, reg_C, 8);
+		EmitRR(CMPd, reg_D, 8, reg_C); Jcc1(ccAE, 1); EmitBare(RET);
+		SetRm_RIP(trapProc.adr - pc - 7); EmitRegRm(LEA, reg_C, 8);
+		EmitRR(CMPd, reg_D, 8, reg_C); Jcc1(ccB, 1); EmitBare(RET);
+		SetRm_regI(reg_D, 0); EmitRmImm(CMPi, 1, INT3);
+		Jcc1(ccNZ, 1); EmitBare(RET);
+	
+		EmitRI(SUBi, reg_SP, 8, 2064 + 64 + 8);
+		(* Load the base of current module to RBX *)
+		SetRm_RIP(baseOffset-pc-7); EmitRegRm(LEA, reg_B, 8);
+		
+		EmitRR(MOVd, reg_R12, 8, reg_D); MoveRI(reg_C, 4, 6);
+		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_R8, 8);
+		SetRm_regI(reg_B, GetModuleHandleExW); EmitRm(CALL, 4);
+		
+		SetRm_regI(reg_SP, 64); EmitRegRm(MOVd, reg_SI, 8);
+		SetRm_regI(reg_SI, 400H-24); EmitRegRm(MOVd, reg_DI, 8);
+		EmitRR(ADDd, reg_DI, 8, reg_SI); EmitRR(SUBd, reg_R12, 8, reg_SI);
+		SetRm_regI(reg_SI, 400H-32); EmitRegRm(SUBd, reg_R12, 8);
+		
+		first := pc; EmitRI(ADDi, reg_DI, 8, 8); SetRm_regI(reg_DI, -8);
+		EmitRmImm(CMPi, 8, -1); L := pc; Jcc1(ccZ, 0); SetRm_regI(reg_DI, -8);
+		EmitRegRm(MOVd, reg_C, 4); EmitRI(ANDi, reg_C, 4, 40000000H-1);
+		EmitRR(CMPd, reg_C, 8, reg_R12); BJump(first, ccNZ);
+		
+		SetRm_regI(reg_DI, -8); EmitRegRm(MOVd, reg_R8, 8);
+		EmitRI(SHRi, reg_R8, 8, 60);
+		SetRm_regI(reg_DI, -8); EmitRegRm(MOVd, reg_R9, 8);
+		EmitRI(SHRi, reg_R9, 8, 30); EmitRI(ANDi, reg_R9, 4, 40000000H-1);
+
+		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_C, 8);
+		SetRm_regI(reg_B, errFmtStr.adr); EmitRegRm(LEA, reg_D, 8);
+		SetRm_regI(reg_B, wsprintfW); EmitRm(CALL, 4);
+		
+		EmitRR(XOR, reg_C, 4, reg_C);
+		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_D, 8);
+		SetRm_regI(reg_B, err5FmtStr.adr); EmitRegRm(LEA, reg_R8, 8);
+		EmitRR(XOR, reg_R9, 4, reg_R9);
+		SetRm_regI(reg_B, MessageBoxW); EmitRm(CALL, 4);
+		
+		EmitRR(XOR, reg_C, 4, reg_C);
+		SetRm_regI(reg_B, ExitProcess); EmitRm(CALL, 4);
+		
+		Fixup(L, pc);
+		SetRm_regI(reg_SI, 400H-32); EmitRegRm(ADDd, reg_R12, 8);
+		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_C, 8);
+		SetRm_regI(reg_B, err3FmtStr.adr); EmitRegRm(LEA, reg_D, 8);
+		EmitRR(MOVd, reg_R8, 8, reg_R12);
+		SetRm_regI(reg_B, wsprintfW); EmitRm(CALL, 4);
+		
+		EmitRR(XOR, reg_C, 4, reg_C);
+		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_D, 8);
+		SetRm_regI(reg_B, err5FmtStr.adr); EmitRegRm(LEA, reg_R8, 8);
+		EmitRR(XOR, reg_R9, 4, reg_R9);
+		SetRm_regI(reg_B, MessageBoxW); EmitRm(CALL, 4);
+		
+		EmitRR(XOR, reg_C, 4, reg_C);
+		SetRm_regI(reg_B, ExitProcess); EmitRm(CALL, 4)
+	END;
+	FinishProc
+END TrapHandler;
+
+PROCEDURE ModKeyTrapHandler;
+	VAR L, L2: INTEGER;
+BEGIN
+	BeginProc;
+	IF pass = 3 THEN
+		EmitRR(MOVd, reg_R13, 8, reg_C);
+		PopR(reg_A); EmitRI(SUBi, reg_SP, 8, 2064 + 64);
+		
+		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_C, 8);
+		EmitRR(TEST, reg_D, 1, reg_D); L := pc; Jcc1(ccNZ, 0);
+		SetRm_regI(reg_B, err2FmtStr.adr); EmitRegRm(LEA, reg_D, 8);
+		L2 := pc; Jmp1(0); Fixup(L, pc);
+		SetRm_regI(reg_B, err4FmtStr.adr); EmitRegRm(LEA, reg_D, 8);
+		Fixup(L2, pc); EmitRR(MOVd, reg_R8, 8, reg_R13);
+		SetRm_regI(reg_B, wsprintfW); EmitRm(CALL, 4);
+		
+		EmitRR(XOR, reg_C, 4, reg_C);
+		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_D, 8);
+		SetRm_regI(reg_B, err5FmtStr.adr); EmitRegRm(LEA, reg_R8, 8);
+		EmitRR(XOR, reg_R9, 4, reg_R9);
+		SetRm_regI(reg_B, MessageBoxW); EmitRm(CALL, 4);
+		
+		EmitRR(XOR, reg_C, 4, reg_C);
+		SetRm_regI(reg_B, ExitProcess); EmitRm(CALL, 4)
+	END;
+	FinishProc
+END ModKeyTrapHandler;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -2772,7 +2761,8 @@ BEGIN
 	END;
 	procList := NIL; curProc := NIL; modInitProc := NIL;
 	trapProc := NIL; trapProc2 := NIL; dllInitProc := NIL;
-	errFmtStr := NIL; err2FmtStr := NIL; err3FmtStr := NIL; err4FmtStr := NIL;
+	errFmtStr := NIL; err2FmtStr := NIL; err3FmtStr := NIL;
+	err4FmtStr := NIL; err5FmtStr := NIL;
 	modidStr := NIL; rtlName := NIL; user32name := NIL
 END Cleanup;
 
