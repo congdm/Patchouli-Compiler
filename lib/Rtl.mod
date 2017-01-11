@@ -502,10 +502,21 @@ BEGIN
 	RETURN p
 END GetBlock64;
 
+PROCEDURE GetBlock32(): INTEGER;
+	VAR p, q: INTEGER;
+BEGIN
+	IF fList[0] # 0 THEN p := fList[0]; SYSTEM.GET(fList[0]+16, fList[0])
+	ELSE q := GetBlock64(); SYSTEM.PUT(q+32, 32); SYSTEM.PUT(q+(32+8), -1);
+		SYSTEM.PUT(q+(32+16), 0); fList[0] := q + 32; p := q
+	END;
+	RETURN p
+END GetBlock32;
+
 PROCEDURE Rounding(VAR size: INTEGER);
 BEGIN
-	IF size < 64 THEN size := 64 ELSIF size < 128 THEN size := 128
-	ELSIF size < 256 THEN size := 256 ELSE size := (size+511) DIV 512 * 512
+	IF size < 32 THEN size := 32 ELSIF size < 64 THEN size := 64
+	ELSIF size < 128 THEN size := 128 ELSIF size < 256 THEN size := 256
+	ELSE size := (size+511) DIV 512 * 512
 	END
 END Rounding;
 
@@ -513,7 +524,8 @@ PROCEDURE New*(VAR ptr: INTEGER; tdAdr: INTEGER);
 	VAR p, size, need, lim: INTEGER;
 BEGIN
 	SYSTEM.GET(tdAdr, size); need := size+16; Rounding(need);
-	IF need = 64 THEN p := GetBlock64()
+	IF need = 32 THEN p := GetBlock32()
+	ELSIF need = 64 THEN p := GetBlock64()
 	ELSIF need = 128 THEN p := GetBlock128()
 	ELSIF need = 256 THEN p := GetBlock256()
 	ELSE p := GetBlock(need)
@@ -570,6 +582,11 @@ BEGIN p := heapBase;
 		END ;
 		size := p - q; DEC(allocated, size);  (* size of free block *)
 		IF size > 0 THEN
+			IF size MOD 64 # 0 THEN
+				SYSTEM.PUT(q, 32); SYSTEM.PUT(q+8, -1);
+				SYSTEM.PUT(q+16, fList[0]); fList[0] := q;
+				INC(q, 32); DEC(size, 32)
+			END ;
 			IF size MOD 128 # 0 THEN
 				SYSTEM.PUT(q, 64); SYSTEM.PUT(q+8, -1);
 				SYSTEM.PUT(q+16, fList[1]); fList[1] := q;
@@ -618,7 +635,7 @@ BEGIN heapSize := 80000H;
 	heapBase := VirtualAlloc(heapBase, heapSize, MEM_COMMIT, PAGE_READWRITE);
 	IF heapBase = 0 THEN Halt('Cannot init heap') END;
 	
-	FOR i := 1 TO LEN(fList)-1 DO fList[i] := 0 END;
+	FOR i := 0 TO LEN(fList)-1 DO fList[i] := 0 END;
 	p := heapBase; fList0 := heapBase; allocated := 0;
 	SYSTEM.PUT(p, heapSize); SYSTEM.PUT(p+8, -1); SYSTEM.PUT(p+16, 0)
 END InitHeap;

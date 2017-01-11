@@ -40,10 +40,6 @@ TYPE
     Node* = POINTER TO NodeDesc;
     Ident* = POINTER TO IdentDesc;
 	
-	TypeList* = POINTER TO RECORD
-		type*: Type; a*: INTEGER; next*: TypeList
-	END;
-	
 	ObjDesc* = RECORD class*: INTEGER; type*: Type; ident*: Ident END;
 	Const* = POINTER TO RECORD (ObjDesc) val*: INTEGER END;
 	Field* = POINTER TO RECORD (ObjDesc) off*: INTEGER END;
@@ -64,7 +60,10 @@ TYPE
 		homeSpace*, stack*, fix*, lim*: INTEGER
 	END;
 	
+	ObjList* = POINTER TO RECORD obj*: Object; next*: ObjList END;
+	TypeList* = POINTER TO RECORD type*: Type; next*: TypeList END;
 	ProcList* = POINTER TO RECORD obj*: Proc; next*: ProcList END;
+	StrList* = POINTER TO RECORD obj*: Str; next*: StrList END;
 	
 	Module* = POINTER TO RECORD (ObjDesc)
 		handleFlag*: BOOLEAN; path*: String; name*: IdStr; 
@@ -97,7 +96,7 @@ VAR
 	topScope*, universe*, systemScope: Scope;
 	curLev*, modlev*: INTEGER;
 	modid*: IdStr; modkey*: ModuleKey;
-	expList*, lastExp, strList*: Ident; recList*: TypeList;
+	expList*, lastExp: ObjList; strList*: StrList; recList*: TypeList;
 	
 	(* Predefined Types *)
 	intType*, byteType*, realType*: Type;
@@ -178,7 +177,7 @@ BEGIN
 END NewField;
 
 PROCEDURE NewStr*(str: String; slen: INTEGER): Str;
-	VAR x: Str; i: INTEGER; p: Ident;
+	VAR x: Str; i: INTEGER; p: StrList;
 BEGIN
 	NEW(x); x.class := cVar; x.ronly := TRUE;
 	x.type := strType; x.lev := curLev; x.len := slen;
@@ -356,10 +355,11 @@ PROCEDURE ModByLev*(lev: INTEGER): Module;
 	RETURN modList[-lev-2]
 END ModByLev;
 
-PROCEDURE NewExport(VAR ident: Ident);
-BEGIN NEW(ident); ident.name[0] := 0X; INC(expno);
-	IF lastExp = NIL THEN expList := ident; lastExp := ident
-	ELSE lastExp.next := ident; lastExp := ident
+PROCEDURE NewExport(VAR exp: ObjList);
+BEGIN
+	NEW(exp); INC(expno);
+	IF lastExp = NIL THEN expList := exp; lastExp := exp
+	ELSE lastExp.next := exp; lastExp := exp
 	END
 END NewExport;
 
@@ -393,15 +393,15 @@ BEGIN
 END ExportProc;
 	
 PROCEDURE ExportType(typ: Type);
-	VAR fld, ident: Ident; s: String;
+	VAR fld: Ident; exp: ObjList; s: String;
 BEGIN
 	IF refno < MaxExpTypes THEN typ.ref := refno; INC(refno)
 	ELSE S.Mark('Too many exported types')
 	END;
 	WriteInt(symfile, typ.ref);
 	IF typ.form = tRec THEN 
-		NewExport(ident); NEW(ident.obj); ident.obj.class := cType;
-		ident.obj.type := typ; WriteInt(symfile, expno)
+		NewExport(exp); NEW(exp.obj); exp.obj.class := cType;
+		exp.obj.type := typ; WriteInt(symfile, expno)
 	ELSE WriteInt(symfile, 0)
 	END;
 	WriteInt(symfile, typ.form);
@@ -437,7 +437,8 @@ BEGIN
 END WriteModkey;
 
 PROCEDURE WriteSymfile*;
-	VAR ident, exp: Ident; i, k, n, size: INTEGER; mod: Module;
+	VAR ident: Ident; exp: ObjList;
+		i, k, n, size: INTEGER; mod: Module;
 		hash: Crypt.MD5Hash; chunk: ARRAY 64 OF BYTE;
 BEGIN
 	refno := 0; expno := 0;
@@ -475,7 +476,7 @@ BEGIN
 			ELSIF ident.obj.class = cProc THEN
 				WriteInt(symfile, cProc);
 				Rtl.WriteStr(symfile, ident.name);
-				NewExport(exp); exp.obj := ident.obj; exp.name := ident.name;
+				NewExport(exp); exp.obj := ident.obj;
 				WriteInt(symfile, expno);
 				ExportProc(ident.obj.type)
 			ELSE ASSERT(FALSE)

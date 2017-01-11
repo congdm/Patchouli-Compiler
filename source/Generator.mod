@@ -546,19 +546,18 @@ BEGIN
 END AllocImport;
 
 PROCEDURE AllocStaticData;
-	VAR p: B.Ident; q: B.TypeList; x: B.Object;
-		strSize, tdSize, align: INTEGER;
+	VAR p: B.StrList; q: B.TypeList;
+		x: B.Object; y: B.Str; strSize, tdSize, align: INTEGER;
 BEGIN
 	staticSize := (staticSize + 15) DIV 16 * 16; p := B.strList;
 	WHILE p # NIL DO
-		x := p.obj; strSize := 2*x(B.Str).len;
-		x(B.Str).adr := staticSize; INC(staticSize, strSize); p := p.next
+		y := p.obj; strSize := 2*y.len;
+		y.adr := staticSize; INC(staticSize, strSize); p := p.next
 	END;
 	staticSize := (staticSize + 15) DIV 16 * 16; q := B.recList;
 	WHILE q # NIL DO
 		tdSize := (24 + 8*(B.MaxExt + q.type.nptr)) DIV 16 * 16;
-		q.a := tdSize; q.type.adr := staticSize;
-		INC(staticSize, tdSize); q := q.next
+		q.type.adr := staticSize; INC(staticSize, tdSize); q := q.next
 	END;
 	IF staticSize + varSize > MaxSize THEN
 		Out.String('static variables size too big'); ASSERT(FALSE)
@@ -2391,6 +2390,10 @@ BEGIN
 		(* Load the base of current module to RBX *)
 		SetRm_RIP(baseOffset-pc-7); EmitRegRm(LEA, reg_B, 8);
 		
+		SetRm_regI(reg_B, modPtrTable); EmitRegRm(LEA, reg_A, 8);
+		SetRm_regI(reg_B, adrOfPtrTable); EmitRegRm(MOV, reg_A, 8);
+		IF B.Flag.rtl[0] # 0X THEN ImportRTL END;
+		
 		(* Import USER32.DLL *)
 		SetRm_regI(reg_B, user32name.adr); EmitRegRm(LEA, reg_C, 8); 
 		SetRm_regI(reg_B, LoadLibraryW); EmitRm(CALL, 4);
@@ -2466,10 +2469,6 @@ BEGIN
 			END;
 			t := t.next
 		END;
-		
-		SetRm_regI(reg_B, modPtrTable); EmitRegRm(LEA, reg_A, 8);
-		SetRm_regI(reg_B, adrOfPtrTable); EmitRegRm(MOV, reg_A, 8);
-		IF B.Flag.rtl[0] # 0X THEN ImportRTL END;
 		
 		EmitRR(XOR, reg_C, 4, reg_C);
 		SetRm_RIP(trapProc.adr-pc-7); EmitRegRm(LEA, reg_D, 8);

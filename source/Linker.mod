@@ -106,7 +106,7 @@ END Write_pointer_offset;
 
 PROCEDURE Write_data_section;
 	VAR basefadr, i, j, adr: INTEGER; b: BYTE;
-		imod: B.Module; ident: B.Ident;
+		imod: B.Module; slist: B.StrList; ident: B.Ident;
 		x: B.Str; t: B.TypeList; obj: B.Object;
 BEGIN
 	basefadr := data_fadr;
@@ -121,13 +121,13 @@ BEGIN
 		END;
 		Rtl.WriteStr(out, '.dll'); INC(i)	
 	END;
-	ident := B.strList;
-	WHILE ident # NIL DO x := ident.obj(B.Str);
+	slist := B.strList;
+	WHILE slist # NIL DO x := slist.obj;
 		Rtl.Seek(out, basefadr + x.adr); i := 0;
 		WHILE i < x.len DO
 			Rtl.Write2(out, ORD(B.strbuf[x.bufpos+i])); INC(i)
 		END;
-		ident := ident.next
+		slist := slist.next
 	END;
 	t := B.recList;
 	WHILE t # NIL DO
@@ -197,7 +197,7 @@ PROCEDURE Write_edata_section;
 		END;	
 	VAR
 		namedList, p: Export;
-		ident: B.Ident; x: B.Object; name: B.String;
+		exp: B.ObjList; x: B.Object; name: B.String;
 		i, rva, expno, nameRva, nameSz, namecnt: INTEGER;
 		adrTblSz, namePtrTblSz, ordTblSz: INTEGER;	
 
@@ -231,12 +231,12 @@ BEGIN (* Write_edata_section *)
 	END; nameSz := Strings.Length(name)+1;
 	expno := B.expno; adrTblSz := expno*4;
 	
-	ident := B.expList; namecnt := 0; i := 1;
-	WHILE ident # NIL DO
-		IF ident.name[0] # 0X THEN
-			INC(namecnt); Insert(namedList, NewExport(ident, i))
+	exp := B.expList; namecnt := 0; i := 1;
+	WHILE exp # NIL DO
+		IF exp.obj IS B.Proc THEN
+			INC(namecnt); Insert(namedList, NewExport(exp.obj.ident, i))
 		END;
-		ident := ident.next; INC(i)
+		exp := exp.next; INC(i)
 	END;
 	namePtrTblSz := namecnt*4; ordTblSz := namecnt*2;
 	nameRva := edata_rva + dirSz + adrTblSz + namePtrTblSz + ordTblSz;
@@ -252,13 +252,13 @@ BEGIN (* Write_edata_section *)
 	Rtl.Write4(out, edata_rva + dirSz + adrTblSz + namePtrTblSz);
 	
 	(* Export address table *)
-	Rtl.Seek(out, edata_fadr + dirSz); ident := B.expList;
-	WHILE ident # NIL DO x := ident.obj;
+	Rtl.Seek(out, edata_fadr + dirSz); exp := B.expList;
+	WHILE exp # NIL DO x := exp.obj;
 		IF x.class = B.cType THEN rva := data_rva + x.type.adr
 		ELSIF x IS B.Var THEN rva := data_rva + x(B.Var).adr
 		ELSIF x IS B.Proc THEN rva := code_rva + x(B.Proc).adr
 		END;
-		Rtl.Write4(out, rva); ident := ident.next
+		Rtl.Write4(out, rva); exp := exp.next
 	END;
 	
 	IF namecnt > 0 THEN

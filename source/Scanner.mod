@@ -82,8 +82,8 @@ VAR
     KWX: ARRAY 11 OF INTEGER;
     keyTab: ARRAY NKW OF RECORD sym: INTEGER; id: IdStr END;
 	
-	buffer: ARRAY 100000H OF BYTE;
 	bufPos, lastPos, filePos, bufSize: INTEGER;
+	buffer: ARRAY 100000H OF BYTE;
 	
 	SetCompilerFlag: SetCompilerFlagProc;
 	
