@@ -52,6 +52,7 @@ TYPE
 	END;
 	Par* = POINTER TO RECORD (Var) varpar*: BOOLEAN END;
 	Str* = POINTER TO RECORD (Var) bufpos*, len*: INTEGER END;
+	TempVar* = POINTER TO RECORD (Var) inited*: BOOLEAN END;
 	SProc* = POINTER TO RECORD (ObjDesc) id*: INTEGER END;
 	
 	Proc* = POINTER TO RECORD (ObjDesc)
@@ -221,6 +222,14 @@ BEGIN
 	x.id := id; x.type := noType;
 	RETURN x
 END NewSProc;
+
+PROCEDURE NewTempVar*(tp: Type): TempVar;
+	VAR t: TempVar;
+BEGIN
+	NEW(t); t.class := cVar; t.ronly := FALSE;
+	t.type := tp; t.lev := curLev; t.inited := FALSE;
+	RETURN t
+END NewTempVar;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)

@@ -846,6 +846,7 @@ PROCEDURE Case(): B.Node;
 			ELSIF (sym = S.string) & (S.slen <= 2) THEN
 				IF x.type.form # B.tChar THEN Mark(errMsg) END;
 				y := B.NewConst(B.charType, ORD(S.str[0])); GetSym
+			ELSE Mark('need integer or string (ident not allowed)')
 			END;
 			cond := NewNode(S.and, cond, NewNode(S.leq, x, y))
 		END;
@@ -873,11 +874,9 @@ BEGIN (* Case *)
 	GetSym; x := expression(); xform := x.type.form;
 	isTypeCase := (x.class = B.cVar) & TypeTestable(x);
 	IF xform = B.tInt THEN
-		y := B.NewConst(B.intType, 0);
-		case.left := NewNode(S.becomes, y, x) (* y is placeholder *)
+		y := B.NewTempVar(B.intType); case.left := NewNode(S.becomes, y, x)
 	ELSIF (xform = B.tChar) OR IsCharStr(x) THEN
-		y := B.NewConst(B.charType, 0);
-		case.left := NewNode(S.becomes, y, x) (* y is placeholder *)
+		y := B.NewTempVar(B.charType); case.left := NewNode(S.becomes, y, x)
 	ELSIF isTypeCase THEN (*valid*)
 	ELSE Mark('invalid case expression')
 	END;

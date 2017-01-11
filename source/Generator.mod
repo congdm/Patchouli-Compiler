@@ -999,6 +999,18 @@ BEGIN
 	END
 END FreeReg2;
 
+PROCEDURE AllocStack(size: INTEGER): INTEGER;
+	VAR adr: INTEGER;
+BEGIN
+	INC(stack, size); adr := -stack;
+	IF stack > curProc.obj.stack THEN curProc.obj.stack := stack END;
+	RETURN adr
+END AllocStack;
+
+PROCEDURE FreeStack(size: INTEGER);
+BEGIN DEC(stack, size)
+END FreeStack;
+
 (* -------------------------------------------------------------------------- *)
 
 PROCEDURE RelocReg(VAR reg: BYTE; newReg: BYTE);
@@ -1772,19 +1784,41 @@ BEGIN
 END For;
 
 PROCEDURE Case(node: Node);
-	PROCEDURE TypeCase(obj: B.Object);
+	VAR tv: B.TempVar;
+	
+	PROCEDURE TypeCase(node0: B.Object);
 		VAR x, y: Item; node, colon: B.Node;
-	BEGIN node := obj(B.Node);
+			obj: B.Object; tp, org: B.Type;
+	BEGIN node := node0(B.Node);
+		IF node.left IS B.Node THEN
+			tp := node.left(B.Node).right.type;
+			obj := node.left(B.Node).left; org := obj.type
+		END;
 		LoadCond(x, node.left); Jump(node, x.aLink, negated(x.c));
-		FixLink(x.bLink); colon := node.right(Node);
-		MakeItem0(y, colon.left); Jump(colon, NIL, ccAlways); FixLink(node);	
+		FixLink(x.bLink); IF obj # NIL THEN obj.type := tp END;
+		colon := node.right(Node); MakeItem0(y, colon.left);
+		Jump(colon, NIL, ccAlways); FixLink(node);
+		IF obj # NIL THEN obj.type := org END;
 		IF colon.right # NIL THEN TypeCase(colon.right) END; FixLink(colon)
 	END TypeCase;
+	
+	PROCEDURE NumericCase(node0: B.Object);
+		VAR x, y: Item; node, colon: B.Node;
+	BEGIN node := node0(B.Node); 
+		LoadCond(x, node.left); Jump(node, x.aLink, negated(x.c));
+		FixLink(x.bLink); colon := node.right(Node); MakeItem0(y, colon.left);
+		Jump(colon, NIL, ccAlways); FixLink(node);
+		IF colon.right # NIL THEN NumericCase(colon.right) END; FixLink(colon)
+	END NumericCase;
 	
 BEGIN (* Case *)
 	IF node.left = NIL (* type case *) THEN
 		IF node.right # NIL THEN TypeCase(node.right) END
-	ELSE ASSERT(FALSE)
+	ELSE tv := node.left(B.Node).left(B.TempVar);
+		IF ~tv.inited THEN tv.adr := AllocStack(8); tv.inited := TRUE END;
+		Becomes(node.left(B.Node));
+		IF node.right # NIL THEN NumericCase(node.right) END;
+		FreeStack(8)
 	END
 END Case;
 
@@ -1988,6 +2022,7 @@ BEGIN
 		IF objv IS B.Str THEN x.mode := mBX; x.strlen := objv(B.Str).len
 		ELSIF objv IS B.Par THEN
 			x.ref := objv(B.Par).varpar OR (form = B.tArray) OR (form = B.tRec)
+		ELSIF objv IS B.TempVar THEN x.mode := mBP
 		END
 	ELSIF obj IS B.Proc THEN
 		x.mode := mProc; x.a := obj(B.Proc).adr;
@@ -2052,6 +2087,7 @@ BEGIN
 				RelocReg(x.r, AllocXReg())
 			END
 		END
+	ELSE ASSERT(FALSE)
 	END
 END MakeItem;
 
@@ -2078,8 +2114,10 @@ END SetPtrToNil;
 PROCEDURE BeginProc;
 	VAR proc: Proc;
 BEGIN proc := curProc.obj;
+	Align(proc.locblksize, 8); stack := proc.locblksize;
 	IF pass = 2 THEN
-		proc.homeSpace := 0; proc.usedReg := {}; proc.usedXReg := {}
+		proc.usedReg := {}; proc.usedXReg := {};
+		proc.homeSpace := 0; proc.stack := stack
 	ELSIF pass = 3 THEN proc.adr := pc
 	ELSE ASSERT(FALSE)
 	END
@@ -2105,9 +2143,7 @@ PROCEDURE Procedure;
 		param, ident: B.Ident; pType: B.Type;
 BEGIN
 	BeginProc; obj := curProc.obj;
-	IF pass = 2 THEN
-		obj.usedReg := {reg_B}; Align(obj.locblksize, 8);
-		obj.stack := obj.locblksize; stack := obj.locblksize
+	IF pass = 2 THEN obj.usedReg := {reg_B}
 	ELSIF pass = 3 THEN
 		PushR(reg_BP); EmitRR(MOVd, reg_BP, 8, reg_SP);
 		nSave := 0; nSaveX := 0; r := 0;
