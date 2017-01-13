@@ -1,6 +1,6 @@
 MODULE Generator;
 IMPORT
-	SYSTEM, Rtl, Strings, Out, Strs := PatchouliStrings,
+	SYSTEM, Rtl, Strings, Out,
 	S := Scanner, B := Base, Linker;
 
 CONST
@@ -1988,12 +1988,12 @@ BEGIN imm := node.right(B.Const).val;
 		MakeItem0(x, node.left); Load(x);
 		IF imm = 0 THEN (* do nothing *)
 		ELSIF imm = 1 THEN
-			IF node.op = B.sfLSL THEN EmitR(SHL1, x.r, 8)
-			ELSIF node.op = B.sfASR THEN EmitR(SAR1, x.r, 8)
+			IF node.op = S.sfLSL THEN EmitR(SHL1, x.r, 8)
+			ELSIF node.op = S.sfASR THEN EmitR(SAR1, x.r, 8)
 			ELSE EmitR(ROR1, x.r, 8)
 			END
-		ELSIF node.op = B.sfLSL THEN EmitRI(SHLi, x.r, 8, imm MOD 64)
-		ELSIF node.op = B.sfASR THEN EmitRI(SARi, x.r, 8, imm MOD 64)
+		ELSIF node.op = S.sfLSL THEN EmitRI(SHLi, x.r, 8, imm MOD 64)
+		ELSIF node.op = S.sfASR THEN EmitRI(SARi, x.r, 8, imm MOD 64)
 		ELSE EmitRI(RORi, x.r, 8, imm MOD 64)
 		END
 	ELSIF (node.op = S.spINC) OR (node.op = S.spDEC) THEN
@@ -2328,34 +2328,36 @@ BEGIN
 		(* Import modules, if there are any *)
 		imod := B.modList;
 		WHILE imod # NIL DO
-			SetRm_regI(reg_B, imod.adr); EmitRegRm(LEA, reg_C, 8);
-			SetRm_regI(reg_B, LoadLibraryW); EmitRm(CALL, 4);
-			EmitRR(TEST, reg_A, 8, reg_A); ModKeyTrap(ccZ, 1, imod);
-			EmitRR(MOVd, reg_SI, 8, reg_A);
+			IF imod.import OR (imod.impList # NIL) THEN
+				SetRm_regI(reg_B, imod.adr); EmitRegRm(LEA, reg_C, 8);
+				SetRm_regI(reg_B, LoadLibraryW); EmitRm(CALL, 4);
+				EmitRR(TEST, reg_A, 8, reg_A); ModKeyTrap(ccZ, 1, imod);
+				EmitRR(MOVd, reg_SI, 8, reg_A);
+				
+				(* Check module key *)
+				key := imod.key;
+				MoveRI(reg_A, 8, key[0]); SetRm_regI(reg_SI, 400H-16);
+				EmitRegRm(CMPd, reg_A, 8); ModKeyTrap(ccNZ, 0, imod);
+				MoveRI (reg_A, 8, key[1]); SetRm_regI(reg_SI, 400H-8);
+				EmitRegRm(CMPd, reg_A, 8); ModKeyTrap(ccNZ, 0, imod);
 			
-			(* Check module key *)
-			key := imod.key;
-			MoveRI(reg_A, 8, key[0]); SetRm_regI(reg_SI, 400H-16);
-			EmitRegRm(CMPd, reg_A, 8); ModKeyTrap(ccNZ, 0, imod);
-			MoveRI (reg_A, 8, key[1]); SetRm_regI(reg_SI, 400H-8);
-			EmitRegRm(CMPd, reg_A, 8); ModKeyTrap(ccNZ, 0, imod);
-		
-			ident := imod.impList;
-			WHILE ident # NIL DO x := ident.obj;
-				IF x.class = B.cType THEN
-					IF x.type.form = B.tRec THEN
-						adr := x.type.adr; expno := x.type.expno
-					ELSE adr := x.type.base.adr; expno := x.type.base.expno
-					END
-				ELSIF x IS B.Var THEN
-					adr := x(B.Var).adr; expno := x(B.Var).expno
-				ELSIF x IS B.Proc THEN
-					adr := x(B.Proc).adr; expno := x(B.Proc).expno
-				END;
-				EmitRR(MOVd, reg_C, 8, reg_SI); MoveRI(reg_D, 4, expno);
-				SetRm_regI(reg_B, GetProcAddress); EmitRm(CALL, 4);
-				SetRm_regI(reg_B, adr); EmitRegRm(MOV, reg_A, 8);
-				ident := ident.next
+				ident := imod.impList;
+				WHILE ident # NIL DO x := ident.obj;
+					IF x.class = B.cType THEN
+						IF x.type.form = B.tRec THEN
+							adr := x.type.adr; expno := x.type.expno
+						ELSE adr := x.type.base.adr; expno := x.type.base.expno
+						END
+					ELSIF x IS B.Var THEN
+						adr := x(B.Var).adr; expno := x(B.Var).expno
+					ELSIF x IS B.Proc THEN
+						adr := x(B.Proc).adr; expno := x(B.Proc).expno
+					END;
+					EmitRR(MOVd, reg_C, 8, reg_SI); MoveRI(reg_D, 4, expno);
+					SetRm_regI(reg_B, GetProcAddress); EmitRm(CALL, 4);
+					SetRm_regI(reg_B, adr); EmitRegRm(MOV, reg_A, 8);
+					ident := ident.next
+				END
 			END;
 			imod := imod.next
 		END;
@@ -2555,9 +2557,9 @@ END OddConst;
 PROCEDURE ShiftConst*(fid: INTEGER; x, y: B.Object): B.Object;
 	VAR xval, yval: INTEGER;
 BEGIN xval := x(B.Const).val; yval := y(B.Const).val;
-	IF fid = B.sfLSL THEN xval := LSL(xval, yval)
-	ELSIF fid = B.sfASR THEN xval := ASR(xval, yval)
-	ELSIF fid = B.sfROR THEN xval := ROR(xval, yval)
+	IF fid = S.sfLSL THEN xval := LSL(xval, yval)
+	ELSIF fid = S.sfASR THEN xval := ASR(xval, yval)
+	ELSIF fid = S.sfROR THEN xval := ROR(xval, yval)
 	END;
 	x := B.NewConst(B.intType, xval);
 	RETURN x

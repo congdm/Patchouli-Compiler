@@ -15,7 +15,8 @@ BEGIN
 	Out.String('Compile '); Out.String(fname); Out.Ln;
 	B.SetSrcPath(fname); Rtl.Reset(srcfile, fname); sym := 0;
 	S.Init(srcfile, 0); Rtl.Close(srcfile); S.Get(sym);
-	IF sym = S.module THEN P.Module ELSE S.Mark('MODULE?') END
+	IF sym = S.module THEN P.Module ELSE S.Mark('MODULE?') END;
+	Rtl.Collect
 END Compile;
 
 PROCEDURE ErrorNotFound(fname: ARRAY OF CHAR);
@@ -90,7 +91,7 @@ BEGIN
 		ELSE ErrorNotFound(fname)
 		END
 	ELSE
-		Out.String('Patchouli Oberon-07 Compiler v0.8d'); Out.Ln;
+		Out.String('Patchouli Oberon-07 Compiler v0.8e'); Out.Ln;
  		Out.String('Usage: Poc <inputfile>'); Out.Ln
 	END
 END Poc.

@@ -1,6 +1,6 @@
 MODULE Base;
 IMPORT
-	SYSTEM, Strings, Crypt, Rtl, Out,
+	SYSTEM, Strings, Crypt, Rtl,
 	S := Scanner;
 
 CONST
@@ -19,16 +19,6 @@ CONST
 	typScalar* = {tInt, tBool, tSet, tChar, tReal, tPtr, tProc, tNil};
 	typEql* = {tBool, tSet, tPtr, tProc, tNil};
 	typCmp* = {tInt, tReal, tChar, tStr};
-	
-	(* SProc id *)
-	spINC* = S.spINC; spDEC* = S.spDEC; spINCL* = S.spINCL; spEXCL* = S.spEXCL;
-	spNEW* = 4; spASSERT* = 5; spPACK* = 6; spUNPK* = 7;
-	sfABS* = 8; sfODD* = 9; sfLEN* = 10;
-	sfLSL* = S.sfLSL; sfASR* = S.sfASR; sfROR* = S.sfROR;
-	sfFLOOR* = 14; sfFLT* = 15; sfORD* = 16; sfCHR* = 17;
-	
-	spGET* = 18; spPUT* = 19; spCOPY* = 20;
-	sfADR* = 23; sfSIZE* = 24; sfBIT* = 25; sfVAL* = 26;
 	
 TYPE
 	ModuleKey* = ARRAY 2 OF INTEGER;
@@ -64,7 +54,7 @@ TYPE
 	StrList* = POINTER TO RECORD obj*: Str; next*: StrList END;
 	
 	Module* = POINTER TO RECORD (ObjDesc)
-		export*: BOOLEAN; path*: ARRAY 256 OF CHAR; name*: S.IdStr; 
+		export*, import*: BOOLEAN; name*: S.IdStr; 
 		key*: ModuleKey; lev*, adr*, no*: INTEGER; next*: Module;
 		first*, impList*: Ident; types*: TypeList
 	END;
@@ -79,7 +69,7 @@ TYPE
 	IdentDesc* = RECORD
 		export*: BOOLEAN; name*: S.IdStr; obj*: Object; next*: Ident
 	END;
-	Scope* = POINTER TO RECORD first*: Ident; dsc*: Scope END;		
+	Scope* = POINTER TO RECORD first*, last: Ident; dsc*: Scope END;		
 	
 	TypeDesc* = RECORD
 		notag*, mark, predef: BOOLEAN; form*: BYTE;
@@ -403,7 +393,7 @@ BEGIN
 		END
 	ELSE typ.ref := -typ.ref
 	END;
-	WriteInt(symfile, typ.ref); WriteInt(symfile, typ.form);
+	WriteInt(symfile, -typ.ref); WriteInt(symfile, typ.form);
 	IF typ.form = tRec THEN
 		NewExport(exp); NEW(exp.obj); exp.obj.class := cType;
 		exp.obj.type := typ; WriteInt(symfile, expno);
@@ -567,12 +557,10 @@ END FindType;
 PROCEDURE NewImport(name: S.IdStr; x: Object);
 	VAR ident, p: Ident;
 BEGIN
-	NEW(ident); p := topScope.first;
-	IF p = NIL THEN topScope.first := ident
-	ELSE WHILE (p.next # NIL) DO p := p.next END; p.next := ident
-	END;
-	ident.export := FALSE; ident.obj := x; ident.name := name;
-	IF x.ident = NIL THEN x.ident := ident END
+	NEW(ident); p := topScope.last;
+	IF p # NIL THEN p.next := ident ELSE topScope.first := ident END;
+	topScope.last := ident; ident.export := FALSE; ident.obj := x;
+	ident.name := name; IF x.ident = NIL THEN x.ident := ident END
 END NewImport;
 
 PROCEDURE DetectTypeI(VAR typ: Type);
@@ -583,14 +571,14 @@ BEGIN
 	ELSIF (n = 1) OR (n = 2) THEN ReadInt(symfile, ref);
 		IF ref > 0 THEN
 			IF n = 1 THEN typ := FindType(ref, predefTypes)
-			ELSE typ := FindType(ref, imod.types)
+			ELSE typ := FindType(-ref, imod.types)
 			END
 		ELSE ImportType0(typ, imod)
 		END
 	ELSIF n = 3 THEN
 		Rtl.ReadStr(symfile, name);
 		ReadInt(symfile, ref); mod := FindMod(name);
-		IF ref > 0 THEN typ := FindType(ref, mod.types)
+		IF ref > 0 THEN typ := FindType(-ref, mod.types)
 		ELSE ImportType0(typ, mod)
 		END
 	ELSE ASSERT(FALSE)
@@ -657,7 +645,9 @@ PROCEDURE ImportType(VAR typ: Type; mod: Module);
 		
 BEGIN (* ImportType *)
 	ReadInt(symfile, ref); ReadInt(symfile, form);
-	typ := FindType(ref, mod.types);
+	IF (mod = imod) & mod.import THEN typ := NIL
+	ELSE typ := FindType(ref, mod.types)
+	END;
 	IF form = tRec THEN
 		IF typ = NIL THEN
 			typ := NewRecord(); typ.ref := ref;
@@ -705,7 +695,7 @@ BEGIN
 	ReadModkey(key); ReadInt(symfile, lev); good := TRUE;
 	WHILE (imod # NIL) & (imod.name # imodid) DO imod := imod.next END;
 	IF imod = NIL THEN
-		NEW(imod); imod.name := imodid; imod.adr := 0;
+		NEW(imod); imod.name := imodid; imod.adr := 0; imod.import := TRUE;
 		imod.next := modList; modList := imod; imod.no := modno;
 		DEC(modno); imod.key := key; imod.lev := lev; imod.export := FALSE;
 		IF lev >= modlev THEN
@@ -733,7 +723,8 @@ BEGIN
 			ELSIF reExp THEN
 				NEW(dep); dep.name := name; dep.adr := 0;
 				dep.next := modList; modList := dep; dep.no := modno;
-				DEC(modno); dep.key := key; dep.lev := lev
+				DEC(modno); dep.key := key; dep.lev := lev;
+				dep.export := FALSE; dep.import := FALSE
 			END;
 			ReadInt(symfile, cls)
 		END;
@@ -764,7 +755,7 @@ BEGIN
 			x(Proc).adr := 0; DetectTypeI(x.type);
 			NewImport(name, x); ReadInt(symfile, cls)
 		END;
-		ASSERT(cls = cNull); curLev := 0;
+		ASSERT(cls = cNull); curLev := 0; imod.import := TRUE;
 		imod.first := topScope.first; CloseScope
 	END;
 	Rtl.Close(symfile);
@@ -821,8 +812,6 @@ BEGIN
 	ELSIF pragma = 'CONSOLE' THEN
 		Flag.main := TRUE; Flag.console := TRUE
 	ELSIF pragma = 'DEBUG' THEN Flag.debug := TRUE
-	(*ELSIF Strings.Pos('RTL ', pragma, 0) = 0 THEN i := 0;
-		WHILE pragma[i+4] # 0X DO Flag.rtl[i] := pragma[i+4]; INC(i) END*)
 	ELSIF pragma = 'HANDLE' THEN Flag.handle := TRUE
 	ELSIF pragma = 'POINTER' THEN Flag.handle := FALSE
 	ELSIF pragma = 'RTL-' THEN Flag.rtl := FALSE
@@ -869,38 +858,38 @@ BEGIN
 	Enter(NewTypeObj(boolType), 'BOOLEAN');
 	Enter(NewTypeObj(charType), 'CHAR');
 	
-	Enter(NewSProc(spINC, cSProc), 'INC');
-	Enter(NewSProc(spDEC, cSProc), 'DEC');
-	Enter(NewSProc(spINCL, cSProc), 'INCL');
-	Enter(NewSProc(spEXCL, cSProc), 'EXCL');
-	Enter(NewSProc(spNEW, cSProc), 'NEW');
-	Enter(NewSProc(spASSERT, cSProc), 'ASSERT');
-	Enter(NewSProc(spPACK, cSProc), 'PACK');
-	Enter(NewSProc(spUNPK, cSProc), 'UNPK');
+	Enter(NewSProc(S.spINC, cSProc), 'INC');
+	Enter(NewSProc(S.spDEC, cSProc), 'DEC');
+	Enter(NewSProc(S.spINCL, cSProc), 'INCL');
+	Enter(NewSProc(S.spEXCL, cSProc), 'EXCL');
+	Enter(NewSProc(S.spNEW, cSProc), 'NEW');
+	Enter(NewSProc(S.spASSERT, cSProc), 'ASSERT');
+	Enter(NewSProc(S.spPACK, cSProc), 'PACK');
+	Enter(NewSProc(S.spUNPK, cSProc), 'UNPK');
 	
-	Enter(NewSProc(sfABS, cSFunc), 'ABS');
-	Enter(NewSProc(sfODD, cSFunc), 'ODD');
-	Enter(NewSProc(sfLEN, cSFunc), 'LEN');
-	Enter(NewSProc(sfLSL, cSFunc), 'LSL');
-	Enter(NewSProc(sfASR, cSFunc), 'ASR');
-	Enter(NewSProc(sfROR, cSFunc), 'ROR');
-	Enter(NewSProc(sfFLOOR, cSFunc), 'FLOOR');
-	Enter(NewSProc(sfFLT, cSFunc), 'FLT');
-	Enter(NewSProc(sfORD, cSFunc), 'ORD');
-	Enter(NewSProc(sfCHR, cSFunc), 'CHR');
+	Enter(NewSProc(S.sfABS, cSFunc), 'ABS');
+	Enter(NewSProc(S.sfODD, cSFunc), 'ODD');
+	Enter(NewSProc(S.sfLEN, cSFunc), 'LEN');
+	Enter(NewSProc(S.sfLSL, cSFunc), 'LSL');
+	Enter(NewSProc(S.sfASR, cSFunc), 'ASR');
+	Enter(NewSProc(S.sfROR, cSFunc), 'ROR');
+	Enter(NewSProc(S.sfFLOOR, cSFunc), 'FLOOR');
+	Enter(NewSProc(S.sfFLT, cSFunc), 'FLT');
+	Enter(NewSProc(S.sfORD, cSFunc), 'ORD');
+	Enter(NewSProc(S.sfCHR, cSFunc), 'CHR');
 	
 	OpenScope;
-	Enter(NewSProc(spGET, cSProc), 'GET');
-	Enter(NewSProc(spPUT, cSProc), 'PUT');
-	Enter(NewSProc(spCOPY, cSProc), 'COPY');
+	Enter(NewSProc(S.spGET, cSProc), 'GET');
+	Enter(NewSProc(S.spPUT, cSProc), 'PUT');
+	Enter(NewSProc(S.spCOPY, cSProc), 'COPY');
 	Enter(NewSProc(S.spLoadLibraryW, cSProc), 'LoadLibraryW');
 	Enter(NewSProc(S.spGetProcAddress, cSProc), 'GetProcAddress');
 	Enter(NewSProc(S.spINT3, cSProc), 'INT3');
 	
-	Enter(NewSProc(sfADR, cSFunc), 'ADR');
-	Enter(NewSProc(sfSIZE, cSFunc), 'SIZE');
-	Enter(NewSProc(sfBIT, cSFunc), 'BIT');
-	Enter(NewSProc(sfVAL, cSFunc), 'VAL');
+	Enter(NewSProc(S.sfADR, cSFunc), 'ADR');
+	Enter(NewSProc(S.sfSIZE, cSFunc), 'SIZE');
+	Enter(NewSProc(S.sfBIT, cSFunc), 'BIT');
+	Enter(NewSProc(S.sfVAL, cSFunc), 'VAL');
 	Enter(NewSProc(S.sfNtCurrentTeb, cSFunc), 'NtCurrentTeb');
 	
 	Enter(NewTypeObj(byteType), 'BYTE');

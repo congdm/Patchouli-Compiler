@@ -1,7 +1,7 @@
 MODULE Linker;
 IMPORT
 	SYSTEM, Rtl, Strings,
-	S := Scanner, B := Base;
+	B := Base;
 	
 CONST
 	HeaderSize = 400H;

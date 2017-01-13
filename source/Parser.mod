@@ -1,6 +1,5 @@
 MODULE Parser;
 IMPORT
-	SYSTEM, Rtl, Out,
 	S := Scanner, B := Base, G := Generator;
 	
 TYPE
@@ -427,18 +426,18 @@ PROCEDURE StdFunc(f: B.SProc): B.Object;
 	VAR par, par2: B.Node; x, y, z: B.Object;
 		ch: CHAR;
 BEGIN GetSym;
-	IF f.id = B.sfABS THEN y := expression0(); Check1(y, {B.tInt, B.tReal});
+	IF f.id = S.sfABS THEN y := expression0(); Check1(y, {B.tInt, B.tReal});
 		IF y IS B.Const THEN x := G.AbsConst(y)
 		ELSE x := NewNode(S.sfABS, y, NIL);
 			IF y.type.form = B.tInt THEN x.type := B.intType
 			ELSE x.type := y.type
 			END
 		END
-	ELSIF f.id = B.sfODD THEN y := expression0(); CheckInt(y);
+	ELSIF f.id = S.sfODD THEN y := expression0(); CheckInt(y);
 		IF y IS B.Const THEN x := G.OddConst(y)
 		ELSE x := NewNode(S.sfODD, y, NIL); x.type := B.boolType
 		END
-	ELSIF f.id = B.sfLEN THEN y := designator(); Check1(y, {B.tArray, B.tStr});
+	ELSIF f.id = S.sfLEN THEN y := designator(); Check1(y, {B.tArray, B.tStr});
 		IF (y.type.form = B.tArray) & (y.type.len >= 0) THEN
 			x := B.NewConst(B.intType, y.type.len)
 		ELSIF y.type.form = B.tStr THEN
@@ -447,42 +446,42 @@ BEGIN GetSym;
 			x := NewNode(S.sfLEN, y, NIL); x.type := B.intType
 		ELSE Mark('open array without length tag')
 		END
-	ELSIF (f.id >= B.sfLSL) & (f.id <= B.sfROR) THEN
+	ELSIF (f.id >= S.sfLSL) & (f.id <= S.sfROR) THEN
 		y := expression0(); CheckInt(y);
 		Check0(S.comma); z := expression0(); CheckInt(z);
 		IF (y IS B.Const) & (z IS B.Const) THEN x := G.ShiftConst(f.id, y, z)
 		ELSE x := NewNode(f.id, y, z); x.type := B.intType
 		END
-	ELSIF f.id = B.sfFLOOR THEN y := expression0(); CheckReal(y);
+	ELSIF f.id = S.sfFLOOR THEN y := expression0(); CheckReal(y);
 		IF y IS B.Const THEN x := G.FloorConst(y)
 		ELSE x := NewNode(S.sfFLOOR, y, NIL); x.type := B.intType
 		END
-	ELSIF f.id = B.sfFLT THEN y := expression0(); CheckInt(y);
+	ELSIF f.id = S.sfFLT THEN y := expression0(); CheckInt(y);
 		IF y IS B.Const THEN x := G.FltConst(y)
 		ELSE x := NewNode(S.sfFLT, y, NIL); x.type := B.realType
 		END
-	ELSIF f.id = B.sfORD THEN y := expression0();
+	ELSIF f.id = S.sfORD THEN y := expression0();
 		IF (y.type # B.strType) OR (y(B.Str).len > 2) THEN
 			Check1(y, {B.tSet, B.tBool, B.tChar})
 		END;
 		IF IsConst(y) THEN x := G.TypeTransferConst(B.intType, y)
 		ELSE x := NewNode(S.sfORD, y, NIL); x.type := B.intType
 		END
-	ELSIF f.id = B.sfCHR THEN y := expression0(); CheckInt(y);
+	ELSIF f.id = S.sfCHR THEN y := expression0(); CheckInt(y);
 		IF y IS B.Const THEN x := G.TypeTransferConst(B.charType, y)
 		ELSE x := NewNode(S.sfCHR, y, NIL); x.type := B.charType
 		END
-	ELSIF f.id = B.sfADR THEN
+	ELSIF f.id = S.sfADR THEN
 		y := expression0(); CheckVar(y, TRUE);
 		x := NewNode(S.sfADR, y, NIL); x.type := B.intType
-	ELSIF f.id = B.sfSIZE THEN y := qualident();
+	ELSIF f.id = S.sfSIZE THEN y := qualident();
 		IF y.class # B.cType THEN Mark('not type') END;
 		x := B.NewConst(B.intType, y.type.size)
-	ELSIF f.id = B.sfBIT THEN
+	ELSIF f.id = S.sfBIT THEN
 		y := expression0(); CheckInt(y);
 		Check0(S.comma); z := expression0(); CheckInt(z);
 		x := NewNode(S.sfBIT, y, z); x.type := B.boolType
-	ELSIF f.id = B.sfVAL THEN y := qualident();
+	ELSIF f.id = S.sfVAL THEN y := qualident();
 		IF y.class # B.cType THEN Mark('not type')
 		ELSIF y.type.form IN {B.tArray, B.tRec} THEN Mark('not scalar')
 		END;
@@ -648,7 +647,7 @@ BEGIN x := SimpleExpression();
 			x := NewNode(op, x, StrToChar(y)); x.type := B.boolType
 		ELSIF (y.type = B.charType) & IsCharStr(x) THEN
 			x := NewNode(op, StrToChar(x), y); x.type := B.boolType
-		ELSE Mark('invalid type'); SYSTEM.INT3
+		ELSE Mark('invalid type')
 		END
 	ELSIF sym = S.in THEN
 		CheckInt(x); G.CheckSetElement(x);
@@ -692,16 +691,16 @@ BEGIN hasParen := TRUE;
 	IF f.id # S.spINT3 THEN Check0(S.lparen)
 	ELSIF sym = S.lparen THEN GetSym ELSE hasParen := FALSE
 	END;
-	IF (f.id = B.spINC) OR (f.id = B.spDEC) THEN
+	IF (f.id = S.spINC) OR (f.id = S.spDEC) THEN
 		x := designator(); CheckInt(x); CheckVar(x, FALSE);
 		IF sym = S.comma THEN
 			GetSym; y := expression(); CheckInt(y); x := NewNode(f.id, x, y)
 		ELSE x := NewNode(f.id, x, NIL)
 		END
-	ELSIF (f.id = B.spINCL) OR (f.id = B.spEXCL) THEN
+	ELSIF (f.id = S.spINCL) OR (f.id = S.spEXCL) THEN
 		x := designator(); CheckSet(x); CheckVar(x, FALSE); Check0(S.comma);
 		y := expression(); CheckInt(y); x := NewNode(f.id, x, y)
-	ELSIF f.id = B.spNEW THEN
+	ELSIF f.id = S.spNEW THEN
 		IF ~B.Flag.rtl THEN Mark('Must have RTL to call NEW') END;
 		x := designator(); Check1(x, {B.tPtr}); CheckVar(x, FALSE);
 		IF (x.type.base.mod # NIL) & (x.type.base.adr = 0) THEN
@@ -711,24 +710,24 @@ BEGIN hasParen := TRUE;
 			G.AllocImport(t, x.type.base.mod)
 		END;
 		x := NewNode(S.spNEW, x, NIL)
-	ELSIF f.id = B.spASSERT THEN
+	ELSIF f.id = S.spASSERT THEN
 		x := expression(); CheckBool(x); x := NewNode(S.spASSERT, x, NIL)
-	ELSIF f.id = B.spPACK THEN
+	ELSIF f.id = S.spPACK THEN
 		x := designator(); CheckReal(x); CheckVar(x, FALSE); Check0(S.comma);
 		y := expression(); CheckInt(y); x := NewNode(S.spPACK, x, y)
-	ELSIF f.id = B.spUNPK THEN
+	ELSIF f.id = S.spUNPK THEN
 		x := designator(); CheckInt(x); CheckVar(x, FALSE); Check0(S.comma);
 		y := designator(); CheckInt(y); CheckVar(y, FALSE);
 		x := NewNode(S.spUNPK, x, y)
-	ELSIF f.id = B.spGET THEN
+	ELSIF f.id = S.spGET THEN
 		x := expression(); CheckInt(x); Check0(S.comma);
 		y := designator(); CheckVar(y, FALSE); x := NewNode(S.spGET, x, y);
 		IF y.type.form IN {B.tArray, B.tRec} THEN Mark('invalid type') END
-	ELSIF f.id = B.spPUT THEN
+	ELSIF f.id = S.spPUT THEN
 		x := expression(); CheckInt(x); Check0(S.comma);
 		y := expression(); x := NewNode(S.spPUT, x, y);
 		IF y.type.form IN {B.tArray, B.tRec} THEN Mark('invalid type') END
-	ELSIF f.id = B.spCOPY THEN
+	ELSIF f.id = S.spCOPY THEN
 		x := expression(); CheckInt(x); Check0(S.comma);
 		y := expression(); CheckInt(y); Check0(S.comma);
 		z := expression(); CheckInt(z);
@@ -1291,11 +1290,11 @@ BEGIN
 			IF S.id # modid THEN Mark('wrong module name') END; GetSym
 		ELSE Missing(S.ident)
 		END;
-		Check0(S.period); Out.String('Parsing done'); Out.Ln
+		Check0(S.period)
 	END;
-	IF S.errcnt = 0 THEN B.WriteSymfile END; Out.String('Export done'); Out.Ln;
+	IF S.errcnt = 0 THEN B.WriteSymfile END;
 	IF S.errcnt = 0 THEN G.Generate(modinit) END;
-	G.Cleanup; B.Cleanup; Rtl.Collect;
+	G.Cleanup; B.Cleanup;
 	IF S.errcnt = 0 THEN G.DisplayInfo END
 END Module;
 	
