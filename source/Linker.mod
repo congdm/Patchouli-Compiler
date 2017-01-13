@@ -7,7 +7,7 @@ CONST
 	HeaderSize = 400H;
 	
 VAR
-	out: Rtl.File; fname*: B.String;
+	out: Rtl.File;
 	imagebase, entry, pc: INTEGER;
 	
 	code_rva, code_size, code_rawsize, code_fadr: INTEGER;
@@ -113,13 +113,14 @@ BEGIN
 	Rtl.Seek(out, basefadr); i := 0;
 	WHILE i < LEN(Kernel32Table) DO
 		Rtl.Write8(out, Kernel32Table[i]); INC(i)
-	END; i := 0;
-	WHILE i < B.modno DO imod := B.modList[i];
+	END;
+	imod := B.modList;
+	WHILE imod # NIL DO
 		Rtl.Seek(out, basefadr + imod.adr); j := 0;
 		WHILE imod.name[j] # 0X DO
 			Rtl.Write2(out, ORD(imod.name[j])); INC(j)
 		END;
-		Rtl.WriteStr(out, '.dll'); INC(i)	
+		Rtl.WriteStr(out, '.dll'); imod := imod.next
 	END;
 	slist := B.strList;
 	WHILE slist # NIL DO x := slist.obj;
@@ -197,7 +198,7 @@ PROCEDURE Write_edata_section;
 		END;	
 	VAR
 		namedList, p: Export;
-		exp: B.ObjList; x: B.Object; name: B.String;
+		exp: B.ObjList; x: B.Object; name: ARRAY LEN(B.modid)+4 OF CHAR;
 		i, rva, expno, nameRva, nameSz, namecnt: INTEGER;
 		adrTblSz, namePtrTblSz, ordTblSz: INTEGER;	
 
@@ -225,7 +226,7 @@ BEGIN (* Write_edata_section *)
 	edata_rva := pdata_rva + pdata_size; Align(edata_rva, 4096);
 	edata_fadr := pdata_fadr + pdata_rawsize;
 
-	name[0] := 0X; Strings.Append(B.modid, name);
+	name := B.modid;
 	IF B.Flag.main THEN Strings.Append('.exe', name)
 	ELSE Strings.Append('.dll', name)
 	END; nameSz := Strings.Length(name)+1;
@@ -424,7 +425,7 @@ PROCEDURE Link*(
 	out0: Rtl.File; VAR debug: Rtl.File; code: ARRAY OF BYTE;
 	pc0, entry0, staticSize, varSize, modPtrTable0: INTEGER
 );
-	VAR n: INTEGER;
+	VAR n: INTEGER; fname: ARRAY 512 OF CHAR;
 BEGIN
 	out := out0; pc := pc0; entry := entry0; modPtrTable := modPtrTable0;
 	IF B.Flag.main THEN imagebase := 400000H ELSE imagebase := 10000000H END;

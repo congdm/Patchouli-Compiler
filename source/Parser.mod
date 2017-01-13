@@ -5,7 +5,7 @@ IMPORT
 	
 TYPE
 	UndefPtrList = POINTER TO RECORD
-		name: B.IdStr; tp: B.Type; next: UndefPtrList
+		name: S.IdStr; tp: B.Type; next: UndefPtrList
 	END;
 	
 VAR
@@ -238,7 +238,7 @@ END StrToChar;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE NewIdent(name: B.IdStr): B.Ident;
+PROCEDURE NewIdent(name: S.IdStr): B.Ident;
 	VAR ident, p: B.Ident;
 BEGIN
 	NEW(ident); ident.name := name; ident.next := NIL; ident.export := FALSE;
@@ -295,7 +295,7 @@ BEGIN x := FindIdent(); GetSym;
 				IF (x IS B.Var) & (x(B.Var).lev < -1) & (x(B.Var).adr = 0)
 				OR (x IS B.Proc) & (x(B.Proc).lev < -1) & (x(B.Proc).adr = 0)
 				THEN G.AllocImport(x, mod)
-				ELSIF (x.class = B.cType) & (x.type.lev < -1) THEN
+				ELSIF (x.class = B.cType) & (x.type.mod # NIL) THEN
 					IF (x.type.form = B.tRec) & (x.type.adr = 0)
 					OR (x.type.form = B.tPtr) & (x.type.base.adr = 0) THEN
 						G.AllocImport(x, mod)
@@ -305,7 +305,8 @@ BEGIN x := FindIdent(); GetSym;
 			END; GetSym
 		ELSE Missing(S.ident); x := NIL
 		END
-	ELSIF (x # NIL) & (x IS B.Module) THEN x := NIL
+	ELSIF (x # NIL) & (x IS B.Module) THEN
+		x := NIL; Missing(S.period)
 	END;
 	RETURN x
 END qualident;
@@ -346,7 +347,7 @@ BEGIN (* Call *)
 END Call;
 
 PROCEDURE designator(): B.Object;
-	VAR x, y: B.Object; fid: B.IdStr; fld: B.Ident; ronly: BOOLEAN;
+	VAR x, y: B.Object; fid: S.IdStr; fld: B.Ident; ronly: BOOLEAN;
 		node, next: B.Node; xtype, ytype, recType: B.Type;
 BEGIN x := qualident();
 	IF (x = NIL) OR (x.class <= B.cType) THEN
@@ -701,13 +702,13 @@ BEGIN hasParen := TRUE;
 		x := designator(); CheckSet(x); CheckVar(x, FALSE); Check0(S.comma);
 		y := expression(); CheckInt(y); x := NewNode(f.id, x, y)
 	ELSIF f.id = B.spNEW THEN
-		IF B.Flag.rtl[0] = 0X THEN Mark('Must have RTL to call NEW') END;
+		IF ~B.Flag.rtl THEN Mark('Must have RTL to call NEW') END;
 		x := designator(); Check1(x, {B.tPtr}); CheckVar(x, FALSE);
-		IF (x.type.base.lev < -1) & (x.type.base.adr = 0) THEN
+		IF (x.type.base.mod # NIL) & (x.type.base.adr = 0) THEN
 			t := x.type.base.obj;
 			IF t = NIL THEN t := x.type.obj END;
 			IF t = NIL THEN t := B.NewTypeObj(x.type.base) END;
-			G.AllocImport(t, B.ModByLev(x.type.base.lev))
+			G.AllocImport(t, x.type.base.mod)
 		END;
 		x := NewNode(S.spNEW, x, NIL)
 	ELSIF f.id = B.spASSERT THEN
@@ -1009,7 +1010,7 @@ BEGIN
 	END;
 	Check0(S.colon); tp := FormalType(); ident := first;
 	WHILE ident # NIL DO
-		ident.obj := B.NewPar(proc, tp, varpar);
+		ident.obj := B.NewPar(proc^, tp, varpar);
 		ident.obj.ident := ident; ident := ident.next
 	END
 END FPSection;
@@ -1077,7 +1078,7 @@ BEGIN
 	END;
 	Check0(S.colon); ft := type0(); field := first;
 	WHILE field # NIL DO
-		field.obj := B.NewField(rec, ft); field := field.next
+		field.obj := B.NewField(rec^, ft); field := field.next
 	END
 END FieldList;
 
@@ -1130,12 +1131,12 @@ BEGIN tp := B.intType;
 			ELSE Mark('remove ,')
 			END
 		END;
-		Check0(S.of); lastArr.base := type(); B.CompleteArray(tp)
+		Check0(S.of); lastArr.base := type(); B.CompleteArray(tp^)
 	ELSIF sym = S.record THEN
 		tp := B.NewRecord(); GetSym;
 		IF sym = S.lparen THEN
 			GetSym; tp.base := BaseType(); Check0(S.rparen);
-			IF tp.base # NIL THEN B.ExtendRecord(tp) END
+			IF tp.base # NIL THEN B.ExtendRecord(tp^) END
 		END;
 		B.OpenScope;
 		IF sym = S.ident THEN FieldList(tp);
@@ -1253,7 +1254,7 @@ BEGIN
 END DeclarationSequence;
 
 PROCEDURE import;
-	VAR ident: B.Ident; name: B.IdStr;
+	VAR ident: B.Ident; name: S.IdStr;
 BEGIN
 	ident := NewIdent(S.id); name := S.id; GetSym;
 	IF sym = S.becomes THEN GetSym;
@@ -1271,11 +1272,11 @@ BEGIN GetSym;
 		IF sym = S.ident THEN import ELSE Missing(S.ident) END
 	END;
 	Check0(S.semicolon);
-	IF S.errcnt = 0 THEN B.ImportModules; G.AllocImportModules END
+	IF S.errcnt = 0 THEN G.AllocImportModules END
 END ImportList;
 
 PROCEDURE Module*;
-	VAR modid: B.IdStr; modinit: B.Node;
+	VAR modid: S.IdStr; modinit: B.Node;
 BEGIN
 	GetSym; modid[0] := 0X;
 	IF sym = S.ident THEN modid := S.id; GetSym ELSE Missing(S.ident) END;

@@ -1,6 +1,6 @@
 MODULE Generator;
 IMPORT
-	SYSTEM, Rtl, Strings, Out,
+	SYSTEM, Rtl, Strings, Out, Strs := PatchouliStrings,
 	S := Scanner, B := Base, Linker;
 
 CONST
@@ -96,7 +96,7 @@ VAR
 
 	code: ARRAY 200000H OF BYTE; pc, stack: INTEGER;
 	sPos, pass, varSize, staticSize, baseOffset: INTEGER;
-	modid: B.IdStr;
+	modid: S.IdStr;
 	
 	procList, curProc: B.ProcList;
 	modInitProc, trapProc, trapProc2, dllInitProc: Proc;
@@ -524,10 +524,11 @@ END SetProcVarSize;
 
 PROCEDURE AllocImportModules*;
 	VAR i, j, size: INTEGER; imod: B.Module;
-BEGIN i := 0;
-	WHILE i < B.modno DO
-		imod := B.modList[i]; j := 0; WHILE imod.name[j] # 0X DO INC(j) END;
-		size := (j+5)*2; imod.adr := staticSize; INC(staticSize, size); INC(i)
+BEGIN imod := B.modList;
+	WHILE imod # NIL DO
+		j := 0; WHILE imod.name[j] # 0X DO INC(j) END;
+		size := (j+5)*2; imod.adr := staticSize;
+		INC(staticSize, size); imod := imod.next
 	END;
 	Align(staticSize, 16)
 END AllocImportModules;
@@ -696,14 +697,14 @@ END NewProc;
 
 PROCEDURE Pass1(VAR modinit: B.Node);
 	VAR fixAmount: INTEGER; obj: B.Proc;
-		str: B.String;
+		str: ARRAY LEN(modid)*2 OF CHAR;
 BEGIN
 	modidStr := B.NewStr2(modid);
 	errFmtStr := B.NewStr2('Error code: %d; Source pos: %d');
 	err2FmtStr := B.NewStr2('Module key of %s is mismatched');
 	err3FmtStr := B.NewStr2('Unknown exception; Pc: %x');
 	err4FmtStr := B.NewStr2('Cannot load module %s (not exist?)');
-	rtlName := B.NewStr2(B.Flag.rtl); user32name := B.NewStr2('USER32.DLL');
+	rtlName := B.NewStr2('RTL.DLL'); user32name := B.NewStr2('USER32.DLL');
 	
 	str := 'Error in module '; Strings.Append(modid, str);
 	err5FmtStr := B.NewStr2(str);
@@ -1145,7 +1146,7 @@ END TypeTag2;
 PROCEDURE TypeDesc(VAR x: Item; tp: B.Type);
 BEGIN
 	IF tp.form = B.tRec THEN x.a := tp.adr ELSE ASSERT(FALSE) END;
-	x.mode := mBX; x.type := B.intType; x.b := 0; x.ref := tp.lev < 0
+	x.mode := mBX; x.type := B.intType; x.b := 0; x.ref := tp.mod # NIL
 END TypeDesc;
 
 PROCEDURE AvoidUsedBy(obj: B.Object);
@@ -2322,11 +2323,11 @@ BEGIN
 		(* Set pointer to Module Pointer Table and import RTL *)
 		SetRm_regI(reg_B, modPtrTable); EmitRegRm(LEA, reg_A, 8);
 		SetRm_regI(reg_B, adrOfPtrTable); EmitRegRm(MOV, reg_A, 8);
-		IF B.Flag.rtl[0] # 0X THEN ImportRTL END;
+		IF B.Flag.rtl THEN ImportRTL END;
 		
 		(* Import modules, if there are any *)
-		i := 0;
-		WHILE i < B.modno DO imod := B.modList[i];
+		imod := B.modList;
+		WHILE imod # NIL DO
 			SetRm_regI(reg_B, imod.adr); EmitRegRm(LEA, reg_C, 8);
 			SetRm_regI(reg_B, LoadLibraryW); EmitRm(CALL, 4);
 			EmitRR(TEST, reg_A, 8, reg_A); ModKeyTrap(ccZ, 1, imod);
@@ -2356,7 +2357,7 @@ BEGIN
 				SetRm_regI(reg_B, adr); EmitRegRm(MOV, reg_A, 8);
 				ident := ident.next
 			END;
-			INC(i)
+			imod := imod.next
 		END;
 		
 		(* Fill value into type descriptors *)
@@ -2368,7 +2369,7 @@ BEGIN
 			END;
 			WHILE tp.len >= 1 DO
 				SetRm_regI(reg_B, tp.adr);
-				IF tp.lev >= 0 THEN EmitRegRm(LEA, reg_A, 8)
+				IF tp.mod = NIL THEN EmitRegRm(LEA, reg_A, 8)
 				ELSE EmitRegRm(MOVd, reg_A, 8)
 				END;
 				SetRm_regI(reg_B, adr + tp.len*8);
@@ -2702,7 +2703,7 @@ END FoldConst;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE Init*(modid0: B.IdStr);
+PROCEDURE Init*(modid0: S.IdStr);
 BEGIN
 	modid := modid0; varSize := 0; staticSize := 128;
 	procList := NIL; curProc := NIL;
