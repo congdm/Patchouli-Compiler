@@ -1,6 +1,6 @@
 MODULE Parser;
 IMPORT
-	Rtl, Out,
+	SYSTEM, Rtl, Out,
 	S := Scanner, B := Base, G := Generator;
 	
 TYPE
@@ -401,7 +401,7 @@ BEGIN x := qualident();
 		Check1(x, {B.tPtr}); xtype := x.type; x := NewNode(S.arrow, x, NIL);
 		IF xtype.base # NIL THEN x.type := xtype.base ELSE x.type := xtype END;
 		x(B.Node).ronly := FALSE; ronly := FALSE; GetSym
-	ELSIF (sym = S.lparen) & TypeTestable(x) DO
+	ELSIF (sym = S.lparen) & ~(x IS B.SProc) & TypeTestable(x) DO
 		xtype := x.type; GetSym; y := NIL;
 		IF sym = S.ident THEN y := qualident() ELSE Missing(S.ident) END;
 		IF (y # NIL) & (y.class = B.cType) THEN ytype := y.type;
@@ -648,7 +648,7 @@ BEGIN x := SimpleExpression();
 			x := NewNode(op, x, StrToChar(y)); x.type := B.boolType
 		ELSIF (y.type = B.charType) & IsCharStr(x) THEN
 			x := NewNode(op, StrToChar(x), y); x.type := B.boolType
-		ELSE Mark('invalid type')
+		ELSE Mark('invalid type'); SYSTEM.INT3
 		END
 	ELSIF sym = S.in THEN
 		CheckInt(x); G.CheckSetElement(x);
@@ -1282,7 +1282,7 @@ BEGIN
 	IF sym = S.ident THEN modid := S.id; GetSym ELSE Missing(S.ident) END;
 	B.Init(modid); G.Init(modid); Check0(S.semicolon);
 	IF sym = S.import THEN ImportList END;
-	
+
 	IF S.errcnt = 0 THEN
 		DeclarationSequence(NIL);
 		IF sym = S.begin THEN GetSym; modinit := StatementSequence() END;
@@ -1291,9 +1291,9 @@ BEGIN
 			IF S.id # modid THEN Mark('wrong module name') END; GetSym
 		ELSE Missing(S.ident)
 		END;
-		Check0(S.period)
+		Check0(S.period); Out.String('Parsing done'); Out.Ln
 	END;
-	IF S.errcnt = 0 THEN B.WriteSymfile END;
+	IF S.errcnt = 0 THEN B.WriteSymfile END; Out.String('Export done'); Out.Ln;
 	IF S.errcnt = 0 THEN G.Generate(modinit) END;
 	G.Cleanup; B.Cleanup; Rtl.Collect;
 	IF S.errcnt = 0 THEN G.DisplayInfo END
