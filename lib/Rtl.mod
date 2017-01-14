@@ -21,10 +21,17 @@ TYPE
 	Uint = SYSTEM.CARD32;
 	
 	File* = RECORD hFile: INTEGER END;
+	
+	Finalised* = POINTER TO FinalisedDesc;
+	FinaliseProc* = PROCEDURE(ptr: Finalised);
+	FinalisedDesc* = RECORD
+		Finalise: FinaliseProc; next: Finalised
+	END;
 
 VAR
 	modList*, nMod*: INTEGER;
 	argv, numArgs*: INTEGER;
+	finalisedList: Finalised;
 
 	(* Utility *)
 	ExitProcess: PROCEDURE(uExitCode: INTEGER);
@@ -615,6 +622,21 @@ BEGIN p := heapBase;
 	UNTIL p >= HeapLimit()
 END Scan;
 
+PROCEDURE Finalise;
+	VAR prev, ptr, next: Finalised; p, mark: INTEGER;
+BEGIN ptr := finalisedList;
+	WHILE ptr # NIL DO
+		p := SYSTEM.VAL(INTEGER, ptr) - 16; SYSTEM.GET(p+8, mark);
+		IF mark = 0 (* released *) THEN next := ptr.next;
+			IF prev # NIL THEN prev.next := next
+			ELSE finalisedList := next
+			END;
+			ptr.Finalise(ptr); ptr := next
+		ELSE prev := ptr; ptr := ptr.next
+		END
+	END
+END Finalise;
+
 PROCEDURE Collect*;
 	VAR i, modBase, ptrTable, off: INTEGER;
 BEGIN i := 0;
@@ -622,8 +644,14 @@ BEGIN i := 0;
 		SYSTEM.GET(modList+i*8, modBase); SYSTEM.GET(modBase+112, ptrTable);
 		Mark(ptrTable, modBase); INC(i)
 	END;
-	Scan
+	Finalise; Scan
 END Collect;
+
+PROCEDURE RegisterFinalised*(ptr: Finalised; finalise: FinaliseProc);
+BEGIN
+	ASSERT(finalise # NIL); ptr.Finalise := finalise;
+	ptr.next := finalisedList; finalisedList := ptr
+END RegisterFinalised;
 
 (* -------------------------------------------------------------------------- *)
 

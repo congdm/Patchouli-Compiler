@@ -1,6 +1,6 @@
 MODULE Base;
 IMPORT
-	SYSTEM, Strings, Crypt, Rtl,
+	SYSTEM, Strings, Crypt, Rtl, Out, Files,
 	S := Scanner;
 
 CONST
@@ -94,7 +94,8 @@ VAR
 		main*, console*, debug*, handle*, rtl*: BOOLEAN
 	END;
 	
-	symfile: Rtl.File; imod, modList*: Module;
+	symfile: Files.File; rider: Files.Rider;
+	imod, modList*: Module;
 	refno, preTypeNo, expno*, modno*: INTEGER;
 	
 	strbufSize*: INTEGER;
@@ -302,43 +303,26 @@ END Enter;
 (* -------------------------------------------------------------------------- *)
 (* Read/Write for symfile *)
 
-PROCEDURE WriteInt(f: Rtl.File; n: INTEGER);
-	VAR finish: BOOLEAN; b: INTEGER;
+PROCEDURE WriteInt(VAR r: Files.Rider; n: INTEGER);
+	VAR finish: BOOLEAN; b: BYTE;
 BEGIN
 	REPEAT b := n MOD 128; finish := (n >= -64) & (n < 64);
 		IF finish THEN b := b + 128 ELSE n := n DIV 128 END;
-		Rtl.Write1(f, b)
+		Files.Write(r, b)
 	UNTIL finish
 END WriteInt;
 
-PROCEDURE ReadInt(f: Rtl.File; VAR n: INTEGER);
+PROCEDURE ReadInt(VAR r: Files.Rider; VAR n: INTEGER);
 	CONST MaxInt = 9223372036854775807; MinInt = -MaxInt - 1;
-	VAR finish: BOOLEAN; i, b, k: INTEGER;
-BEGIN n := 0; i := 1; k := 1;
-	REPEAT Rtl.Read1(f, b);
-		IF i < 10 THEN
-			finish := b >= 128; b := b MOD 128; n := n + b * k;
-			IF i # 9 THEN k := k * 128 END; INC (i);
-			IF finish & (b >= 64) THEN
-				IF i # 9 THEN n := n + (-1 * k) ELSE n := n + MinInt END
-			END
-		ELSIF i = 10 THEN
-			finish := TRUE; IF b = 127 THEN n := n + MinInt END
-		ELSE ASSERT(FALSE)
-		END
-	UNTIL finish
+	VAR finish: BOOLEAN; i: INTEGER; b: BYTE;
+BEGIN n := 0; i := 0;
+	REPEAT
+		b := 0; Files.Read(r, b);
+		IF b >= 128 THEN finish := TRUE; DEC(b, 128) ELSE finish := FALSE END;
+		INC(n, LSL(b, i)); INC(i, 7);
+	UNTIL finish;
+	IF b >= 64 THEN ASSERT(i < 64); n := ASR(LSL(n, 64-i), 64-i) END
 END ReadInt;
-
-PROCEDURE WriteBool(f: Rtl.File; b: BOOLEAN);
-BEGIN
-	IF b THEN WriteInt(f, 1) ELSE WriteInt(f, 0) END
-END WriteBool;
-
-PROCEDURE ReadBool(f: Rtl.File; VAR b: BOOLEAN);
-	VAR n: INTEGER;
-BEGIN
-	ReadInt(f, n); b := n = 1
-END ReadBool;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -356,31 +340,31 @@ PROCEDURE DetectType(typ: Type);
 BEGIN
 	IF typ # NIL THEN
 		IF typ.predef THEN
-			WriteInt(symfile, 1); WriteInt(symfile, typ.ref)
+			WriteInt(rider, 1); WriteInt(rider, typ.ref)
 		ELSIF typ.mod = NIL THEN
-			WriteInt(symfile, 2); WriteInt(symfile, typ.ref);
+			WriteInt(rider, 2); WriteInt(rider, typ.ref);
 			IF typ.ref < 0 THEN ExportType0(typ) END
-		ELSE WriteInt(symfile, 3);
-			Rtl.WriteStr(symfile, typ.mod.name); WriteInt(symfile, typ.ref);
+		ELSE WriteInt(rider, 3);
+			Files.WriteString(rider, typ.mod.name); WriteInt(rider, typ.ref);
 			IF typ.ref < 0 THEN ExportType0(typ) END
 		END
-	ELSE WriteInt(symfile, 0)
+	ELSE WriteInt(rider, 0)
 	END
 END DetectType;
 
 PROCEDURE ExportProc(typ: Type);
 	VAR par: Ident; x: Par;
 BEGIN
-	WriteInt(symfile, typ.size); WriteInt(symfile, typ.align);
-	WriteInt(symfile, typ.parblksize); DetectType(typ.base);
+	WriteInt(rider, typ.size); WriteInt(rider, typ.align);
+	WriteInt(rider, typ.parblksize); DetectType(typ.base);
 	par := typ.fields;
 	WHILE par # NIL DO x := par.obj(Par);
-		WriteInt(symfile, x.class);
-		Rtl.WriteStr(symfile, par.name);
-		WriteBool(symfile, x.varpar);
+		WriteInt(rider, x.class);
+		Files.WriteString(rider, par.name);
+		Files.WriteBool(rider, x.varpar);
 		DetectType(x.type); par := par.next
 	END;
-	WriteInt(symfile, cType)
+	WriteInt(rider, cType)
 END ExportProc;
 	
 PROCEDURE ExportType(typ: Type);
@@ -393,30 +377,30 @@ BEGIN
 		END
 	ELSE typ.ref := -typ.ref
 	END;
-	WriteInt(symfile, -typ.ref); WriteInt(symfile, typ.form);
+	WriteInt(rider, -typ.ref); WriteInt(rider, typ.form);
 	IF typ.form = tRec THEN
 		NewExport(exp); NEW(exp.obj); exp.obj.class := cType;
-		exp.obj.type := typ; WriteInt(symfile, expno);
-		WriteInt(symfile, typ.size); WriteInt(symfile, typ.align);
+		exp.obj.type := typ; WriteInt(rider, expno);
+		WriteInt(rider, typ.size); WriteInt(rider, typ.align);
 		DetectType(typ.base); fld := typ.fields;
 		WHILE fld # NIL DO ftyp := fld.obj.type;
 			IF fld.export OR (ftyp.nptr > 0) THEN
-				WriteInt(symfile, cField);
-				IF fld.export THEN Rtl.WriteStr(symfile, fld.name)
-				ELSE Rtl.WriteStr(symfile, 0X)
+				WriteInt(rider, cField);
+				IF fld.export THEN Files.WriteString(rider, fld.name)
+				ELSE Files.WriteString(rider, 0X)
 				END;
-				WriteInt(symfile, fld.obj(Field).off); DetectType(ftyp)
+				WriteInt(rider, fld.obj(Field).off); DetectType(ftyp)
 			END;
 			fld := fld.next
 		END;
-		WriteInt(symfile, cType)
+		WriteInt(rider, cType)
 	ELSIF typ.form = tArray THEN
-		WriteInt(symfile, typ.len); WriteBool(symfile, typ.notag);
-		WriteInt(symfile, typ.size); WriteInt(symfile, typ.align);
+		WriteInt(rider, typ.len); Files.WriteBool(rider, typ.notag);
+		WriteInt(rider, typ.size); WriteInt(rider, typ.align);
 		DetectType(typ.base)
 	ELSIF typ.form = tPtr THEN
-		WriteInt(symfile, typ.size);
-		WriteInt(symfile, typ.align);
+		WriteInt(rider, typ.size);
+		WriteInt(rider, typ.align);
 		DetectType(typ.base)
 	ELSIF typ.form = tProc THEN
 		ExportProc(typ)
@@ -425,8 +409,8 @@ END ExportType;
 
 PROCEDURE WriteModkey(key: ModuleKey);
 BEGIN
-	Rtl.Write8(symfile, key[0]);
-	Rtl.Write8(symfile, key[1])
+	Files.WriteInt(rider, key[0]);
+	Files.WriteInt(rider, key[1])
 END WriteModkey;
 
 PROCEDURE ScanExportTypes(first: Ident; form: INTEGER);
@@ -452,76 +436,72 @@ PROCEDURE WriteSymfile*;
 		hash: Crypt.MD5Hash; chunk: ARRAY 64 OF BYTE;
 		symfname: ARRAY 512 OF CHAR; x: Object;
 BEGIN
-	refno := 0; expno := 0;
 	ScanExportTypes(universe.first, -1);
-	Rtl.Rewrite(symfile, '.tempSymfile');
-	Rtl.Seek(symfile, 16); WriteInt(symfile, modlev);
+	symfname := 0X; Strings.Append(srcPath, symfname);
+	Strings.Append(modid, symfname); Strings.Append('.sym', symfname);
+	symfile := Files.New(symfname); Files.Set(rider, symfile, 16);
+	
+	refno := 0; expno := 0;
+	WriteInt(rider, modlev);
 	
 	imod := modList;
 	WHILE imod # NIL DO
-		WriteInt(symfile, cModule); Rtl.WriteStr(symfile, imod.name);
-		WriteModkey(imod.key); WriteInt(symfile, imod.lev);
-		WriteBool(symfile, imod.export); imod := imod.next
+		WriteInt(rider, cModule); Files.WriteString(rider, imod.name);
+		WriteModkey(imod.key); WriteInt(rider, imod.lev);
+		Files.WriteBool(rider, imod.export); imod := imod.next
 	END;
 	
 	ident := universe.first;
 	WHILE ident # NIL DO
 		IF ident.export THEN x := ident.obj;
 			IF x.class = cConst THEN
-				WriteInt(symfile, cConst);
-				Rtl.WriteStr(symfile, ident.name);
-				WriteInt(symfile, x(Const).val);
+				WriteInt(rider, cConst);
+				Files.WriteString(rider, ident.name);
+				WriteInt(rider, x(Const).val);
 				DetectType(x.type)
 			ELSIF x.class = cType THEN
-				WriteInt(symfile, cType);
-				Rtl.WriteStr(symfile, ident.name);
+				WriteInt(rider, cType);
+				Files.WriteString(rider, ident.name);
 				DetectType(x.type)
 			ELSIF x.class = cVar THEN
 				IF x IS Str THEN
-					WriteInt(symfile, cConst);
-					Rtl.WriteStr(symfile, ident.name);
+					WriteInt(rider, cConst);
+					Files.WriteString(rider, ident.name);
 					NewExport(exp); exp.obj := x;
-					WriteInt(symfile, expno); DetectType(x.type);
-					WriteInt(symfile, x(Str).len)
+					WriteInt(rider, expno); DetectType(x.type);
+					WriteInt(rider, x(Str).len)
 				ELSE
-					WriteInt(symfile, cVar);
-					Rtl.WriteStr(symfile, ident.name);
+					WriteInt(rider, cVar);
+					Files.WriteString(rider, ident.name);
 					NewExport(exp); exp.obj := x;
-					WriteInt(symfile, expno); DetectType(x.type)
+					WriteInt(rider, expno); DetectType(x.type)
 				END 
 			ELSIF x.class = cProc THEN
-				WriteInt(symfile, cProc);
-				Rtl.WriteStr(symfile, ident.name);
+				WriteInt(rider, cProc);
+				Files.WriteString(rider, ident.name);
 				NewExport(exp); exp.obj := x;
-				WriteInt(symfile, expno); DetectType(x.type)
+				WriteInt(rider, expno); DetectType(x.type)
 			ELSE ASSERT(FALSE)
 			END
 		END;
 		ident := ident.next
 	END;
-	WriteInt(symfile, cNull);
+	WriteInt(rider, cNull);
 	
-	size := Rtl.Pos(symfile); Rtl.Seek(symfile, 0);
+	size := Files.Pos(rider); Files.Set(rider, symfile, 0);
 	Crypt.InitMD5Hash(hash); i := 0;
-	REPEAT k := 0;
-		REPEAT Rtl.Read1(symfile, n); chunk[k] := n; INC(i); INC(k)
-		UNTIL (i = size) OR (k = 64);
+	REPEAT
+		Files.ReadBytes(rider, chunk, LEN(chunk));
+		k := LEN(chunk) - rider.res; INC(i, k);
 		Crypt.MD5ComputeChunk(hash, SYSTEM.ADR(chunk), k)
 	UNTIL i = size;
 	
-	Rtl.Seek(symfile, 0);
+	Files.Set(rider, symfile, 0);
 	modkey[0] := Crypt.MD5GetLowResult(hash);
 	modkey[1] := Crypt.MD5GetHighResult(hash);
-	WriteModkey(modkey);
-	Rtl.Close(symfile);
+	WriteModkey(modkey); Files.Set(rider, NIL, 0);
 	
-	IF S.errcnt = 0 THEN symfname := 0X;
-		Strings.Append(srcPath, symfname);
-		Strings.Append(modid, symfname);
-		Strings.Append('.sym', symfname);
-		Rtl.Delete(symfname); Rtl.Rename('.tempSymfile', symfname)
-	ELSE Rtl.Delete('.tempSymfile')
-	END
+	IF S.errcnt = 0 THEN Files.Register(symfile) END; symfile := NIL
 END WriteSymfile;
 
 (* -------------------------------------------------------------------------- *)
@@ -566,9 +546,9 @@ END NewImport;
 PROCEDURE DetectTypeI(VAR typ: Type);
 	VAR n, ref: INTEGER; name: S.IdStr; mod: Module;
 BEGIN
-	ReadInt(symfile, n);
+	ReadInt(rider, n);
 	IF n = 0 THEN typ := NIL
-	ELSIF (n = 1) OR (n = 2) THEN ReadInt(symfile, ref);
+	ELSIF (n = 1) OR (n = 2) THEN ReadInt(rider, ref);
 		IF ref > 0 THEN
 			IF n = 1 THEN typ := FindType(ref, predefTypes)
 			ELSE typ := FindType(-ref, imod.types)
@@ -576,8 +556,8 @@ BEGIN
 		ELSE ImportType0(typ, imod)
 		END
 	ELSIF n = 3 THEN
-		Rtl.ReadStr(symfile, name);
-		ReadInt(symfile, ref); mod := FindMod(name);
+		Files.ReadString(rider, name);
+		ReadInt(rider, ref); mod := FindMod(name);
 		IF ref > 0 THEN typ := FindType(-ref, mod.types)
 		ELSE ImportType0(typ, mod)
 		END
@@ -598,13 +578,13 @@ PROCEDURE ImportType(VAR typ: Type; mod: Module);
 	PROCEDURE ImportRecord(VAR typ: TypeDesc; new: BOOLEAN);
 		VAR cls, off: INTEGER; fltype: Type; x: Field; name: S.IdStr;
 	BEGIN
-		ReadInt(symfile, typ.expno); typ.adr := 0;
-		ReadInt(symfile, typ.size); ReadInt(symfile, typ.align);
+		ReadInt(rider, typ.expno); typ.adr := 0;
+		ReadInt(rider, typ.size); ReadInt(rider, typ.align);
 		DetectTypeI(typ.base); ExtendRecord(typ);
-		ReadInt(symfile, cls); OpenScope;
+		ReadInt(rider, cls); OpenScope;
 		WHILE cls # cType DO
-			Rtl.ReadStr(symfile, name); ReadInt(symfile, off);
-			DetectTypeI(fltype); ReadInt(symfile, cls);
+			Files.ReadString(rider, name); ReadInt(rider, off);
+			DetectTypeI(fltype); ReadInt(rider, cls);
 			IF new THEN
 				x := NewField(typ, fltype); x.off := off; NewImport(name, x)
 			END
@@ -614,15 +594,15 @@ PROCEDURE ImportType(VAR typ: Type; mod: Module);
 	
 	PROCEDURE ImportArray(VAR typ: TypeDesc);
 	BEGIN
-		ReadBool(symfile, typ.notag);
-		ReadInt(symfile, typ.size); ReadInt(symfile, typ.align);
+		Files.ReadBool(rider, typ.notag);
+		ReadInt(rider, typ.size); ReadInt(rider, typ.align);
 		DetectTypeI(typ.base); CompleteArray(typ)
 	END ImportArray;
 	
 	PROCEDURE ImportPointer(VAR typ: TypeDesc);
 	BEGIN
-		ReadInt(symfile, typ.size);
-		ReadInt(symfile, typ.align);
+		ReadInt(rider, typ.size);
+		ReadInt(rider, typ.align);
 		DetectTypeI(typ.base)
 	END ImportPointer;
 	
@@ -630,12 +610,12 @@ PROCEDURE ImportType(VAR typ: Type; mod: Module);
 		VAR cls: INTEGER; varpar: BOOLEAN;
 			par: Ident; x: Par; xtype: Type; name: S.IdStr;
 	BEGIN
-		ReadInt(symfile, typ.size); ReadInt(symfile, typ.align);
-		ReadInt(symfile, typ.parblksize); DetectTypeI(typ.base);
-		ReadInt(symfile, cls); OpenScope;
+		ReadInt(rider, typ.size); ReadInt(rider, typ.align);
+		ReadInt(rider, typ.parblksize); DetectTypeI(typ.base);
+		ReadInt(rider, cls); OpenScope;
 		WHILE cls # cType DO
-			Rtl.ReadStr(symfile, name); ReadBool(symfile, varpar);
-			DetectTypeI(xtype); ReadInt(symfile, cls);
+			Files.ReadString(rider, name); Files.ReadBool(rider, varpar);
+			DetectTypeI(xtype); ReadInt(rider, cls);
 			IF new THEN
 				x := NewPar(typ, xtype, varpar); NewImport(name, x)
 			END
@@ -644,7 +624,7 @@ PROCEDURE ImportType(VAR typ: Type; mod: Module);
 	END ImportProc;
 		
 BEGIN (* ImportType *)
-	ReadInt(symfile, ref); ReadInt(symfile, form);
+	ReadInt(rider, ref); ReadInt(rider, form);
 	IF (mod = imod) & mod.import THEN typ := NIL
 	ELSE typ := FindType(ref, mod.types)
 	END;
@@ -656,7 +636,7 @@ BEGIN (* ImportType *)
 		ELSE ImportRecord(typ0, FALSE)
 		END
 	ELSIF form = tArray THEN
-		ReadInt(symfile, typ0.len);
+		ReadInt(rider, typ0.len);
 		IF typ = NIL THEN
 			typ := NewArray(typ0.len); typ.ref := ref;
 			AddToTypeList(typ, mod); typ.mod := mod;
@@ -682,8 +662,8 @@ END ImportType;
 
 PROCEDURE ReadModkey(VAR key: ModuleKey);
 BEGIN
-	Rtl.Read8(symfile, key[0]);
-	Rtl.Read8(symfile, key[1])
+	Files.ReadInt(rider, key[0]);
+	Files.ReadInt(rider, key[1])
 END ReadModkey;
 
 PROCEDURE Import(sympath: ARRAY OF CHAR; imodid: S.IdStr): Module;
@@ -691,8 +671,8 @@ PROCEDURE Import(sympath: ARRAY OF CHAR; imodid: S.IdStr): Module;
 		lev, val, cls, slen: INTEGER; name: S.IdStr;
 		msg: ARRAY 512 OF CHAR; tp: Type; x: Object;
 BEGIN
-	Rtl.Reset(symfile, sympath); imod := modList;
-	ReadModkey(key); ReadInt(symfile, lev); good := TRUE;
+	symfile := Files.Old(sympath); Files.Set(rider, symfile, 0);
+	imod := modList; ReadModkey(key); ReadInt(rider, lev); good := TRUE;
 	WHILE (imod # NIL) & (imod.name # imodid) DO imod := imod.next END;
 	IF imod = NIL THEN
 		NEW(imod); imod.name := imodid; imod.adr := 0; imod.import := TRUE;
@@ -707,10 +687,10 @@ BEGIN
 	END;
 	
 	IF good THEN
-		OpenScope; curLev := imod.no; ReadInt(symfile, cls);
+		OpenScope; curLev := imod.no; ReadInt(rider, cls);
 		WHILE cls = cModule DO
-			Rtl.ReadStr(symfile, name); ReadModkey(key); dep := FindMod(name);
-			ReadInt(symfile, lev); ReadBool(symfile, reExp);
+			Files.ReadString(rider, name); ReadModkey(key); dep := FindMod(name);
+			ReadInt(rider, lev); Files.ReadBool(rider, reExp);
 			IF name = modid THEN S.Mark('Circular dependency')
 			ELSIF dep # NIL THEN
 				IF (dep.key[0] # key[0]) OR (dep.key[1] # key[1])
@@ -726,39 +706,39 @@ BEGIN
 				DEC(modno); dep.key := key; dep.lev := lev;
 				dep.export := FALSE; dep.import := FALSE
 			END;
-			ReadInt(symfile, cls)
+			ReadInt(rider, cls)
 		END;
 		WHILE cls = cConst DO
-			Rtl.ReadStr(symfile, name);
-			ReadInt(symfile, val); DetectTypeI(tp);
+			Files.ReadString(rider, name);
+			ReadInt(rider, val); DetectTypeI(tp);
 			IF tp # strType THEN x := NewConst(tp, val)
-			ELSE ReadInt(symfile, slen); x := NewStr('', slen);
+			ELSE ReadInt(rider, slen); x := NewStr('', slen);
 				x(Str).adr := 0; x(Str).expno := val
 			END;
-			NewImport(name, x); ReadInt(symfile, cls)
+			NewImport(name, x); ReadInt(rider, cls)
 		END;
 		WHILE cls = cType DO
-			Rtl.ReadStr(symfile, name);
+			Files.ReadString(rider, name);
 			DetectTypeI(tp); x := NewTypeObj(tp);
-			NewImport(name, x); ReadInt(symfile, cls)
+			NewImport(name, x); ReadInt(rider, cls)
 		END;
 		WHILE cls = cVar DO
-			Rtl.ReadStr(symfile, name);
-			ReadInt(symfile, val); DetectTypeI(tp);
+			Files.ReadString(rider, name);
+			ReadInt(rider, val); DetectTypeI(tp);
 			x := NewVar(tp); x(Var).ronly := TRUE;
 			x(Var).expno := val; x(Var).adr := 0;
-			NewImport(name, x); ReadInt(symfile, cls)
+			NewImport(name, x); ReadInt(rider, cls)
 		END;
 		WHILE cls = cProc DO
-			Rtl.ReadStr(symfile, name);
-			x := NewProc(); ReadInt(symfile, x(Proc).expno);
+			Files.ReadString(rider, name);
+			x := NewProc(); ReadInt(rider, x(Proc).expno);
 			x(Proc).adr := 0; DetectTypeI(x.type);
-			NewImport(name, x); ReadInt(symfile, cls)
+			NewImport(name, x); ReadInt(rider, cls)
 		END;
 		ASSERT(cls = cNull); curLev := 0; imod.import := TRUE;
 		imod.first := topScope.first; CloseScope
 	END;
-	Rtl.Close(symfile);
+	Files.Set(rider, NIL, 0); symfile := NIL
 	RETURN imod
 END Import;
 

@@ -1,6 +1,6 @@
 MODULE Generator;
 IMPORT
-	SYSTEM, Rtl, Strings, Out,
+	SYSTEM, Rtl, Strings, Out, Files,
 	S := Scanner, B := Base, Linker;
 
 CONST
@@ -116,7 +116,7 @@ VAR
 	(* others *)
 	adrOfNEW, modPtrTable, adrOfPtrTable: INTEGER;
 	
-	out, debug: Rtl.File;
+	out: Rtl.File; debug: Files.File;
 	startTime, endTime: INTEGER;
 		
 (* -------------------------------------------------------------------------- *)
@@ -877,9 +877,11 @@ BEGIN
 END LoadProc;
 
 PROCEDURE WriteDebug(pos, spos, trapno: INTEGER);
+	VAR r: Files.Rider;
 BEGIN
 	IF pass = 3 THEN
-		Rtl.Write8(debug, pos + LSL(spos, 30) + LSL(trapno, 60))
+		Files.Set(r, debug, Files.Length(debug));
+		Files.WriteInt(r, pos + LSL(spos, 30) + LSL(trapno, 60))
 	END
 END WriteDebug;
 
@@ -2731,7 +2733,7 @@ BEGIN
 	GetProcAddress := 0;
 
 	startTime := Rtl.Time();
-	Rtl.Rewrite(debug, '.pocDebug');
+	debug := Files.New('.DebugInfo');
 	Rtl.Rewrite(out, '.tempOut')
 END Init;
 
@@ -2770,15 +2772,15 @@ END Generate;
 
 PROCEDURE Cleanup*;
 BEGIN
-	IF S.errcnt # 0 THEN
-		Rtl.Close(out); Rtl.Close(debug);
-		Rtl.Delete('.pocDebug'); Rtl.Delete('.tempOut')
-	END;
+	IF S.errcnt # 0 THEN Rtl.Close(out); Rtl.Delete('.tempOut') END;
+	debug := NIL;
+	
 	procList := NIL; curProc := NIL; modInitProc := NIL;
 	trapProc := NIL; trapProc2 := NIL; dllInitProc := NIL;
+	
 	errFmtStr := NIL; err2FmtStr := NIL; err3FmtStr := NIL;
-	err4FmtStr := NIL; err5FmtStr := NIL;
-	modidStr := NIL; rtlName := NIL; user32name := NIL
+	err4FmtStr := NIL; err5FmtStr := NIL; modidStr := NIL;
+	rtlName := NIL; user32name := NIL
 END Cleanup;
 
 PROCEDURE DisplayInfo*;

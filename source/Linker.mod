@@ -1,6 +1,6 @@
 MODULE Linker;
 IMPORT
-	SYSTEM, Rtl, Strings,
+	SYSTEM, Rtl, Files, Strings,
 	B := Base;
 	
 CONST
@@ -171,17 +171,18 @@ END Write_reloc_section;
 (* -------------------------------------------------------------------------- *)
 (* .pdata *)
 
-PROCEDURE Write_pdata_section(VAR debug: Rtl.File);
-	VAR data: ARRAY 200H OF BYTE; len, cnt: INTEGER;
+PROCEDURE Write_pdata_section(debug: Files.File);
+	VAR data: ARRAY 200H OF BYTE; len, cnt: INTEGER; r: Files.Rider;
 BEGIN
-	Rtl.Seek(out, pdata_fadr+32); len := Rtl.Pos(debug);
-	Rtl.Seek(debug, 0); Rtl.ReadBytes(debug, data, cnt);
+	Rtl.Seek(out, pdata_fadr+32);
+	len := Files.Length(debug); Files.Set(r, debug, 0);
+	Files.ReadBytes(r, data, LEN(data)); cnt := LEN(data) - r.res;
 	WHILE len > 0 DO
 		IF cnt > len THEN cnt := len END; DEC(len, cnt);
 		Rtl.WriteBuf(out, SYSTEM.ADR(data), cnt);
-		Rtl.ReadBytes(debug, data, cnt)
+		Files.ReadBytes(r, data, LEN(data)); cnt := LEN(data) - r.res
 	END;
-	Rtl.Write8(out, -1); Rtl.Close(debug); Rtl.Delete('.pocDebug');
+	Rtl.Write8(out, -1);
 	pdata_size := Rtl.Pos(out) - pdata_fadr;
 	pdata_rawsize := (pdata_size + 511) DIV 512 * 512
 END Write_pdata_section;
@@ -422,7 +423,7 @@ END Write_PEHeader;
 (* -------------------------------------------------------------------------- *)
 
 PROCEDURE Link*(
-	out0: Rtl.File; VAR debug: Rtl.File; code: ARRAY OF BYTE;
+	out0: Rtl.File; debug: Files.File; code: ARRAY OF BYTE;
 	pc0, entry0, staticSize, varSize, modPtrTable0: INTEGER
 );
 	VAR n: INTEGER; fname: ARRAY 512 OF CHAR;

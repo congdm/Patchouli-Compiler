@@ -1,7 +1,7 @@
 MODULE Test7;(*$CONSOLE*)
-IMPORT Files;
+IMPORT Rtl, Files;
 VAR file: Files.File;
 
 BEGIN
-	file := Files.Old('Test7.mod')
+	file := Files.Old('Test7.mod'); file := NIL; Rtl.Collect
 END Test7.

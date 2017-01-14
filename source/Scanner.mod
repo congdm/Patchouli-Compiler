@@ -21,7 +21,7 @@
 
 MODULE Scanner; (* Modified from ORS module in Project Oberon *)
 IMPORT
-	SYSTEM, Rtl, Out;
+	SYSTEM, Rtl, Out, Files;
   
 CONST
 	MaxIdLen* = 63; MaxStrLen* = 255;
@@ -348,11 +348,13 @@ BEGIN
 	UNTIL (sym # null) OR eof
 END Get;
 
-PROCEDURE Init*(f: Rtl.File; pos: INTEGER);
+PROCEDURE Init*(f: Files.File; pos: INTEGER);
+	VAR r: Files.Rider;
 BEGIN
 	errpos := pos; errcnt := 0; eof := FALSE;
-	Rtl.Seek(f, pos); filePos := pos; bufPos := 0;
-	Rtl.ReadBytes(f, buffer, bufSize); Read
+	Files.Set(r, f, pos); filePos := pos; bufPos := 0;
+	Files.ReadBytes(r, buffer, LEN(buffer));
+	bufSize := LEN(buffer)-r.res; Read
 END Init;
 
 PROCEDURE InstallSetCompilerFlag*(proc: SetCompilerFlagProc);

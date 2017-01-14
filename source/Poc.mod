@@ -2,7 +2,7 @@ MODULE Poc;
 (*$CONSOLE*)
 
 IMPORT
-	Rtl, Out,
+	Rtl, Out, Files,
 	S := Scanner, B := Base, P := Parser;
 	
 VAR
@@ -10,11 +10,11 @@ VAR
 	argIdx: INTEGER; buildMode, errFlag: BOOLEAN;
 	
 PROCEDURE Compile(fname: ARRAY OF CHAR);
-	VAR srcfile: Rtl.File; sym: INTEGER;
+	VAR srcfile: Files.File; sym: INTEGER;
 BEGIN
-	Out.String('Compile '); Out.String(fname); Out.Ln;
-	B.SetSrcPath(fname); Rtl.Reset(srcfile, fname); sym := 0;
-	S.Init(srcfile, 0); Rtl.Close(srcfile); S.Get(sym);
+	Out.String('Compile ');
+	Out.String(fname); Out.Ln; B.SetSrcPath(fname);
+	srcfile := Files.Old(fname); S.Init(srcfile, 0); S.Get(sym);
 	IF sym = S.module THEN P.Module ELSE S.Mark('MODULE?') END;
 	Rtl.Collect
 END Compile;
