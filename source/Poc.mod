@@ -10,12 +10,18 @@ VAR
 	argIdx: INTEGER; buildMode, errFlag: BOOLEAN;
 	
 PROCEDURE Compile(fname: ARRAY OF CHAR);
-	VAR srcfile: Files.File; sym: INTEGER;
+	VAR srcfile: Files.File; sym, startTime, endTime: INTEGER;
 BEGIN
-	Out.String('Compile ');
-	Out.String(fname); Out.Ln; B.SetSrcPath(fname);
+	Out.String('Compile '); Out.String(fname); Out.Ln; B.SetSrcPath(fname);
 	srcfile := Files.Old(fname); S.Init(srcfile, 0); S.Get(sym);
+	
+	startTime := Rtl.Time();
 	IF sym = S.module THEN P.Module ELSE S.Mark('MODULE?') END;
+	IF S.errcnt = 0 THEN
+		endTime := Rtl.Time(); Out.String('Compile time: ');
+		Out.Int(Rtl.TimeToMSecs(endTime - startTime), 0);
+		Out.String(' miliseconds'); Out.Ln
+	END;
 	Rtl.Collect
 END Compile;
 
@@ -91,7 +97,7 @@ BEGIN
 		ELSE ErrorNotFound(fname)
 		END
 	ELSE
-		Out.String('Patchouli Oberon-07 Compiler v0.8e'); Out.Ln;
+		Out.String('Patchouli Oberon-07 Compiler v0.8f'); Out.Ln;
  		Out.String('Usage: Poc <inputfile>'); Out.Ln
 	END
 END Poc.

@@ -1,6 +1,6 @@
 MODULE Generator;
 IMPORT
-	SYSTEM, Rtl, Strings, Out, Files,
+	SYSTEM, Out, Files,
 	S := Scanner, B := Base, Linker;
 
 CONST
@@ -116,8 +116,7 @@ VAR
 	(* others *)
 	adrOfNEW, modPtrTable, adrOfPtrTable: INTEGER;
 	
-	out: Rtl.File; debug: Files.File;
-	startTime, endTime: INTEGER;
+	debug: Files.File;
 		
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -706,7 +705,7 @@ BEGIN
 	err4FmtStr := B.NewStr2('Cannot load module %s (not exist?)');
 	rtlName := B.NewStr2('RTL.DLL'); user32name := B.NewStr2('USER32.DLL');
 	
-	str := 'Error in module '; Strings.Append(modid, str);
+	str := 'Error in module '; B.Append(modid, str);
 	err5FmtStr := B.NewStr2(str);
 	
 	AllocStaticData; ScanDeclaration(B.universe.first, 0);
@@ -2704,6 +2703,7 @@ END FoldConst;
 (* -------------------------------------------------------------------------- *)
 
 PROCEDURE Init*(modid0: S.IdStr);
+	VAR fname: ARRAY 128 OF CHAR;
 BEGIN
 	modid := modid0; varSize := 0; staticSize := 128;
 	procList := NIL; curProc := NIL;
@@ -2728,9 +2728,7 @@ BEGIN
 	LoadLibraryW := 8;
 	GetProcAddress := 0;
 
-	startTime := Rtl.Time();
-	debug := Files.New('.DebugInfo');
-	Rtl.Rewrite(out, '.tempOut')
+	debug := Files.New('.DebugInfo')
 END Init;
 
 PROCEDURE Generate*(VAR modinit: B.Node);
@@ -2761,14 +2759,13 @@ BEGIN
 	END;
 	
 	Linker.Link(
-		out, debug, code,
+		debug, code,
 		pc, dllInitProc.adr, staticSize, varSize, modPtrTable
 	)
 END Generate;
 
 PROCEDURE Cleanup*;
 BEGIN
-	IF S.errcnt # 0 THEN Rtl.Close(out); Rtl.Delete('.tempOut') END;
 	debug := NIL;
 	
 	procList := NIL; curProc := NIL; modInitProc := NIL;
@@ -2781,15 +2778,10 @@ END Cleanup;
 
 PROCEDURE DisplayInfo*;
 BEGIN
-	endTime := Rtl.Time();
 	(* Show statistics *)
-	(* Out.String(': No errors found'); Out.Ln; *)
 	Out.String('Code size: '); Out.Int(pc, 0); Out.Ln;
 	Out.String('Global variables size: '); Out.Int(varSize, 0); Out.Ln;
-	Out.String('Static data size: '); Out.Int(staticSize, 0); Out.Ln;
-	Out.String('Compile time: ');
-	Out.Int(Rtl.TimeToMSecs(endTime - startTime), 0);
-	Out.String(' miliseconds'); Out.Ln
+	Out.String('Static data size: '); Out.Int(staticSize, 0); Out.Ln
 END DisplayInfo;
 
 BEGIN

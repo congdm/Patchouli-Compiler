@@ -1,5 +1,4 @@
 ..\lib\Crypt.mod
-..\lib\Strings.mod
 ..\lib\Rtl.mod
 ..\lib\Out.mod
 ..\lib\Files.mod

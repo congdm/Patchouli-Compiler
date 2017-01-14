@@ -1,6 +1,6 @@
 MODULE Base;
 IMPORT
-	SYSTEM, Strings, Crypt, Files,
+	SYSTEM, Crypt, Files,
 	S := Scanner;
 
 CONST
@@ -104,6 +104,25 @@ VAR
 	
 	ExportType0: PROCEDURE(typ: Type);
 	ImportType0: PROCEDURE(VAR typ: Type; mod: Module);
+	
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+(* Utility *)
+
+PROCEDURE Append*(src: ARRAY OF CHAR; VAR dst: ARRAY OF CHAR);
+	VAR i, j: INTEGER;
+BEGIN
+	i := 0; WHILE dst[i] # 0X DO INC(i) END; j := 0;
+	WHILE src[j] # 0X DO dst[i] := src[j]; INC(i); INC(j) END;
+	dst[i] := 0X
+END Append;
+
+PROCEDURE StrLen*(str: ARRAY OF CHAR): INTEGER;
+	VAR len: INTEGER;
+BEGIN
+	len := 0; WHILE str[len] # 0X DO INC(len) END;
+	RETURN len
+END StrLen;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -413,8 +432,8 @@ PROCEDURE WriteSymfile*;
 		symfname: ARRAY 512 OF CHAR; x: Object;
 BEGIN
 	ScanExportTypes(universe.first, -1);
-	symfname := 0X; Strings.Append(srcPath, symfname);
-	Strings.Append(modid, symfname); Strings.Append('.sym', symfname);
+	symfname := 0X; Append(srcPath, symfname);
+	Append(modid, symfname); Append('.sym', symfname);
 	symfile := Files.New(symfname); Files.Set(rider, symfile, 16);
 	
 	refno := 0; expno := 0;
@@ -670,12 +689,10 @@ BEGIN
 			Files.ReadNum(rider, lev); Files.ReadBool(rider, reExp);
 			IF name = modid THEN S.Mark('Circular dependency')
 			ELSIF dep # NIL THEN
-				IF (dep.key[0] # key[0]) OR (dep.key[1] # key[1])
-				THEN msg := 'Module '; Strings.Append(name, msg);
-					Strings.Append(' was imported by ', msg);
-					Strings.Append(imodid, msg);
-					Strings.Append(' with a different key', msg);
-					S.Mark(msg)
+				IF (dep.key[0] # key[0]) OR (dep.key[1] # key[1]) THEN
+					msg := 'Module '; Append(name, msg);
+					Append(' was imported by ', msg); Append(imodid, msg);
+					Append(' with a different key', msg); S.Mark(msg)
 				END
 			ELSIF reExp THEN
 				NEW(dep); dep.name := name; dep.adr := 0;
@@ -742,16 +759,14 @@ PROCEDURE NewModule*(ident: Ident; name: S.IdStr);
 	END GetPath;
 	
 BEGIN (* NewModule *)
-	symfname := name; Strings.Append('.sym', symfname); path := symfname;
+	symfname := name; Append('.sym', symfname); path := symfname;
 	i := 0; symfile := Files.Old(path); found := symfile # NIL;
 	WHILE (symPath[i] # 0X) & ~found DO
 		len := GetPath(path, i);
 		IF len # 0 THEN
-			IF path[len-1] # '\' THEN
-				path[len] := '\'; path[len+1] := 0X
-			END;
-			Strings.Append(symfname, path);
-			symfile := Files.Old(path); found := symfile # NIL
+			IF path[len-1] # '\' THEN path[len] := '\'; path[len+1] := 0X END;
+			Append(symfname, path); symfile := Files.Old(path);
+			found := symfile # NIL
 		END
 	END;
 	IF found THEN ident.obj := Import(name)

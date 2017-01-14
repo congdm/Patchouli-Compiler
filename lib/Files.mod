@@ -1,5 +1,5 @@
 MODULE Files;
-IMPORT SYSTEM, Rtl, Out;
+IMPORT SYSTEM, Rtl;
 
 CONST
 	(* Win32 Const *)
@@ -90,9 +90,7 @@ VAR
 PROCEDURE Finalise(ptr: Rtl.Finalised);
 	VAR bRes: Bool; f: File;
 BEGIN
-	f := ptr(File); Out.String('Release file ');
-	IF f.new THEN Out.String(f.temp) ELSE Out.String(f.name) END; Out.Ln;
-	bRes := CloseHandle(f.hFile)
+	f := ptr(File); bRes := CloseHandle(f.hFile)
 END Finalise;
 
 PROCEDURE NewFile(VAR file: File; hFile: Handle);
@@ -167,7 +165,7 @@ BEGIN
 			END
 		UNTIL (byteRead = 0) OR (bRes = 0);
 		bRes := CloseHandle(f.hFile); f.hFile := hFile2;
-		f.new := FALSE; (*bRes := FlushFileBuffers(hFile2)*)
+		f.new := FALSE; (* bRes := FlushFileBuffers(hFile2) very slow *)
 	END
 END Register;
 
@@ -199,9 +197,6 @@ BEGIN
 END Rename;
 
 PROCEDURE Length*(f: File): INTEGER;
-	(*VAR len: INTEGER; bRes: Bool;*)
-BEGIN
-	(* bRes := GetFileSizeEx(f.hFile, SYSTEM.ADR(len)); *)
 	RETURN f.len
 END Length;
 
@@ -262,6 +257,24 @@ BEGIN
 	r.eof := (bRes # 0) & (byteRead = 0);
 	IF ~r.eof THEN INC(r.pos, byteRead); INC(f.pos, byteRead) END
 END ReadReal;
+
+PROCEDURE ReadCard32*(VAR r: Rider; VAR x: SYSTEM.CARD32);
+	VAR bRes: Bool; byteRead: Dword; f: File;
+BEGIN
+	f := r.f; CheckFilePos(r);
+	bRes := ReadFile(f.hFile, SYSTEM.ADR(x), 4, SYSTEM.ADR(byteRead), 0);
+	r.eof := (bRes # 0) & (byteRead = 0);
+	IF ~r.eof THEN INC(r.pos, byteRead); INC(f.pos, byteRead) END
+END ReadCard32;
+
+PROCEDURE ReadCard16*(VAR r: Rider; VAR x: SYSTEM.CARD16);
+	VAR bRes: Bool; byteRead: Dword; f: File;
+BEGIN
+	f := r.f; CheckFilePos(r);
+	bRes := ReadFile(f.hFile, SYSTEM.ADR(x), 2, SYSTEM.ADR(byteRead), 0);
+	r.eof := (bRes # 0) & (byteRead = 0);
+	IF ~r.eof THEN INC(r.pos, byteRead); INC(f.pos, byteRead) END
+END ReadCard16;
 
 PROCEDURE ReadNum*(VAR r: Rider; VAR x: INTEGER);
 	VAR s, b: BYTE; n: INTEGER;
@@ -366,7 +379,34 @@ BEGIN
 	END	
 END WriteReal;
 
+PROCEDURE WriteCard32*(VAR r: Rider; x: SYSTEM.CARD32);
+	VAR bRes: Bool; byteWritten: Dword; f: File;
+BEGIN
+	f := r.f; CheckFilePos(r);
+	bRes := WriteFile(f.hFile, SYSTEM.ADR(x), 4, SYSTEM.ADR(byteWritten), 0);
+	IF bRes # 0 THEN
+		INC(r.pos, byteWritten); INC(f.pos, byteWritten);
+		IF f.pos > f.len THEN f.len := f.pos END
+	END
+END WriteCard32;
+
+PROCEDURE WriteCard16*(VAR r: Rider; x: SYSTEM.CARD16);
+	VAR bRes: Bool; byteWritten: Dword; f: File;
+BEGIN
+	f := r.f; CheckFilePos(r);
+	bRes := WriteFile(f.hFile, SYSTEM.ADR(x), 2, SYSTEM.ADR(byteWritten), 0);
+	IF bRes # 0 THEN
+		INC(r.pos, byteWritten); INC(f.pos, byteWritten);
+		IF f.pos > f.len THEN f.len := f.pos END
+	END
+END WriteCard16;
+
 PROCEDURE WriteNum*(VAR r: Rider; x: INTEGER);
+BEGIN
+	WHILE (x < -64) OR (x >= 64) DO
+		Write(r, x MOD 128 + 128); x := x DIV 128
+	END;
+	Write(r, x MOD 128)
 END WriteNum;
 
 PROCEDURE WriteChar*(VAR r: Rider; x: CHAR);
