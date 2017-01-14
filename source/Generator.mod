@@ -297,7 +297,7 @@ BEGIN rsize := 4; op := 0B6H;
 		THEN rsize := 8
 		END
 	ELSIF rmsize = 2 THEN INC(op)
-	ELSE ASSERT(FALSE)
+	ELSE Out.Int(sPos, 0); ASSERT(FALSE)
 	END;
 	EmitREX(reg, rsize); Put1(0FH); Put1(op); EmitModRM(reg)
 END EmitMOVZX;
@@ -1310,18 +1310,17 @@ PROCEDURE Compare(VAR x: Item; node: Node);
 		y, len: Item; tp: B.Type; oldStat: MakeItemState;
 BEGIN
 	ResetMkItmStat2(oldStat); tp := node.left.type;
-	IF tp.form = B.tInt THEN
-		LoadLeftRight2(x, y, node); SetRmOperand(y);
-		EmitRegRm(CMPd, x.r, 8); FreeReg(x.r); FreeReg2(y);
-		SetCond(x, IntOpToCc(node.op))
-	ELSIF tp = B.realType THEN
-		LoadLeftRight2(x, y, node); SetRmOperand(y);
-		EmitXmmRm(COMISD, x.r, 4); FreeXReg(x.r); FreeReg2(y);
-		SetCond(x, IntOpToCc(node.op))
-	ELSIF tp.form IN B.typScalar THEN
-		LoadLeftRight2(x, y, node); SetRmOperand(y);
-		EmitRegRm(CMPd, x.r, y.type.size); FreeReg(x.r); FreeReg2(y);
-		SetCond(x, OpToCc(node.op))
+	IF tp.form IN B.typScalar THEN
+		IF tp.form # B.tReal THEN
+			LoadLeftRight2(x, y, node); SetRmOperand(y);
+			EmitRegRm(CMPd, x.r, 8); FreeReg(x.r); FreeReg2(y);
+			SetCond(x, IntOpToCc(node.op))
+		ELSIF tp = B.realType THEN
+			LoadLeftRight2(x, y, node); SetRmOperand(y);
+			EmitXmmRm(COMISD, x.r, 4); FreeXReg(x.r); FreeReg2(y);
+			SetCond(x, IntOpToCc(node.op))
+		ELSE ASSERT(FALSE)
+		END
 	ELSIF B.IsStr(tp) THEN
 		SetBestReg(reg_SI); AvoidUsedBy(node.right); SetAvoid(reg_DI);
 		MakeItem0(x, node.left); LoadAdr(x); ResetMkItmStat;
@@ -1973,12 +1972,9 @@ BEGIN imm := node.right(B.Const).val;
 		END
 	ELSIF (node.op >= S.eql) & (node.op <= S.geq) THEN
 		oldStat := MkItmStat; ResetMkItmStat;
-		MakeItem0(x, node.left); RefToRegI(x); MkItmStat := oldStat;
-		SetRmOperand(x); EmitRmImm(CMPi, x.type.size, imm);
-		IF x.type.form = B.tInt THEN cond := IntOpToCc(node.op)
-		ELSE cond := OpToCc(node.op)
-		END;
-		FreeReg2(x); SetCond(x, cond)
+		MakeItem0(x, node.left); Load(x); MkItmStat := oldStat;
+		SetRmOperand(x); EmitRmImm(CMPi, 8, imm);
+		FreeReg2(x); SetCond(x, IntOpToCc(node.op))
 	ELSIF node.op = S.becomes THEN
 		ResetMkItmStat; allocReg := {}; allocXReg := {};
 		MakeItem0(x, node.left); RefToRegI(x);
