@@ -132,7 +132,8 @@ BEGIN
 	END;
 	t := B.recList;
 	WHILE t # NIL DO
-		Files.Set(rider, out, basefadr + t.type.adr); Files.WriteInt(rider, t.type.size);
+		Files.Set(rider, out, basefadr + t.type.adr);
+		Files.WriteInt(rider, t.type.size);
 		Files.Set(rider, out, basefadr + t.type.adr + 8 + B.MaxExt*8);
 		IF t.type.nptr > 0 THEN Write_pointer_offset(0, t.type) END;
 		Files.WriteInt(rider, -1); t := t.next
@@ -172,7 +173,8 @@ END Write_reloc_section;
 (* .pdata *)
 
 PROCEDURE Write_pdata_section(debug: Files.File);
-	VAR data: ARRAY 200H OF BYTE; len, cnt: INTEGER; r: Files.Rider;
+	VAR data: ARRAY 200H OF BYTE;
+		len, cnt: INTEGER; r: Files.Rider;
 BEGIN
 	Files.Set(rider, out, pdata_fadr+32);
 	Files.Set(r, debug, 0); len := Files.Length(debug);
@@ -277,7 +279,9 @@ BEGIN (* Write_edata_section *)
 	(* Name string *)
 	Files.WriteByteStr(rider, name);
 	IF namecnt > 0 THEN p := namedList;
-		WHILE p # NIL DO Files.WriteByteStr(rider, p.ident.name); p := p.next END
+		WHILE p # NIL DO
+			Files.WriteByteStr(rider, p.ident.name); p := p.next
+		END
 	END;
 	
 	edata_size := Files.Pos(rider) - edata_fadr;
@@ -464,7 +468,7 @@ BEGIN
 	Write_reloc_section; Write_pdata_section(debug);
 	Write_edata_section; Write_PEHeader;
 	
-	Files.Register(out); Files.Set(rider, NIL, 0); out := NIL
+	Files.Register(out)
 END Link;
 
 END Linker.

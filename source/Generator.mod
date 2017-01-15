@@ -116,7 +116,7 @@ VAR
 	(* others *)
 	adrOfNEW, modPtrTable, adrOfPtrTable: INTEGER;
 	
-	debug: Files.File;
+	debug: Files.File; rider: Files.Rider;
 		
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -480,11 +480,7 @@ BEGIN
 			tp.size := btype.size * tp.len; CheckTypeSize(tp.size)
 		ELSIF tp.form = B.tRec THEN
 			IF btype # NIL THEN SetTypeSize(btype);
-				align := btype.align; size := 0; ident := btype.fields;
-				IF ident # NIL THEN
-					WHILE ident.next # NIL DO ident := ident.next END;
-					size := ident.obj(B.Field).off + ident.obj.type.size
-				END
+				align := btype.align; size := btype.size0
 			ELSE size := 0; align := 0
 			END;
 			ident := tp.fields;
@@ -495,8 +491,8 @@ BEGIN
 				INC(size, ftype.size); CheckTypeSize(size);
 				ident := ident.next
 			END;
-			Align(size, align); CheckTypeSize(size);
-			tp.size := size; tp.align := align
+			tp.size0 := size; Align(size, align);
+			CheckTypeSize(size); tp.size := size; tp.align := align
 		ELSE ASSERT(FALSE)
 		END
 	END
@@ -876,11 +872,9 @@ BEGIN
 END LoadProc;
 
 PROCEDURE WriteDebug(pos, spos, trapno: INTEGER);
-	VAR r: Files.Rider;
 BEGIN
 	IF pass = 3 THEN
-		Files.Set(r, debug, Files.Length(debug));
-		Files.WriteInt(r, pos + LSL(spos, 30) + LSL(trapno, 60))
+		Files.WriteInt(rider, pos + LSL(spos, 30) + LSL(trapno, 60))
 	END
 END WriteDebug;
 
@@ -1776,8 +1770,8 @@ BEGIN
 	
 	first := pc; AvoidUsedBy(end.left);
 	MakeItem0(i, control.left); RefToRegI(i);
-	IF (e.mode = mImm) & SmallConst(e.a) THEN
-		SetRmOperand(i); EmitRmImm(CMPi, 8, e.a)
+	IF (end.left IS B.Const) & SmallConst(end.left(B.Const).val) THEN
+		SetRmOperand(i); EmitRmImm(CMPi, 8, end.left(B.Const).val)
 	ELSE
 		ResetMkItmStat; MakeItem0(e, end.left); Load(e);
 		SetRmOperand(i); EmitRegRm(CMP, e.r, 8); FreeReg(e.r)
@@ -2260,6 +2254,14 @@ BEGIN
 	EmitRR(TEST, reg_A, 8, reg_A); Trap(ccZ, rtlTrap);
 	SetRm_regI(reg_B, adrOfNEW); EmitRegRm(MOV, reg_A, 8);
 	
+	MoveRI(reg_A, 8, 746C6148H); (* Halt *) 
+	SetRm_regI(reg_SP, 32); EmitRegRm(MOV, reg_A, 8);
+	EmitRR(MOVd, reg_C, 8, reg_SI);
+	SetRm_regI(reg_SP, 32); EmitRegRm(LEA, reg_D, 8);
+	SetRm_regI(reg_B, GetProcAddress); EmitRm(CALL, 4);
+	EmitRR(TEST, reg_A, 8, reg_A); Trap(ccZ, rtlTrap);
+	SetRm_regI(reg_B, ExitProcess); EmitRegRm(MOV, reg_A, 8);
+	
 	MoveRI(reg_A, 8, 7265747369676552H); (* Register *)
 	SetRm_regI(reg_SP, 32); EmitRegRm(MOV, reg_A, 8);
 	SetRm_regI(reg_SP, 40); EmitRmImm(MOVi, 1, 0);
@@ -2728,7 +2730,7 @@ BEGIN
 	LoadLibraryW := 8;
 	GetProcAddress := 0;
 
-	debug := Files.New('.DebugInfo')
+	debug := Files.New('.DebugInfo'); Files.Set(rider, debug, 0)
 END Init;
 
 PROCEDURE Generate*(VAR modinit: B.Node);
@@ -2766,7 +2768,7 @@ END Generate;
 
 PROCEDURE Cleanup*;
 BEGIN
-	debug := NIL;
+	debug := NIL; Files.Set(rider, NIL, 0);
 	
 	procList := NIL; curProc := NIL; modInitProc := NIL;
 	trapProc := NIL; trapProc2 := NIL; dllInitProc := NIL;

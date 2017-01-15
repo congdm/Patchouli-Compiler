@@ -1,5 +1,5 @@
 MODULE Files;
-IMPORT SYSTEM, Rtl;
+IMPORT SYSTEM, Rtl, Out;
 
 CONST
 	(* Win32 Const *)
@@ -7,16 +7,25 @@ CONST
 	FILE_ATTRIBUTE_READONLY = {0};
 	FILE_ATTRIBUTE_TEMPORARY = {8};
 	FILE_FLAG_DELETE_ON_CLOSE = {26};
+	
 	GENERIC_READ = {31};
 	GENERIC_WRITE = {30};
+	
 	OPEN_EXISTING = 3;
 	CREATE_ALWAYS = 2;
 	CREATE_NEW = 1;
+	
 	MAX_PATH = 260;
+	
 	FILE_BEGIN = 0;
 	FILE_CURRENT = 1;
 	FILE_END = 2;
+	
 	MOVEFILE_COPY_ALLOWED = {1};
+	
+	FILE_SHARE_DELETE = {2};
+	FILE_SHARE_READ = {0};
+	FILE_SHARE_WRITE = {1};
 
 TYPE
 	Handle = INTEGER;
@@ -90,7 +99,7 @@ VAR
 PROCEDURE Finalise(ptr: Rtl.Finalised);
 	VAR bRes: Bool; f: File;
 BEGIN
-	f := ptr(File); bRes := CloseHandle(f.hFile)
+	f := ptr(File); bRes := CloseHandle(f.hFile); ASSERT(bRes # 0)
 END Finalise;
 
 PROCEDURE NewFile(VAR file: File; hFile: Handle);
@@ -107,12 +116,14 @@ BEGIN
 	IF attr # ORD(INVALID_FILE_ATTRIBUTES) THEN
 		IF FILE_ATTRIBUTE_READONLY * SYSTEM.VAL(SET, attr) # {} THEN
 			hFile := CreateFileW(
-				name, ORD(GENERIC_READ), 0, 0, OPEN_EXISTING, 0, 0
+				name, ORD(GENERIC_READ), ORD(FILE_SHARE_READ),
+				0, OPEN_EXISTING, 0, 0
 			);
 			ronly := TRUE
 		ELSE hFile := CreateFileW(
 				name, ORD(GENERIC_READ+GENERIC_WRITE),
-				0, 0, OPEN_EXISTING, 0, 0
+				ORD(FILE_SHARE_READ+FILE_SHARE_WRITE+FILE_SHARE_DELETE),
+				0, OPEN_EXISTING, 0, 0
 			);
 			ronly := FALSE
 		END;
@@ -120,7 +131,7 @@ BEGIN
 			NewFile(file, hFile); file.new := FALSE;
 			file.ronly := ronly; file.name := name; file.pos := 0;
 			bRes := GetFileSizeEx(hFile, SYSTEM.ADR(file.len))
-		ELSE ASSERT(FALSE)
+		ELSE Out.String('Fault: '); Out.String(name); SYSTEM.INT3; ASSERT(FALSE)
 		END
 	END;
 	RETURN file
@@ -131,8 +142,9 @@ PROCEDURE New*(name: ARRAY OF CHAR): File;
 BEGIN
 	iRes := wsprintfW(temp, '.temp%lu_%d', Rtl.Time(), tempId); INC(tempId);
 	hFile := CreateFileW(
-		temp, ORD(GENERIC_READ+GENERIC_WRITE), 0, 0, CREATE_NEW,
-		ORD(FILE_ATTRIBUTE_TEMPORARY+FILE_FLAG_DELETE_ON_CLOSE), 0
+		temp, ORD(GENERIC_READ+GENERIC_WRITE),
+		ORD(FILE_SHARE_READ+FILE_SHARE_WRITE+FILE_SHARE_DELETE), 0,
+		CREATE_NEW, ORD(FILE_ATTRIBUTE_TEMPORARY+FILE_FLAG_DELETE_ON_CLOSE), 0
 	);
 	IF hFile # -1 THEN
 		NewFile(file, hFile); file.new := TRUE;
@@ -148,7 +160,9 @@ PROCEDURE Register*(f: File);
 BEGIN
 	IF f.new THEN
 		hFile2 := CreateFileW(
-			f.name, ORD(GENERIC_READ+GENERIC_WRITE), 0, 0, CREATE_ALWAYS, 0, 0
+			f.name, ORD(GENERIC_READ+GENERIC_WRITE),
+			ORD(FILE_SHARE_READ+FILE_SHARE_WRITE+FILE_SHARE_DELETE),
+			0, CREATE_ALWAYS, 0, 0
 		);
 		ASSERT(hFile2 # -1); f.pos := 0;
 		bRes := SetFilePointerEx(f.hFile, 0, 0, FILE_BEGIN);
@@ -164,22 +178,24 @@ BEGIN
 				INC(f.pos, byteWritten)
 			END
 		UNTIL (byteRead = 0) OR (bRes = 0);
-		bRes := CloseHandle(f.hFile); f.hFile := hFile2;
-		f.new := FALSE; (* bRes := FlushFileBuffers(hFile2) very slow *)
+		bRes := CloseHandle(f.hFile); ASSERT(bRes # 0);
+		f.hFile := hFile2; f.new := FALSE;
+		(* bRes := FlushFileBuffers(hFile2) very slow *)
 	END
 END Register;
 
 PROCEDURE Close*(f: File);
 	VAR bRes: Bool;
 BEGIN
-	bRes := FlushFileBuffers(f.hFile)
+	bRes := FlushFileBuffers(f.hFile);
+	ASSERT(bRes # 0)
 END Close;
 
 PROCEDURE Purge*(f: File);
 	VAR bRes: Bool; pos: INTEGER;
 BEGIN
 	bRes := SetFilePointerEx(f.hFile, 0, SYSTEM.ADR(pos), FILE_BEGIN);
-	bRes := SetEndOfFile(f.hFile)
+	ASSERT(bRes # 0); bRes := SetEndOfFile(f.hFile); ASSERT(bRes # 0)
 END Purge;
 
 PROCEDURE Delete*(name: ARRAY OF CHAR; VAR res: INTEGER);
@@ -227,7 +243,7 @@ BEGIN
 		bRes := SetFilePointerEx(
 			r.f.hFile, r.pos, SYSTEM.ADR(r.pos), FILE_BEGIN
 		);
-		r.f.pos := r.pos
+		ASSERT(bRes # 0); r.f.pos := r.pos
 	END
 END CheckFilePos;
 

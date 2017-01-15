@@ -2,12 +2,13 @@ MODULE Poc;
 (*$CONSOLE*)
 
 IMPORT
-	Rtl, Out, Files,
+	SYSTEM, Rtl, Out, Files,
 	S := Scanner, B := Base, P := Parser;
 	
 VAR
 	arg, fname: ARRAY 1024 OF CHAR;
-	argIdx: INTEGER; buildMode, errFlag: BOOLEAN;
+	buildfile: Files.File; argIdx: INTEGER;
+	buildMode, errFlag: BOOLEAN;
 	
 PROCEDURE Compile(fname: ARRAY OF CHAR);
 	VAR srcfile: Files.File; sym, startTime, endTime: INTEGER;
@@ -32,23 +33,25 @@ BEGIN
 END ErrorNotFound;
 
 PROCEDURE Build(fname: ARRAY OF CHAR);
-	VAR build: Rtl.File; x, i: INTEGER; start, end: INTEGER;
+	VAR r: Files.Rider; i: INTEGER; x: BYTE; start, end: INTEGER;
 		byteStr: ARRAY 1024 OF BYTE; srcfname: ARRAY 1024 OF CHAR;
 BEGIN
-	start := Rtl.Time();
-	Rtl.Reset(build, fname); Rtl.Read1(build, x);
-	WHILE x # -1 DO i := 0;
-		WHILE (x > 32) DO byteStr[i] := x; Rtl.Read1(build, x); INC(i) END;
-		WHILE (x >= 0) & (x <= 32) DO Rtl.Read1(build, x) END;
+	start := Rtl.Time(); buildfile := Files.Old(fname);
+	Files.Set(r, buildfile, 0); i := 0; Files.Read(r, x);
+	WHILE ~r.eof DO
+		WHILE (x <= 32) & ~r.eof DO Files.Read(r, x) END;
+		WHILE (x > 32) & ~r.eof DO
+			byteStr[i] := x; Files.Read(r, x); INC(i)
+		END;
 		IF i > 0 THEN
 			byteStr[i] := 0; i := Rtl.Utf8ToUnicode(byteStr, srcfname);
-			IF Rtl.ExistFile(srcfname) THEN Compile(srcfname)
+			IF Files.Old(srcfname) # NIL THEN Compile(srcfname)
 			ELSE ErrorNotFound(srcfname)
 			END;
 			Out.Ln; i := 0
 		END
 	END;
-	Rtl.Close(build); end := Rtl.Time();
+	end := Rtl.Time();
 	Out.String('Total build time: ');
 	Out.Int(Rtl.TimeToMSecs(end-start), 0);
 	Out.String(' miliseconds'); Out.Ln
@@ -92,7 +95,7 @@ END Arguments;
 BEGIN
 	Get; Arguments;
 	IF fname[0] # 0X THEN
-		IF Rtl.ExistFile(fname) THEN
+		IF Files.Old(fname) # NIL THEN
 			IF ~buildMode THEN Compile(fname) ELSE Build(fname) END
 		ELSE ErrorNotFound(fname)
 		END

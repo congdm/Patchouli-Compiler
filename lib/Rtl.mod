@@ -6,7 +6,7 @@ CONST
 	MinInt = 8000000000000000H; MaxInt = 7FFFFFFFFFFFFFFFH;
 
 	Kernel32 = 'KERNEL32.DLL';
-	heapErrMsg = 'Heap corruption';
+	HeapMax = 80000000H;
 	
 	GENERIC_READ = {31}; GENERIC_WRITE = {30};
 	MEM_RESERVE = 2000H; MEM_COMMIT = 1000H; PAGE_READWRITE = 4;
@@ -20,12 +20,10 @@ TYPE
 	Ulong = SYSTEM.CARD32;
 	Uint = SYSTEM.CARD32;
 	
-	File* = RECORD hFile: INTEGER END;
-	
 	Finalised* = POINTER TO FinalisedDesc;
 	FinaliseProc* = PROCEDURE(ptr: Finalised);
 	FinalisedDesc* = RECORD
-		Finalise: FinaliseProc; next: Finalised
+		Finalise: FinaliseProc; next: INTEGER
 	END;
 
 VAR
@@ -34,7 +32,7 @@ VAR
 	finalisedList: Finalised;
 
 	(* Utility *)
-	ExitProcess: PROCEDURE(uExitCode: INTEGER);
+	ExitProcess: PROCEDURE(uExitCode: Uint);
 	AddVectoredExceptionHandler: PROCEDURE(
 		FirstHandler: Ulong; VectoredHandler: Pointer
 	);
@@ -49,28 +47,6 @@ VAR
 	): Pointer;
 	heapBase, heapSize: INTEGER; allocated*: INTEGER;
 	fList: ARRAY 4 OF INTEGER; fList0: INTEGER;
-	
-	(* File *)
-	GetFileAttributesW: PROCEDURE(lpFileName: INTEGER): Dword;
-	MoveFileW: PROCEDURE(lpExistingFileName, lpNewFileName: INTEGER): Bool;
-	DeleteFileW: PROCEDURE(lpFilename: INTEGER): Bool;
-	CreateFileW: PROCEDURE(
-		lpFileName, dwDesiredAccess, dwShareMode, lpSecurityAttributes,
-		dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile: INTEGER
-	): Handle;
-	CloseHandle: PROCEDURE(hObject: INTEGER): Bool;
-	ReadFile: PROCEDURE(
-		hFile, lpBuffer, nNumberOfBytesToRead,
-		lpNumberOfBytesRead, lpOverlapped: INTEGER
-	): Bool;
-	WriteFile: PROCEDURE(
-		hFile, lpBuffer, nNumberOfBytesToWrite,
-		lpNumberOfBytesWrite, lpOverlapped: INTEGER
-	): Bool;
-	SetFilePointerEx: PROCEDURE(
-		hFile, liDistanceToMove, lpNewFilePointer, dwMoveMethod: INTEGER
-	): Bool;
-	FlushFileBuffers: PROCEDURE(hFile: Handle): Bool;
 	
 	(* Unicode *)
 	WideCharToMultiByte: PROCEDURE(
@@ -116,15 +92,6 @@ PROCEDURE MessageBox*(title, msg: ARRAY OF CHAR);
 	VAR iRes: Int;
 BEGIN iRes := MessageBoxW(0, SYSTEM.ADR(msg), SYSTEM.ADR(title), 0)
 END MessageBox;
-
-PROCEDURE Halt*(msg: ARRAY OF CHAR);
-BEGIN MessageBox('Halt', msg); ExitProcess(0)
-END Halt;
-
-PROCEDURE Assert*(cond: BOOLEAN; msg: ARRAY OF CHAR);
-BEGIN
-	IF ~cond THEN Halt(msg) END
-END Assert;
 
 PROCEDURE Format*(
 	type: INTEGER; src: ARRAY OF BYTE; VAR dst: ARRAY OF CHAR
@@ -191,192 +158,6 @@ END Time;
 PROCEDURE TimeToMSecs*(time: INTEGER): INTEGER;
 	RETURN time DIV 10000
 END TimeToMSecs;
-
-(* -------------------------------------------------------------------------- *)
-(* -------------------------------------------------------------------------- *)
-(* File *)
-
-PROCEDURE ExistFile*(fname: ARRAY OF CHAR): BOOLEAN;
-	CONST INVALID_FILE_ATTRIBUTES = {0..31};
-	VAR dwRes: Dword;
-BEGIN
-	dwRes := GetFileAttributesW(SYSTEM.ADR(fname));
-	RETURN dwRes # ORD(INVALID_FILE_ATTRIBUTES)
-END ExistFile;
-	
-PROCEDURE Open*(VAR f: File; fname: ARRAY OF CHAR);
-	CONST OPEN_EXISTING = 3;
-BEGIN
-	f.hFile := CreateFileW(
-		SYSTEM.ADR(fname), ORD(GENERIC_READ + GENERIC_WRITE),
-		0, 0, OPEN_EXISTING, 0, 0
-	)
-END Open;
-
-PROCEDURE Reset*(VAR f: File; fname: ARRAY OF CHAR);
-	CONST OPEN_EXISTING = 3;
-BEGIN
-	f.hFile := CreateFileW(
-		SYSTEM.ADR(fname), ORD(GENERIC_READ), 0, 0, OPEN_EXISTING, 0, 0
-	)
-END Reset;
-	
-PROCEDURE Rewrite*(VAR f: File; fname: ARRAY OF CHAR);
-	CONST CREATE_ALWAYS = 2;
-BEGIN
-	f.hFile := CreateFileW(
-		SYSTEM.ADR(fname), ORD(GENERIC_READ + GENERIC_WRITE),
-		0, 0, CREATE_ALWAYS, 0, 0
-	)
-END Rewrite;
-
-PROCEDURE Flush*(f: File);
-BEGIN ASSERT(FlushFileBuffers(f.hFile) # 0)
-END Flush;
-
-PROCEDURE Close*(VAR f: File);
-	VAR bRes: Bool;
-BEGIN bRes := CloseHandle(f.hFile); f.hFile := 0
-END Close;
-
-PROCEDURE Rename*(old, new: ARRAY OF CHAR);
-	VAR bRes: Bool;
-BEGIN bRes := MoveFileW(SYSTEM.ADR(old), SYSTEM.ADR(new))
-END Rename;
-
-PROCEDURE Delete*(fname: ARRAY OF CHAR);
-	VAR bRes: Bool;
-BEGIN bRes := DeleteFileW(SYSTEM.ADR(fname))
-END Delete;
-
-(* -------------------------------------------------------------------------- *)
-(* Read *)
-
-PROCEDURE Read1*(f: File; VAR n: INTEGER);
-	VAR bRes: Bool; byteRead: Dword; x: BYTE;
-BEGIN byteRead := 0;
-	bRes := ReadFile(f.hFile, SYSTEM.ADR(x), 1, SYSTEM.ADR(byteRead), 0);
-	IF (bRes # 0) & (byteRead = 1) THEN n := x ELSE n := -1 END
-END Read1;
-	
-PROCEDURE Read2*(f: File; VAR n: INTEGER);
-	VAR bRes: Bool; byteRead: Dword; x: SYSTEM.CARD16;
-BEGIN
-	bRes := ReadFile(f.hFile, SYSTEM.ADR(x), 2, SYSTEM.ADR(byteRead), 0);
-	IF (bRes # 0) & (byteRead = 2) THEN n := x ELSE n := -1 END
-END Read2;
-
-PROCEDURE ReadStr*(f: File; VAR str: ARRAY OF CHAR);
-	VAR i: INTEGER; bRes: Bool; byteRead: Dword; ch: CHAR;
-BEGIN i := 0;
-	bRes := ReadFile(f.hFile, SYSTEM.ADR(ch), 2, SYSTEM.ADR(byteRead), 0);
-	WHILE (i < LEN(str)) & (ch # 0X) DO
-		str[i] := ch; INC(i);
-		bRes := ReadFile(f.hFile, SYSTEM.ADR(ch), 2, SYSTEM.ADR(byteRead), 0);
-		IF (bRes = 0) OR (byteRead # 2) THEN ch := 0X END
-	END;
-	IF i = LEN(str) THEN DEC(i) END; str[i] := 0X
-END ReadStr;
-	
-PROCEDURE Read4*(f: File; VAR n: INTEGER);
-	VAR bRes: Bool; byteRead: Dword; x: SYSTEM.CARD32;
-BEGIN
-	bRes := ReadFile(f.hFile, SYSTEM.ADR(x), 4, SYSTEM.ADR(byteRead), 0);
-	IF (bRes # 0) & (byteRead = 4) THEN n := x ELSE n := -1 END
-END Read4;
-	
-PROCEDURE Read8*(f: File; VAR n: INTEGER);
-	VAR bRes: Bool; byteRead: Dword;
-BEGIN
-	bRes := ReadFile(f.hFile, SYSTEM.ADR(n), 8, SYSTEM.ADR(byteRead), 0)
-END Read8;
-
-PROCEDURE ReadBytes*(f: File; VAR buf: ARRAY OF BYTE; VAR byteRead: INTEGER);
-	VAR bRes: Bool; dwByteRead: Dword;
-BEGIN dwByteRead := 0;
-	bRes := ReadFile(
-		f.hFile, SYSTEM.ADR(buf), LEN(buf), SYSTEM.ADR(dwByteRead), 0
-	);
-	byteRead := dwByteRead
-END ReadBytes;
-
-(* -------------------------------------------------------------------------- *)
-(* Write *)
-	
-PROCEDURE Write1*(f: File; n: INTEGER);
-	VAR bRes: Bool; byteWritten: Dword;
-BEGIN
-	bRes := WriteFile(f.hFile, SYSTEM.ADR(n), 1, SYSTEM.ADR(byteWritten), 0)
-END Write1;
-	
-PROCEDURE Write2*(f: File; n: INTEGER);
-	VAR bRes: Bool; byteWritten: Dword;
-BEGIN
-	bRes := WriteFile(f.hFile, SYSTEM.ADR(n), 2, SYSTEM.ADR(byteWritten), 0)
-END Write2;
-
-PROCEDURE WriteStr*(f: File; str: ARRAY OF CHAR);
-	VAR i, n: INTEGER;
-BEGIN i := -1; n := 0;
-	REPEAT INC(i); Write2(f, ORD(str[i])) UNTIL str[i] = 0X
-END WriteStr;
-
-PROCEDURE WriteAnsiStr*(f: File; str: ARRAY OF CHAR);
-	VAR i, n: INTEGER;
-BEGIN i := -1; n := 0;
-	REPEAT INC(i); Write1(f, ORD(str[i])) UNTIL str[i] = 0X
-END WriteAnsiStr;
-	
-PROCEDURE Write4*(f: File; n: INTEGER);
-	VAR bRes: Bool; byteWritten: Dword;
-BEGIN
-	bRes := WriteFile(f.hFile, SYSTEM.ADR(n), 4, SYSTEM.ADR(byteWritten), 0)
-END Write4;
-	
-PROCEDURE Write8*(f: File; n: INTEGER);
-	VAR bRes: Bool; byteWritten: Dword;
-BEGIN
-	bRes := WriteFile(f.hFile, SYSTEM.ADR(n), 8, SYSTEM.ADR(byteWritten), 0)
-END Write8;
-
-PROCEDURE WriteBytes*(f: File; a: ARRAY OF BYTE; VAR byteWritten: INTEGER);
-	VAR bRes: Bool; dwByteWritten: Dword;
-BEGIN dwByteWritten := 0;
-	bRes := WriteFile(
-		f.hFile, SYSTEM.ADR(a), LEN(a), SYSTEM.ADR(dwByteWritten), 0
-	);
-	byteWritten := dwByteWritten
-END WriteBytes;
-
-PROCEDURE WriteBuf*(f: File; ptr: INTEGER; VAR byteWritten: INTEGER);
-	VAR bRes: Bool; dwByteWritten: Dword;
-BEGIN dwByteWritten := 0;
-	bRes := WriteFile(
-		f.hFile, ptr, byteWritten, SYSTEM.ADR(dwByteWritten), 0
-	);
-	byteWritten := dwByteWritten
-END WriteBuf;
-
-(* -------------------------------------------------------------------------- *)
-
-PROCEDURE Pos*(f: File): INTEGER;
-	CONST FILE_CURRENT = 1;
-	VAR bRes, byteToMove, newPointer: INTEGER;
-BEGIN byteToMove := 0;
-	bRes := SetFilePointerEx(
-		f.hFile, byteToMove, SYSTEM.ADR(newPointer), FILE_CURRENT
-	)
-	RETURN newPointer
-END Pos;
-
-PROCEDURE Seek*(f: File; pos: INTEGER);
-	CONST FILE_BEGIN = 0;
-	VAR bRes, byteToMove, newPointer: INTEGER;
-BEGIN byteToMove := pos;
-	bRes := SetFilePointerEx(
-		f.hFile, byteToMove, SYSTEM.ADR(newPointer), FILE_BEGIN
-	)
-END Seek;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -447,9 +228,8 @@ END HeapLimit;
 PROCEDURE ExtendHeap;
 	VAR p, mark, size, prev, p2: INTEGER;
 BEGIN
-	IF heapSize = 80000000H THEN Halt('Out of memory') END;
 	p := VirtualAlloc(HeapLimit(), heapSize, MEM_COMMIT, PAGE_READWRITE);
-	IF p = 0 THEN Halt('VirtualAlloc cannot commit') END;
+	ASSERT(heapSize < HeapMax); ASSERT(p # 0);
 	SYSTEM.PUT(p, heapSize); SYSTEM.PUT(p+8, -1); SYSTEM.PUT(p+16, 0);
 	IF fList0 = 0 THEN fList0 := p
 	ELSE prev := fList0; SYSTEM.GET(fList0+16, p2);
@@ -623,16 +403,17 @@ BEGIN p := heapBase;
 END Scan;
 
 PROCEDURE Finalise;
-	VAR prev, ptr, next: Finalised; p, mark: INTEGER;
+	VAR prev, ptr: Finalised; next, p, mark: INTEGER;
 BEGIN ptr := finalisedList;
 	WHILE ptr # NIL DO
 		p := SYSTEM.VAL(INTEGER, ptr) - 16; SYSTEM.GET(p+8, mark);
-		IF mark = 0 (* released *) THEN next := ptr.next;
+		IF mark = 0 (* released *) THEN
+			next := ptr.next;
 			IF prev # NIL THEN prev.next := next
-			ELSE finalisedList := next
+			ELSE finalisedList := SYSTEM.VAL(Finalised, next)
 			END;
-			ptr.Finalise(ptr); ptr := next
-		ELSE prev := ptr; ptr := ptr.next
+			ptr.Finalise(ptr); ptr := SYSTEM.VAL(Finalised, next)
+		ELSE prev := ptr; ptr := SYSTEM.VAL(Finalised, ptr.next)
 		END
 	END
 END Finalise;
@@ -650,23 +431,32 @@ END Collect;
 PROCEDURE RegisterFinalised*(ptr: Finalised; finalise: FinaliseProc);
 BEGIN
 	ASSERT(finalise # NIL); ptr.Finalise := finalise;
-	ptr.next := finalisedList; finalisedList := ptr
+	ptr.next := SYSTEM.VAL(INTEGER, finalisedList); finalisedList := ptr
 END RegisterFinalised;
 
 (* -------------------------------------------------------------------------- *)
 
 PROCEDURE InitHeap;
 	VAR i, p: INTEGER;
-BEGIN heapSize := 80000H;
+BEGIN
 	heapBase := VirtualAlloc(0, 80000000H, MEM_RESERVE, PAGE_READWRITE);
-	IF heapBase = 0 THEN Halt('Cannot init heap') END;
+	heapSize := 80000H; ASSERT(heapBase # 0);
 	heapBase := VirtualAlloc(heapBase, heapSize, MEM_COMMIT, PAGE_READWRITE);
-	IF heapBase = 0 THEN Halt('Cannot init heap') END;
+	ASSERT(heapBase # 0);
 	
 	FOR i := 0 TO LEN(fList)-1 DO fList[i] := 0 END;
 	p := heapBase; fList0 := heapBase; allocated := 0;
 	SYSTEM.PUT(p, heapSize); SYSTEM.PUT(p+8, -1); SYSTEM.PUT(p+16, 0)
 END InitHeap;
+
+(* -------------------------------------------------------------------------- *)
+(* -------------------------------------------------------------------------- *)
+
+PROCEDURE Halt*(exitCode: INTEGER);
+BEGIN
+	nMod := 0; Collect;
+	ExitProcess(exitCode)
+END Halt;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -690,16 +480,6 @@ BEGIN
 	Import(CommandLineToArgvW, 'Shell32.dll', 'CommandLineToArgvW');
 
 	Import(VirtualAlloc, Kernel32, 'VirtualAlloc');
-	
-	Import(GetFileAttributesW, Kernel32, 'GetFileAttributesW');
-	Import(CreateFileW, Kernel32, 'CreateFileW');
-	Import(CloseHandle, Kernel32, 'CloseHandle');
-	Import(MoveFileW, Kernel32, 'MoveFileW');
-	Import(DeleteFileW, Kernel32, 'DeleteFileW');
-	Import(ReadFile, Kernel32, 'ReadFile');
-	Import(WriteFile, Kernel32, 'WriteFile');
-	Import(SetFilePointerEx, Kernel32, 'SetFilePointerEx');
-	Import(FlushFileBuffers, Kernel32, 'FlushFileBuffers');
 	
 	Import(WideCharToMultiByte, Kernel32, 'WideCharToMultiByte');
 	Import(MultiByteToWideChar, Kernel32, 'MultiByteToWideChar');

@@ -73,7 +73,7 @@ TYPE
 	
 	TypeDesc* = RECORD
 		notag*, mark, predef: BOOLEAN; form*: BYTE;
-		len*, size*, align*, nptr*, parblksize*, nfpar*: INTEGER;
+		len*, size*, size0*, align*, nptr*, parblksize*, nfpar*: INTEGER;
 		base*: Type; fields*: Ident; obj*: Object;
 		adr*, expno*, ref*: INTEGER; mod*: Module
 	END;
@@ -374,8 +374,9 @@ BEGIN
 	END;
 	Files.WriteNum(rider, -typ.ref); Files.WriteNum(rider, typ.form);
 	IF typ.form = tRec THEN
-		NewExport(exp); NEW(exp.obj); exp.obj.class := cType;
-		exp.obj.type := typ; Files.WriteNum(rider, expno);
+		NewExport(exp); NEW(exp.obj);
+		exp.obj.class := cType; exp.obj.type := typ;
+		Files.WriteNum(rider, expno); Files.WriteNum(rider, typ.size0);
 		Files.WriteNum(rider, typ.size); Files.WriteNum(rider, typ.align);
 		DetectType(typ.base); fld := typ.fields;
 		WHILE fld # NIL DO ftyp := fld.obj.type;
@@ -494,9 +495,9 @@ BEGIN
 	Files.Set(rider, symfile, 0);
 	modkey[0] := Crypt.MD5GetLowResult(hash);
 	modkey[1] := Crypt.MD5GetHighResult(hash);
-	WriteModkey(modkey); Files.Set(rider, NIL, 0);
+	WriteModkey(modkey);
 	
-	IF S.errcnt = 0 THEN Files.Register(symfile) END; symfile := NIL
+	IF S.errcnt = 0 THEN Files.Register(symfile) END
 END WriteSymfile;
 
 (* -------------------------------------------------------------------------- *)
@@ -573,7 +574,8 @@ PROCEDURE ImportType(VAR typ: Type; mod: Module);
 	PROCEDURE ImportRecord(VAR typ: TypeDesc; new: BOOLEAN);
 		VAR cls, off: INTEGER; fltype: Type; x: Field; name: S.IdStr;
 	BEGIN
-		Files.ReadNum(rider, typ.expno); typ.adr := 0;
+		typ.adr := 0;
+		Files.ReadNum(rider, typ.expno); Files.ReadNum(rider, typ.size0);
 		Files.ReadNum(rider, typ.size); Files.ReadNum(rider, typ.align);
 		DetectTypeI(typ.base); ExtendRecord(typ);
 		Files.ReadNum(rider, cls); OpenScope;
@@ -732,7 +734,6 @@ BEGIN
 		ASSERT(cls = cNull); curLev := 0; imod.import := TRUE;
 		imod.first := topScope.first; CloseScope
 	END;
-	Files.Set(rider, NIL, 0); symfile := NIL
 	RETURN imod
 END Import;
 
