@@ -4,6 +4,7 @@ source/*.dll
 test/*.exe
 test/*.dll
 lib/*.dll
+nppPlugin/*.dll
 *.vs/
 build/*.dll
 build/*.exe

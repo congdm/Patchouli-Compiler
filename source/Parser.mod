@@ -1290,7 +1290,7 @@ BEGIN GetSym;
 	IF S.errcnt = 0 THEN G.AllocImportModules END
 END ImportList;
 
-PROCEDURE Module*;
+PROCEDURE Module*(): B.Node;
 	VAR modid: S.IdStr; modinit: B.Node;
 BEGIN
 	GetSym; modid[0] := 0X;
@@ -1300,7 +1300,9 @@ BEGIN
 
 	IF S.errcnt = 0 THEN
 		DeclarationSequence(NIL);
-		IF sym = S.begin THEN GetSym; modinit := StatementSequence() END;
+		IF sym = S.begin THEN
+			GetSym; modinit := StatementSequence()
+		END;
 		Check0(S.end);
 		IF sym = S.ident THEN
 			IF S.id # modid THEN Mark('wrong module name') END; GetSym
@@ -1308,10 +1310,7 @@ BEGIN
 		END;
 		Check0(S.period)
 	END;
-	IF S.errcnt = 0 THEN B.WriteSymfile END;
-	IF S.errcnt = 0 THEN G.Generate(modinit) END;
-	G.Cleanup; B.Cleanup;
-	IF S.errcnt = 0 THEN G.DisplayInfo END
+	RETURN modinit
 END Module;
 	
 BEGIN

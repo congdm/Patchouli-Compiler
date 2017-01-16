@@ -21,7 +21,7 @@
 
 MODULE Scanner; (* Modified from ORS module in Project Oberon *)
 IMPORT
-	SYSTEM, Rtl, Out, Files;
+	SYSTEM, Rtl, Files;
   
 CONST
 	MaxIdLen* = 63; MaxStrLen* = 255;
@@ -68,6 +68,7 @@ TYPE
 	Str* = ARRAY MaxStrLen+1 OF CHAR;
 	
 	SetCompilerFlagProc* = PROCEDURE(pragma: ARRAY OF CHAR);
+	NotifyErrorProc* = PROCEDURE(pos: INTEGER; msg: ARRAY OF CHAR);
 
 VAR
 	ival*, slen*: INTEGER;
@@ -86,6 +87,7 @@ VAR
 	buffer: ARRAY 100000H OF BYTE;
 	
 	SetCompilerFlag: SetCompilerFlagProc;
+	NotifyError: NotifyErrorProc;
 	
 PROCEDURE Pos*() : INTEGER;
 	RETURN filePos
@@ -94,10 +96,10 @@ END Pos;
 PROCEDURE Mark*(msg: ARRAY OF CHAR);
 	VAR p: INTEGER;
 BEGIN
-	(*p := Pos();*) p := lastPos;
+	p := lastPos;
 	IF (p > errpos) & (errcnt < 25) THEN
-		Out.String('file pos '); Out.Int(p, 0);
-		Out.String(': '); Out.String(msg); Out.Ln; INC(errcnt)
+		IF NotifyError # NIL THEN NotifyError(p, msg) END;
+		INC(errcnt)
 	END;
 	errpos := p + 4
 END Mark;
@@ -362,6 +364,10 @@ END Init;
 PROCEDURE InstallSetCompilerFlag*(proc: SetCompilerFlagProc);
 BEGIN SetCompilerFlag := proc
 END InstallSetCompilerFlag;
+
+PROCEDURE InstallNotifyError*(proc: NotifyErrorProc);
+BEGIN NotifyError := proc
+END InstallNotifyError;
 
 PROCEDURE EnterKW(sym: INTEGER; name: IdStr);
 BEGIN keyTab[k].id := name; keyTab[k].sym := sym; INC(k)

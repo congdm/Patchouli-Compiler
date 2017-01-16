@@ -1,6 +1,6 @@
 MODULE Generator;
 IMPORT
-	SYSTEM, Out, Files,
+	SYSTEM, Files,
 	S := Scanner, B := Base, Linker;
 
 CONST
@@ -94,8 +94,8 @@ VAR
 	(* forward decl *)
 	MakeItem0: PROCEDURE(VAR x: Item; obj: B.Object);
 
-	code: ARRAY 200000H OF BYTE; pc, stack: INTEGER;
-	sPos, pass, varSize, staticSize, baseOffset: INTEGER;
+	code: ARRAY 200000H OF BYTE; pc*, stack: INTEGER;
+	sPos, pass, varSize*, staticSize*, baseOffset: INTEGER;
 	modid: S.IdStr;
 	
 	procList, curProc: B.ProcList;
@@ -296,7 +296,7 @@ BEGIN rsize := 4; op := 0B6H;
 		THEN rsize := 8
 		END
 	ELSIF rmsize = 2 THEN INC(op)
-	ELSE Out.Int(sPos, 0); ASSERT(FALSE)
+	ELSE ASSERT(FALSE)
 	END;
 	EmitREX(reg, rsize); Put1(0FH); Put1(op); EmitModRM(reg)
 END EmitMOVZX;
@@ -562,7 +562,7 @@ BEGIN
 		q.type.adr := staticSize; INC(staticSize, tdSize); q := q.next
 	END;
 	IF staticSize + varSize > MaxSize THEN
-		Out.String('static variables size too big'); ASSERT(FALSE)
+		S.Mark('static variables size too big'); ASSERT(FALSE)
 	END
 END AllocStaticData;
 
@@ -2771,14 +2771,6 @@ BEGIN
 	err4FmtStr := NIL; err5FmtStr := NIL; modidStr := NIL;
 	rtlName := NIL; user32name := NIL
 END Cleanup;
-
-PROCEDURE DisplayInfo*;
-BEGIN
-	(* Show statistics *)
-	Out.String('Code size: '); Out.Int(pc, 0); Out.Ln;
-	Out.String('Global variables size: '); Out.Int(varSize, 0); Out.Ln;
-	Out.String('Static data size: '); Out.Int(staticSize, 0); Out.Ln
-END DisplayInfo;
 
 BEGIN
 	MakeItem0 := MakeItem

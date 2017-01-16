@@ -3,7 +3,7 @@ MODULE Poc;
 
 IMPORT
 	SYSTEM, Rtl, Out, Files,
-	S := Scanner, B := Base, P := Parser;
+	S := Scanner, B := Base, G := Generator, P := Parser;
 	
 VAR
 	arg, fname: ARRAY 1024 OF CHAR;
@@ -11,15 +11,23 @@ VAR
 	buildMode, errFlag: BOOLEAN;
 	
 PROCEDURE Compile(fname: ARRAY OF CHAR);
-	VAR srcfile: Files.File; sym, startTime, endTime: INTEGER;
+	VAR srcfile: Files.File; modinit: B.Node;
+		sym, startTime, endTime: INTEGER;
 BEGIN
 	Out.String('Compile '); Out.String(fname); Out.Ln; B.SetSrcPath(fname);
 	srcfile := Files.Old(fname); S.Init(srcfile, 0); S.Get(sym);
 	
 	startTime := Rtl.Time();
-	IF sym = S.module THEN P.Module ELSE S.Mark('MODULE?') END;
+	IF sym = S.module THEN modinit := P.Module() ELSE S.Mark('MODULE?') END;
 	IF S.errcnt = 0 THEN
-		endTime := Rtl.Time(); Out.String('Compile time: ');
+		B.WriteSymfile; G.Generate(modinit);
+		B.Cleanup; G.Cleanup; endTime := Rtl.Time()
+	END;
+	IF S.errcnt = 0 THEN
+		Out.String('Code size: '); Out.Int(G.pc, 0); Out.Ln;
+		Out.String('Global variables size: '); Out.Int(G.varSize, 0); Out.Ln;
+		Out.String('Static data size: '); Out.Int(G.staticSize, 0); Out.Ln;
+		Out.String('Compile time: ');
 		Out.Int(Rtl.TimeToMSecs(endTime - startTime), 0);
 		Out.String(' miliseconds'); Out.Ln
 	END;
@@ -91,9 +99,15 @@ BEGIN (* Arguments *)
 	ELSIF arg[0] = '/' THEN Option
 	END
 END Arguments;
+
+PROCEDURE NotifyError(pos: INTEGER; msg: ARRAY OF CHAR);
+BEGIN
+	Out.String('file pos '); Out.Int(pos, 0);
+	Out.String(': '); Out.String(msg); Out.Ln
+END NotifyError;
 	
 BEGIN
-	Get; Arguments;
+	S.InstallNotifyError(NotifyError); Get; Arguments;
 	IF fname[0] # 0X THEN
 		IF Files.Old(fname) # NIL THEN
 			IF ~buildMode THEN Compile(fname) ELSE Build(fname) END
