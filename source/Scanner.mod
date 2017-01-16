@@ -115,10 +115,12 @@ PROCEDURE Identifier(VAR sym: INTEGER);
 	VAR i, k2: INTEGER;
 BEGIN i := 0;
 	REPEAT
-		IF i < MaxIdLen THEN id[i] := ch; INC(i) END; Read
+		IF i <= MaxIdLen THEN id[i] := ch; INC(i) END; Read
 	UNTIL (ch < '0') OR (ch > '9') & (ch < 'A')
 		OR (ch # '_') & (ch > 'Z') & (ch < 'a') OR (ch > 'z');
-	id[i] := 0X; 
+	IF i <= MaxIdLen THEN id[i] := 0X
+	ELSE Mark('identifier too long'); id[MaxIdLen] := 0X
+	END;
 	IF i < 11 THEN k2 := KWX[i-1];  (* search for keyword *)
 		WHILE (id # keyTab[k2].id) & (k2 < KWX[i]) DO INC(k2) END;
 		IF k2 < KWX[i] THEN sym := keyTab[k2].sym ELSE sym := ident END
@@ -326,11 +328,11 @@ BEGIN
 			ELSE (* ? @ *) Read; sym := null
 			END
 		ELSIF ch < '[' THEN Identifier(sym)
+		ELSIF ch = '_' THEN Identifier(sym)
 		ELSIF ch < 'a' THEN
 			IF ch = '[' THEN sym := lbrak
 			ELSIF ch = ']' THEN  sym := rbrak
 			ELSIF ch = '^' THEN sym := arrow
-			ELSIF ch = '_' THEN Identifier(sym)
 			ELSE (* ` *) sym := null
 			END;
 			Read

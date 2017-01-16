@@ -54,6 +54,7 @@ BEGIN
 	ELSIF s = S.return THEN Mark('No RETURN?')
 	ELSIF s = S.comma THEN Mark('no ,')
 	ELSIF s = S.semicolon THEN Mark('no ;')
+	ELSIF s = S.period THEN Mark('no .')
 	ELSE ASSERT(FALSE)
 	END
 END Missing;
