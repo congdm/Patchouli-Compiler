@@ -179,10 +179,8 @@ END CheckVar;
 
 PROCEDURE CheckStrLen(xtype: B.Type; y: B.Object);
 BEGIN
-	IF xtype.len >= 0 THEN
-		IF (y IS B.Str) & (y(B.Str).len > xtype.len)
-		OR (y.type.len > xtype.len) THEN Mark('string longer than dest')
-		END
+	IF (xtype.len >= 0) & (y IS B.Str) & (y(B.Str).len > xtype.len) THEN
+		Mark('string longer than dest')
 	END
 END CheckStrLen;
 

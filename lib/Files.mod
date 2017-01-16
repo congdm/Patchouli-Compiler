@@ -1,5 +1,5 @@
 MODULE Files;
-IMPORT SYSTEM, Rtl, Out;
+IMPORT SYSTEM, Rtl;
 
 CONST
 	(* Win32 Const *)
@@ -36,7 +36,6 @@ TYPE
 	Int = SYSTEM.CARD32;
 		
 	PathStr = ARRAY MAX_PATH+1 OF CHAR;
-	TempStr = ARRAY 32 OF CHAR;
 
 	File* = POINTER TO FileDesc;
 	Rider* = RECORD
@@ -45,7 +44,7 @@ TYPE
 	END;
 	FileDesc = RECORD (Rtl.Finalised)
 		new, ronly: BOOLEAN; hFile: Handle;
-		name: PathStr; temp: TempStr; pos, len: INTEGER
+		name, temp: PathStr; pos, len: INTEGER
 	END;
 	
 VAR
@@ -95,6 +94,11 @@ VAR
 		lpFmt: ARRAY [untagged] OF CHAR;
 		par1, par2: INTEGER
 	): Int;
+	GetEnvironmentVariableW: PROCEDURE(
+		lpName: ARRAY [untagged] OF CHAR;
+		lpBuffer: Pointer;
+		nSize: Dword
+	): Dword;
 	
 PROCEDURE Finalise(ptr: Rtl.Finalised);
 	VAR bRes: Bool; f: File;
@@ -131,16 +135,26 @@ BEGIN
 			NewFile(file, hFile); file.new := FALSE;
 			file.ronly := ronly; file.name := name; file.pos := 0;
 			bRes := GetFileSizeEx(hFile, SYSTEM.ADR(file.len))
-		ELSE Out.String('Fault: '); Out.String(name); SYSTEM.INT3; ASSERT(FALSE)
+		ELSE ASSERT(FALSE)
 		END
 	END;
 	RETURN file
 END Old;
 
 PROCEDURE New*(name: ARRAY OF CHAR): File;
-	VAR temp: TempStr; hFile: Handle; file: File; iRes: Int;
+	VAR str, temp: PathStr; pathLen: Dword;
+		hFile: Handle; file: File; iRes: Int; time: INTEGER;
 BEGIN
-	iRes := wsprintfW(temp, '.temp%lu_%d', Rtl.Time(), tempId); INC(tempId);
+	pathLen := GetEnvironmentVariableW(
+		'USERPROFILE', SYSTEM.ADR(temp), LEN(temp)
+	);
+	time := Rtl.Time();
+	IF pathLen < MAX_PATH-50 THEN
+		iRes := wsprintfW(str, '%s\.pocTemp%lu', SYSTEM.ADR(temp), time);
+		iRes := wsprintfW(temp, '%s_%lu', SYSTEM.ADR(str), tempId)
+	ELSE iRes := wsprintfW(temp, '.temp%lu_%lu', Rtl.Time(), tempId) 
+	END;
+	INC(tempId);
 	hFile := CreateFileW(
 		temp, ORD(GENERIC_READ+GENERIC_WRITE),
 		ORD(FILE_SHARE_READ+FILE_SHARE_WRITE+FILE_SHARE_DELETE), 0,
@@ -516,7 +530,8 @@ BEGIN
 	Import(FlushFileBuffers, Kernel32, 'FlushFileBuffers');
 	Import(SetEndOfFile, Kernel32, 'SetEndOfFile');
 	Import(GetFileSizeEx, Kernel32, 'GetFileSizeEx');
-	Import(wsprintfW, 'USER32.DLL', 'wsprintfW')
+	Import(wsprintfW, 'USER32.DLL', 'wsprintfW');
+	Import(GetEnvironmentVariableW, Kernel32, 'GetEnvironmentVariableW')
 END InitWin32;
 	
 BEGIN InitWin32
