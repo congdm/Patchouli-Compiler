@@ -1070,7 +1070,7 @@ BEGIN RefToRegI(x);
 				END
 			ELSIF x.mode = mCond THEN
 				L := pc; Jcc1(negated(x.c), 0);
-				FixLink(x.bLink); MoveRI(r, 4, 1); L2 := pc; Jmp1(0);
+				FixLink(x.bLink); LoadImm(r, 4, 1); L2 := pc; Jmp1(0);
 				FixLink(x.aLink); Fixup(L, pc); EmitRR(XOR, r, 4, r);
 				Fixup(L2, pc)
 			ELSE ASSERT(FALSE)
@@ -1148,7 +1148,8 @@ END TypeTag2;
 PROCEDURE TypeDesc(VAR x: Item; tp: B.Type);
 BEGIN
 	IF tp.form = B.tRec THEN x.a := tp.adr ELSE ASSERT(FALSE) END;
-	x.mode := mBX; x.type := B.intType; x.b := 0; x.ref := tp.mod # NIL
+	x.mode := mBX; x.type := B.intType; x.b := 0; x.ref := tp.mod # NIL;
+	SetAlloc(reg_B)
 END TypeDesc;
 
 PROCEDURE AvoidUsedBy(obj: B.Object);
@@ -1223,7 +1224,7 @@ BEGIN LoadLeftRight(x, y, node);
 END Multiply;
 
 PROCEDURE IntDiv(VAR x: Item; node: Node);
-	VAR oldStat: MakeItemState; e, n, L: INTEGER;
+	VAR oldStat: MakeItemState; e, n, L: INTEGER; r: BYTE;
 		right: B.Object; y: Item;
 BEGIN
 	e := -1; right := node.right;
@@ -1236,9 +1237,9 @@ BEGIN
 			END
 		ELSIF node.op = S.mod THEN
 			IF ~SmallConst(n-1) THEN
-				MakeItem0(y, node.right); DEC(y.a); Load(y);
-				EmitRR(ANDd, x.r, 8, y.r); FreeReg(y.r)
-			ELSIF n > 1 THEN EmitRI(ANDi, x.r, 8, n-1)
+				r := AllocReg(); LoadImm(r, 8, n-1);
+				EmitRR(ANDd, x.r, 8, r); FreeReg(r)
+			ELSIF n > 1 THEN EmitRI(ANDi, x.r, 4, n-1)
 			ELSE EmitRR(XOR, x.r, 4, x.r)
 			END
 		END
@@ -1314,9 +1315,8 @@ BEGIN
 	ResetMkItmStat2(oldStat); tp := node.left.type;
 	IF tp.form IN B.typScalar THEN
 		IF tp.form # B.tReal THEN
-			LoadLeftRight2(x, y, node); SetRmOperand(y);
-			EmitRegRm(CMPd, x.r, 8); FreeReg(x.r); FreeReg2(y);
-			SetCond(x, IntOpToCc(node.op))
+			LoadLeftRight2(x, y, node); EmitRR(CMPd, x.r, 8, y.r);
+			FreeReg(x.r); FreeReg2(y); SetCond(x, IntOpToCc(node.op))
 		ELSIF tp = B.realType THEN
 			LoadLeftRight2(x, y, node); SetRmOperand(y);
 			EmitXmmRm(COMISD, x.r, 4); FreeXReg(x.r); FreeReg2(y);
@@ -1331,7 +1331,7 @@ BEGIN
 		IF x.r # reg_SI THEN RelocReg(x.r, reg_SI) END;
 		cx := AllocReg2({}); EmitRR(XOR, cx, 4, cx);
 		
-		first := pc; EmitRI(ADDi, cx, 4, 1);
+		first := pc; EmitR(INC_, cx, 4);
 		
 		ArrayLen(len, node.left);
 		IF len.mode = mImm THEN EmitRI(CMPi, cx, 4, len.a)
@@ -1449,10 +1449,10 @@ BEGIN oldStat := MkItmStat; SetAvoid(reg_C);
 	r := AllocReg(); r2 := AllocReg2({reg_C}); ResetMkItmStat;
 	SetBestReg(reg_C); MakeItem0(x, node.left); Load(x);
 	IF x.r # reg_C THEN RelocReg(x.r, reg_C) END;
-	MoveRI(r, 8, -1); EmitR(SHLcl, r, 8); FreeReg(reg_C);
+	LoadImm(r, 8, -1); EmitR(SHLcl, r, 8); FreeReg(reg_C);
 	SetBestReg(reg_C); MakeItem0(x, node.right); Load(x);
 	IF x.r # reg_C THEN RelocReg(x.r, reg_C) END;
-	MoveRI(r2, 8, -2); EmitR(SHLcl, r2, 8); FreeReg(reg_C);
+	LoadImm(r2, 8, -2); EmitR(SHLcl, r2, 8); FreeReg(reg_C);
 	EmitRR(XORd, r, 8, r2); FreeReg(r2); x.r := r; MkItmStat := oldStat
 END RangeSet;
 
@@ -1491,8 +1491,9 @@ END LoadParam;
 
 PROCEDURE Parameter(par: Node; fpar: B.Ident; n: INTEGER);
 	VAR varpar: BOOLEAN; ftype: B.Type; x, y: Item; i: INTEGER; r: BYTE;
-BEGIN i := 1;
-	ResetMkItmStat; ftype := fpar.obj.type; varpar := fpar.obj(B.Par).varpar;
+BEGIN
+	ResetMkItmStat; i := 1;
+	ftype := fpar.obj.type; varpar := fpar.obj(B.Par).varpar;
 	IF ftype.form = B.tArray THEN LoadParam(x, par, n, TRUE);
 		IF B.IsOpenArray(ftype) & ~ftype.notag THEN INC(i) END
 	ELSIF ftype = B.strType THEN LoadParam(x, par, n, TRUE)
@@ -1515,10 +1516,7 @@ BEGIN i := 1;
 		IF ftype.form = B.tArray THEN
 			IF ftype.base # B.byteType THEN ArrayLen(y, par.left)
 			ELSE SizeOf(y, par.left)
-			END; Load(y);
-			IF B.IsStr(ftype) & (ftype.len >= 0) & B.IsOpenArray(x.type) THEN
-				EmitRI(CMPi, y.r, 4, ftype.len); Trap(ccA, stringTrap)
-			END
+			END; Load(y)
 		ELSIF (par.left IS B.Par) & par.left(B.Par).varpar THEN
 			MakeItem0(y, par.left); TypeTag(y); Load(y)
 		ELSE TypeDesc(y, par.left.type); LoadAdr(y)
@@ -1607,7 +1605,7 @@ BEGIN id := node.op; obj1 := node.left; obj2 := node.right;
 		EmitXmmRm(CVTSI2SD, r, 8); FreeReg(x.r);
 		x.mode := mXReg; x.r := r; MkItmStat := oldStat
 	ELSIF id = S.sfORD THEN MakeItem0(x, obj1); Load(x)
-	ELSIF id = S.sfCHR THEN MakeItem0(x, obj1);
+	ELSIF id = S.sfCHR THEN MakeItem0(x, obj1); RefToRegI(x);
 		IF x.type = B.byteType THEN Load(x)
 		ELSIF x.mode IN {mReg, mRegI} THEN
 			SetRmOperand(x); EmitMOVZX(x.r, 2); x.mode := mReg
@@ -1636,21 +1634,22 @@ BEGIN id := node.op; obj1 := node.left; obj2 := node.right;
 			MakeItem0(x, obj1); Load(x); SetRm_reg(r);
 			EmitXmmRm(SseMOVDd, x.r, 8); FreeXReg(x.r);
 			x.mode := mReg; x.r := r; MkItmStat := oldStat;
-			IF valSize = 8 THEN (* nothing *)
-			ELSIF valSize = 4 THEN EmitRR(MOV, x.r, 4, x.r)
-			ELSE SetRm_reg(x.r); EmitMOVZX(x.r, valSize)
+			IF valSize = 4 THEN EmitRR(MOV, x.r, 4, x.r)
+			ELSIF valSize < 4 THEN SetRm_reg(x.r); EmitMOVZX(x.r, valSize)
 			END
 		ELSIF (obj1.type.form # B.tReal) & (valType.form # B.tReal) THEN
-			MakeItem0(x, obj1);
+			MakeItem0(x, obj1); RefToRegI(x);
 			IF valSize >= obj1.type.size THEN Load(x)
 			ELSIF x.mode IN {mReg, mRegI} THEN SetRmOperand(x);
 				IF valSize = 4 THEN EmitRegRm(MOVd, x.r, 4)
 				ELSE EmitMOVZX(x.r, valSize)
 				END
-			ELSE r := AllocReg(); SetRmOperand(x);
+			ELSIF x.mode # mCond THEN
+				r := AllocReg(); SetRmOperand(x);
 				IF valSize = 4 THEN EmitRegRm(MOVd, r, 4)
 				ELSE EmitMOVZX(r, valSize)
 				END; x.r := r
+			ELSE ASSERT(FALSE)
 			END;
 			x.mode := mReg
 		ELSE ASSERT(FALSE)
@@ -1680,16 +1679,12 @@ BEGIN
 		SetBestReg(reg_SI); MakeItem0(y, node.right); LoadAdr(y);
 		IF y.r # reg_SI THEN RelocReg(y.r, reg_SI) END;
 		IF x.r # reg_DI THEN RelocReg(x.r, reg_DI) END;
-		IF y.type = B.strType THEN cx := y.strlen * 2;
+		IF y.type = B.strType THEN cx := y.strlen;
 			IF B.IsOpenArray(x.type) THEN
 				ArrayLen(z, node.left); SetRmOperand(z);
-				EmitRmImm(CMPi, 4, y.strlen); Trap(ccB, stringTrap)			
+				EmitRmImm(CMPi, 4, cx); Trap(ccB, stringTrap)			
 			END;
-			IF cx MOD 8 = 0 THEN cx := cx DIV 8; rsize := 8
-			ELSIF cx MOD 4 = 0 THEN cx := cx DIV 4; rsize := 4
-			ELSE cx := cx DIV 2; rsize := 2
-			END;
-			SetAlloc(reg_C); MoveRI(reg_C, 4, cx); EmitRep(MOVSrep, rsize, 1)
+			SetAlloc(reg_C); LoadImm(reg_C, 4, cx); EmitRep(MOVSrep, 2, 1)
 		ELSIF B.IsStr(x.type) THEN
 			SetAlloc(reg_A); SetAlloc(reg_C);
 			EmitRR(XOR, reg_C, 4, reg_C); EmitRR(XOR, reg_A, 4, reg_A);
@@ -1717,14 +1712,10 @@ BEGIN
 			
 			rsize := y.type.base.align; cx := y.type.base.size DIV rsize;
 			EmitRI(IMULi, reg_C, 8, cx); EmitRep(MOVSrep, rsize, 1)
-		ELSE cx := x.type.size;
-			IF cx MOD 8 = 0 THEN cx := cx DIV 8; rsize := 8
-			ELSIF cx MOD 4 = 0 THEN cx := cx DIV 4; rsize := 4
-			ELSIF ODD(cx) THEN rsize := 1
-			ELSE cx := cx DIV 2; rsize := 2
-			END;
-			SetAlloc(reg_C); MoveRI(reg_C, 4, cx);
-			EmitRep(MOVSrep, rsize, 1)
+		ELSE
+			cx := x.type.size DIV x.type.align;
+			SetAlloc(reg_C); LoadImm(reg_C, 4, cx);
+			EmitRep(MOVSrep, x.type.align, 1)
 		END
 	END;
 END Becomes;
@@ -1869,6 +1860,7 @@ BEGIN
 		IF x.r # reg_C THEN RelocReg(x.r, reg_C) END;
 		SetBestReg(reg_D); TypeDesc(y, obj1.type.base);
 		LoadAdr(y); SetRm_regI(reg_B, adrOfNEW); EmitRm(CALL, 4);
+		SetAlloc(reg_B);
 		IF curProc.obj.homeSpace < 32 THEN curProc.obj.homeSpace := 32 END
 	ELSIF id = S.spASSERT THEN
 		LoadCond(x, obj1); Jump(node, x.bLink, x.c); FixLink(x.aLink);
@@ -1922,7 +1914,7 @@ BEGIN
 		IF y.r # reg_C THEN RelocReg(y.r, reg_C) END;
 		
 		SetRm_regI(reg_B, LoadLibraryW); EmitRm(CALL, 4);
-		FreeReg(reg_C); SetAlloc(reg_A);
+		FreeReg(reg_C); SetAlloc(reg_A); SetAlloc(reg_B);
 		
 		RefToRegI(x); SetRmOperand(x); EmitRegRm(MOV, reg_A, 8);
 		IF curProc.obj.homeSpace < 32 THEN curProc.obj.homeSpace := 32 END
@@ -1937,7 +1929,7 @@ BEGIN
 		IF y.r # reg_C THEN RelocReg(y.r, reg_C) END;
 		
 		SetRm_regI(reg_B, GetProcAddress); EmitRm(CALL, 4);
-		FreeReg(reg_C); FreeReg(reg_D); SetAlloc(reg_A);
+		FreeReg(reg_C); FreeReg(reg_D); SetAlloc(reg_A); SetAlloc(reg_B);
 		
 		RefToRegI(x); SetRmOperand(x); EmitRegRm(MOV, reg_A, 8);
 		IF curProc.obj.homeSpace < 32 THEN curProc.obj.homeSpace := 32 END
@@ -1973,9 +1965,13 @@ BEGIN imm := node.right(B.Const).val;
 		ELSE ASSERT(FALSE)
 		END
 	ELSIF (node.op >= S.eql) & (node.op <= S.geq) THEN
-		oldStat := MkItmStat; ResetMkItmStat;
-		MakeItem0(x, node.left); Load(x); MkItmStat := oldStat;
-		SetRmOperand(x); EmitRmImm(CMPi, 8, imm);
+		oldStat := MkItmStat; ResetMkItmStat; MakeItem0(x, node.left);
+		IF x.type.size # 8 THEN Load(x) ELSE RefToRegI(x) END;
+		MkItmStat := oldStat; SetRmOperand(x);
+		IF imm # 0 THEN EmitRmImm(CMPi, 8, imm)
+		ELSIF x.mode = mReg THEN EmitRegRm(TEST, x.r, 8)
+		ELSE EmitRmImm(CMPi, 8, 0)
+		END;
 		FreeReg2(x); SetCond(x, IntOpToCc(node.op))
 	ELSIF node.op = S.becomes THEN
 		ResetMkItmStat; allocReg := {}; allocXReg := {};
@@ -1997,7 +1993,11 @@ BEGIN imm := node.right(B.Const).val;
 	ELSIF (node.op = S.spINC) OR (node.op = S.spDEC) THEN
 		ResetMkItmStat; allocReg := {}; allocXReg := {};
 		MakeItem0(x, node.left); RefToRegI(x); SetRmOperand(x);
-		IF node.op = S.spINC THEN EmitRmImm(ADDi, x.type.size, imm)
+		IF node.op = S.spINC THEN
+			IF imm = 1 THEN EmitRm(INC_, x.type.size)
+			ELSE EmitRmImm(ADDi, x.type.size, imm)
+			END
+		ELSIF imm = 1 THEN EmitRm(DEC_, x.type.size)
 		ELSE EmitRmImm(SUBi, x.type.size, imm)
 		END;
 		ResetMkItmStat; allocReg := {}; allocXReg := {}
@@ -2033,10 +2033,13 @@ BEGIN
 			x.ref := objv(B.Par).varpar OR (form = B.tArray)
 				OR (form = B.tRec) & ((size > 8) OR (size IN {3, 5, 6, 7}))
 		ELSIF objv IS B.TempVar THEN x.mode := mBP
-		END
+		END;
+		IF x.mode = mBX THEN SetAlloc(reg_B) END
 	ELSIF obj IS B.Proc THEN
 		x.mode := mProc; x.a := obj(B.Proc).adr;
-		IF obj(B.Proc).lev >= 0 THEN x.obj := obj ELSE x.ref := TRUE END
+		IF obj(B.Proc).lev >= 0 THEN x.obj := obj
+		ELSE x.ref := TRUE; SetAlloc(reg_B)
+		END
 	ELSIF obj.class = B.cType THEN ASSERT(FALSE)
 	ELSIF obj IS Node THEN
 		node := obj(Node); sPos := node.sPos; x.mode := mNothing;
@@ -2044,8 +2047,9 @@ BEGIN
 			const := node.right(B.Const).val;
 			flag := (node.op >= S.sfLSL) & (node.op <= S.sfROR)
 				OR (node.op = S.spINCL) OR (node.op = S.spEXCL)
-				OR SmallConst(const) & (node.right.type.form # B.tReal)
-					& ((node.right.type # B.setType) OR (node.op = S.minus))
+				OR SmallConst(const)
+					& (node.right.type.form # B.tReal)
+					& ((node.right.type # B.setType) OR (node.op # S.minus))
 					& (node.op # S.div) & (node.op # S.mod)
 					& (node.op # S.and) & (node.op # S.or)
 					& (node.op # S.in) & (node.op # S.lbrak)
@@ -2136,8 +2140,7 @@ PROCEDURE Procedure;
 		param, ident: B.Ident; pType: B.Type;
 BEGIN
 	BeginProc; obj := curProc.obj;
-	IF pass = 2 THEN obj.usedReg := {reg_B}
-	ELSIF pass = 3 THEN
+	IF pass = 3 THEN
 		PushR(reg_BP); EmitRR(MOVd, reg_BP, 8, reg_SP);
 		nSave := 0; nSaveX := 0; r := 0;
 		WHILE r < 16 DO
@@ -2171,7 +2174,9 @@ BEGIN
 		END;
 
 		(* Load the base of current module to RBX *)
-		SetRm_RIP(baseOffset-pc-7); EmitRegRm(LEA, reg_B, 8);
+		IF reg_B IN obj.usedReg THEN
+			SetRm_RIP(baseOffset-pc-7); EmitRegRm(LEA, reg_B, 8)
+		END;
 		
 		IF obj.type # NIL THEN
 			param := obj.type.fields; i := 0;
@@ -2235,7 +2240,7 @@ BEGIN
 	EmitRR(TEST, reg_A, 8, reg_A); Trap(ccZ, rtlTrap);
 	EmitRR(MOVd, reg_SI, 8, reg_A);
 	
-	MoveRI(reg_A, 4, 0077654EH); (* New *)
+	LoadImm(reg_A, 4, 0077654EH); (* New *)
 	SetRm_regI(reg_SP, 32); EmitRegRm(MOV, reg_A, 4);
 	EmitRR(MOVd, reg_C, 8, reg_SI);
 	SetRm_regI(reg_SP, 32); EmitRegRm(LEA, reg_D, 8);
@@ -2243,7 +2248,7 @@ BEGIN
 	EmitRR(TEST, reg_A, 8, reg_A); Trap(ccZ, rtlTrap);
 	SetRm_regI(reg_B, adrOfNEW); EmitRegRm(MOV, reg_A, 8);
 	
-	MoveRI(reg_A, 8, 746C6148H); (* Halt *) 
+	LoadImm(reg_A, 8, 746C6148H); (* Halt *) 
 	SetRm_regI(reg_SP, 32); EmitRegRm(MOV, reg_A, 8);
 	EmitRR(MOVd, reg_C, 8, reg_SI);
 	SetRm_regI(reg_SP, 32); EmitRegRm(LEA, reg_D, 8);
@@ -2251,7 +2256,7 @@ BEGIN
 	EmitRR(TEST, reg_A, 8, reg_A); Trap(ccZ, rtlTrap);
 	SetRm_regI(reg_B, ExitProcess); EmitRegRm(MOV, reg_A, 8);
 	
-	MoveRI(reg_A, 8, 7265747369676552H); (* Register *)
+	LoadImm(reg_A, 8, 7265747369676552H); (* Register *)
 	SetRm_regI(reg_SP, 32); EmitRegRm(MOV, reg_A, 8);
 	SetRm_regI(reg_SP, 40); EmitRmImm(MOVi, 1, 0);
 	EmitRR(MOVd, reg_C, 8, reg_SI);
@@ -2287,18 +2292,18 @@ BEGIN
 		EmitRR(MOVd, reg_SI, 8, reg_A);
 		
 		EmitRR(MOVd, reg_C, 8, reg_A);
-		MoveRI(reg_A, 8, 66746E6972707377H); (* RAX := 'wsprintf' *)
+		LoadImm(reg_A, 8, 66746E6972707377H); (* RAX := 'wsprintf' *)
 		SetRm_regI(reg_SP, 32); EmitRegRm(MOV, reg_A, 8);
-		MoveRI(reg_A, 4, 0000000000000057H); (* RAX := 'W' *)
+		LoadImm(reg_A, 4, 0000000000000057H); (* RAX := 'W' *)
 		SetRm_regI(reg_SP, 40); EmitRegRm(MOV, reg_A, 8);
 		SetRm_regI(reg_SP, 32); EmitRegRm(LEA, reg_D, 8);
 		SetRm_regI(reg_B, GetProcAddress); EmitRm(CALL, 4);
 		SetRm_regI(reg_B, wsprintfW); EmitRegRm(MOV, reg_A, 8);
 		
 		EmitRR(MOVd, reg_C, 8, reg_SI);
-		MoveRI(reg_A, 8, 426567617373654DH); (* RAX := 'MessageB' *)
+		LoadImm(reg_A, 8, 426567617373654DH); (* RAX := 'MessageB' *)
 		SetRm_regI(reg_SP, 32); EmitRegRm(MOV, reg_A, 8);
-		MoveRI(reg_A, 4, 000000000057786FH); (* RAX := 'oxW' *)
+		LoadImm(reg_A, 4, 000000000057786FH); (* RAX := 'oxW' *)
 		SetRm_regI(reg_SP, 40); EmitRegRm(MOV, reg_A, 8);
 		SetRm_regI(reg_SP, 32); EmitRegRm(LEA, reg_D, 8);
 		SetRm_regI(reg_B, GetProcAddress); EmitRm(CALL, 4);
@@ -2324,9 +2329,9 @@ BEGIN
 				
 				(* Check module key *)
 				key := imod.key;
-				MoveRI(reg_A, 8, key[0]); SetRm_regI(reg_SI, 400H-16);
+				LoadImm(reg_A, 8, key[0]); SetRm_regI(reg_SI, 400H-16);
 				EmitRegRm(CMPd, reg_A, 8); ModKeyTrap(ccNZ, 0, imod);
-				MoveRI (reg_A, 8, key[1]); SetRm_regI(reg_SI, 400H-8);
+				LoadImm (reg_A, 8, key[1]); SetRm_regI(reg_SI, 400H-8);
 				EmitRegRm(CMPd, reg_A, 8); ModKeyTrap(ccNZ, 0, imod);
 			
 				ident := imod.impList;
@@ -2341,7 +2346,7 @@ BEGIN
 					ELSIF x IS B.Proc THEN
 						adr := x(B.Proc).adr; expno := x(B.Proc).expno
 					END;
-					EmitRR(MOVd, reg_C, 8, reg_SI); MoveRI(reg_D, 4, expno);
+					EmitRR(MOVd, reg_C, 8, reg_SI); LoadImm(reg_D, 4, expno);
 					SetRm_regI(reg_B, GetProcAddress); EmitRm(CALL, 4);
 					SetRm_regI(reg_B, adr); EmitRegRm(MOV, reg_A, 8);
 					ident := ident.next
@@ -2373,7 +2378,7 @@ BEGIN
 		IF B.Flag.main THEN EmitRR(XOR, reg_C, 4, reg_C);
 			SetRm_regI(reg_B, ExitProcess); EmitRm(CALL, 4)
 		ELSE
-			MoveRI(reg_A, 4, 1); EmitRI(ADDi, reg_SP, 8, 64);
+			LoadImm(reg_A, 4, 1); EmitRI(ADDi, reg_SP, 8, 64);
 			PopR(reg_B); PopR(reg_DI); PopR(reg_SI); EmitBare(RET)
 		END
 	END;
@@ -2399,7 +2404,7 @@ BEGIN
 		(* Load the base of current module to RBX *)
 		SetRm_RIP(baseOffset-pc-7); EmitRegRm(LEA, reg_B, 8);
 		
-		EmitRR(MOVd, reg_R12, 8, reg_D); MoveRI(reg_C, 4, 6);
+		EmitRR(MOVd, reg_R12, 8, reg_D); LoadImm(reg_C, 4, 6);
 		SetRm_regI(reg_SP, 64); EmitRegRm(LEA, reg_R8, 8);
 		SetRm_regI(reg_B, GetModuleHandleExW); EmitRm(CALL, 4);
 		
