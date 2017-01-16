@@ -487,8 +487,13 @@ BEGIN
 			WHILE ident # NIL DO
 				ftype := ident.obj.type; SetTypeSize(ftype);
 				IF ftype.align > align THEN align := ftype.align END;
-				Align(size, ftype.align); ident.obj(B.Field).off := size;
-				INC(size, ftype.size); CheckTypeSize(size);
+				IF ~tp.union THEN
+					Align(size, ftype.align); ident.obj(B.Field).off := size;
+					INC(size, ftype.size); CheckTypeSize(size);
+				ELSE
+					ident.obj(B.Field).off := 0;
+					IF ftype.size > size THEN size := ftype.size END
+				END;
 				ident := ident.next
 			END;
 			tp.size0 := size; Align(size, align);
@@ -553,7 +558,7 @@ BEGIN
 	END;
 	staticSize := (staticSize + 15) DIV 16 * 16; q := B.recList;
 	WHILE q # NIL DO
-		tdSize := (24 + 8*(B.MaxExt + q.type.nptr)) DIV 16 * 16;
+		tdSize := (24 + 8*(B.MaxExt + q.type.nTraced)) DIV 16 * 16;
 		q.type.adr := staticSize; INC(staticSize, tdSize); q := q.next
 	END;
 	IF staticSize + varSize > MaxSize THEN
@@ -673,7 +678,9 @@ BEGIN ident := decl;
 		IF obj IS B.Proc THEN
 			ScanDeclaration(obj(B.Proc).decl, lev+1); ScanProc(obj(B.Proc))
 		ELSIF (lev = 0) & (obj IS B.Var) & ~(obj IS B.Str) THEN
-			IF obj.type.nptr > 0 THEN INC(staticSize, obj.type.nptr*8) END
+			IF obj.type.nTraced > 0 THEN
+				INC(staticSize, obj.type.nTraced*8)
+			END
 		END;
 		ident := ident.next
 	END;
@@ -2097,23 +2104,6 @@ END MakeItem;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE SetPtrToNil(adr: INTEGER; type: B.Type);
-	VAR i: INTEGER; fld: B.Ident;
-BEGIN
-	IF (type.form = B.tPtr) OR (type.form = B.tProc) THEN
-		SetRm_regI(reg_BP, adr); EmitRmImm(MOVi, 8, 0)
-	ELSIF type.form = B.tArray THEN
-		FOR i := 0 TO type.len-1 DO
-			SetPtrToNil(adr+i*type.base.size, type.base)
-		END
-	ELSIF type.form = B.tRec THEN fld := type.fields;
-		WHILE fld # NIL DO
-			SetPtrToNil(adr+fld.obj(B.Field).off, fld.obj.type);
-			fld := fld.next
-		END
-	END
-END SetPtrToNil;
-
 PROCEDURE BeginProc;
 	VAR proc: Proc;
 BEGIN proc := curProc.obj;
@@ -2204,12 +2194,11 @@ BEGIN
 	END;
 	
 	IF (obj.statseq # NIL) OR (obj.return # NIL) THEN
-		ident := obj.decl;
-		WHILE ident # NIL DO
-			IF (ident.obj IS B.Var) & ~(ident.obj IS B.Par) THEN
-				SetPtrToNil(ident.obj(B.Var).adr, ident.obj.type)
-			END;
-			ident := ident.next
+		IF obj.nProc + obj.nPtr > 0 THEN
+			EmitRR(XOR, reg_A, 4, reg_A);
+			LoadImm(reg_C, 8, -obj.locblksize DIV 8);
+			L := pc; SetRm_regX(reg_BP, reg_C, 3, 0);
+			EmitRegRm(MOV, reg_A, 8); EmitRI(ADDi, reg_C, 8, 1); BJump(L, ccL)
 		END;
 		IF obj.statseq # NIL THEN MakeItem(x, obj.statseq) END;
 		IF obj.return # NIL THEN ResetMkItmStat;

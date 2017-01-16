@@ -20,10 +20,10 @@ TYPE
 	Ulong = SYSTEM.CARD32;
 	Uint = SYSTEM.CARD32;
 	
-	Finalised* = POINTER TO FinalisedDesc;
+	Finalised* = POINTER [untraced] TO FinalisedDesc;
 	FinaliseProc* = PROCEDURE(ptr: Finalised);
 	FinalisedDesc* = RECORD
-		Finalise: FinaliseProc; next: INTEGER
+		Finalise: FinaliseProc; next: Finalised
 	END;
 
 VAR
@@ -403,7 +403,7 @@ BEGIN p := heapBase;
 END Scan;
 
 PROCEDURE Finalise;
-	VAR prev, ptr: Finalised; next, p, mark: INTEGER;
+	VAR prev, ptr, next: Finalised; p, mark: INTEGER;
 BEGIN ptr := finalisedList;
 	WHILE ptr # NIL DO
 		p := SYSTEM.VAL(INTEGER, ptr) - 16; SYSTEM.GET(p+8, mark);
@@ -431,7 +431,7 @@ END Collect;
 PROCEDURE RegisterFinalised*(ptr: Finalised; finalise: FinaliseProc);
 BEGIN
 	ASSERT(finalise # NIL); ptr.Finalise := finalise;
-	ptr.next := SYSTEM.VAL(INTEGER, finalisedList); finalisedList := ptr
+	ptr.next := SYSTEM.VAL(Finalised, finalisedList); finalisedList := ptr
 END RegisterFinalised;
 
 (* -------------------------------------------------------------------------- *)

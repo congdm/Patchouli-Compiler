@@ -76,29 +76,32 @@ BEGIN (* Write_idata_section *)
 END Write_idata_section;
 
 PROCEDURE Write_pointer_offset(offset: INTEGER; type: B.Type);
-	VAR ident: B.Ident; field: B.Field; size, k, ptrcnt, n: INTEGER;
-BEGIN ptrcnt := type.nptr;
+	VAR ident: B.Ident; field: B.Field;
+		size, k, n: INTEGER; base: B.Type;
+BEGIN
 	IF type.form = B.tRec THEN ident := type.fields;
-		IF (type.base # NIL) & (type.base.nptr # 0) THEN
+		IF (type.base # NIL) & (type.base.nTraced > 0) THEN
 			Write_pointer_offset(offset, type.base)
 		END;
 		WHILE ident # NIL DO field := ident.obj(B.Field);
-			IF field.type.nptr > 0 THEN n := offset + field.off;
+			IF field.type.nTraced > 0 THEN n := offset + field.off;
 				IF field.type.form = B.tPtr THEN Files.WriteInt(rider, n)
 				ELSE Write_pointer_offset(n, field.type)
 				END
 			END;
 			ident := ident.next
 		END
-	ELSIF type.form = B.tArray THEN type := type.base;
-		IF type.form = B.tPtr THEN n := offset;
-			REPEAT Files.WriteInt(rider, n); DEC(ptrcnt); INC(n, 8)
-			UNTIL ptrcnt <= 0; ASSERT(ptrcnt = 0)
-		ELSE k := type.nptr; size := type.size;
-			REPEAT
-				Write_pointer_offset(offset, type);
-				DEC(ptrcnt, k); INC(offset, size)
-			UNTIL ptrcnt <= 0; ASSERT(ptrcnt = 0)
+	ELSIF type.form = B.tArray THEN
+		base := type.base; k := 0;
+		IF base.form = B.tPtr THEN n := offset;
+			WHILE k < type.len DO
+				Files.WriteInt(rider, n); INC(k); INC(n, 8)
+			END
+		ELSE size := base.size;
+			WHILE k < type.len DO
+				Write_pointer_offset(offset, base);
+				INC(k); INC(offset, size)
+			END
 		END
 	ELSE ASSERT(FALSE)
 	END
@@ -135,13 +138,13 @@ BEGIN
 		Files.Set(rider, out, basefadr + t.type.adr);
 		Files.WriteInt(rider, t.type.size);
 		Files.Set(rider, out, basefadr + t.type.adr + 8 + B.MaxExt*8);
-		IF t.type.nptr > 0 THEN Write_pointer_offset(0, t.type) END;
+		IF t.type.nTraced > 0 THEN Write_pointer_offset(0, t.type) END;
 		Files.WriteInt(rider, -1); t := t.next
 	END;
 	Files.Set(rider, out, basefadr + modPtrTable); ident := B.universe.first;
 	WHILE ident # NIL DO obj := ident.obj;
 		IF (obj IS B.Var) & ~(obj IS B.Str) THEN
-			IF obj.type.nptr > 0 THEN adr := obj(B.Var).adr;
+			IF obj.type.nTraced > 0 THEN adr := obj(B.Var).adr;
 				IF obj.type.form = B.tPtr THEN Files.WriteInt(rider, adr)
 				ELSE Write_pointer_offset(adr, obj.type)
 				END

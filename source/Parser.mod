@@ -1042,8 +1042,15 @@ PROCEDURE PointerType(defobj: B.Object): B.Type;
 	VAR ptrType: B.Type; ident: B.Ident; x: B.Object;
 		undef: UndefPtrList;
 BEGIN
-	ptrType := B.NewPointer(); GetSym; Check0(S.to);
-	IF defobj # NIL THEN defobj.type := ptrType END;
+	ptrType := B.NewPointer(); GetSym;
+	IF sym = S.lbrak THEN GetSym;
+		IF (sym = S.ident) & (S.id = 'untraced') THEN
+			IF B.system THEN ptrType.nTraced := 0
+			ELSE Mark('untraced not allowed')
+			END; GetSym
+		END; Check0(S.rbrak)
+	END;
+	Check0(S.to); IF defobj # NIL THEN defobj.type := ptrType END;
 	IF sym = S.ident THEN ident := B.universe.first;
 		WHILE (ident # NIL) & (ident.name # S.id) DO ident := ident.next END;
 		IF ident # NIL THEN x := ident.obj;
@@ -1133,8 +1140,16 @@ BEGIN tp := B.intType;
 		Check0(S.of); lastArr.base := type(); B.CompleteArray(tp^)
 	ELSIF sym = S.record THEN
 		tp := B.NewRecord(); GetSym;
+		IF sym = S.lbrak THEN GetSym;
+			IF (sym = S.ident) & (S.id = 'union') THEN
+				IF B.system THEN tp.union := TRUE
+				ELSE Mark('union not allowed')
+				END; GetSym
+			END; Check0(S.rbrak)
+		END;
 		IF sym = S.lparen THEN
 			GetSym; tp.base := BaseType(); Check0(S.rparen);
+			IF tp.union THEN Mark('Cannot extend union') END;
 			IF tp.base # NIL THEN B.ExtendRecord(tp^) END
 		END;
 		B.OpenScope;
@@ -1157,7 +1172,7 @@ BEGIN tp := B.intType;
 	RETURN tp
 END type;
 
-PROCEDURE DeclarationSequence(parentProc: B.Proc);
+PROCEDURE DeclarationSequence(owner: B.Proc);
 	VAR first, ident, par, procid: B.Ident; x: B.Object; tp: B.Type;
 		proc: B.Proc; parobj: B.Par; statseq: B.Node;
 		undef, prev: UndefPtrList;
@@ -1211,8 +1226,10 @@ BEGIN
 			Check0(S.colon); tp := type(); ident := first;
 			WHILE ident # NIL DO
 				x := B.NewVar(tp); ident.obj := x; x.ident := ident;
-				IF parentProc = NIL THEN G.SetGlobalVarSize(x)
-				ELSE G.SetProcVarSize(parentProc, x)
+				IF owner # NIL THEN
+					G.SetProcVarSize(owner, x); INC(owner.nPtr, tp.nPtr);
+					INC(owner.nTraced, tp.nTraced); INC(owner.nProc, tp.nProc)
+				ELSE G.SetGlobalVarSize(x)
 				END;
 				ident := ident.next
 			END;

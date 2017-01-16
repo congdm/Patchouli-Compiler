@@ -41,7 +41,7 @@ TYPE
 	
 	Proc* = POINTER TO RECORD (ObjDesc)
 		(* Generator independent fields*)
-		expno*, lev*, nptr*: INTEGER;
+		expno*, lev*, nPtr*, nProc*, nTraced*: INTEGER;
 		decl*: Ident; statseq*: Node; return*: Object;
 		(* Generator dependent fields *)
 		adr*, locblksize*: INTEGER; usedReg*, usedXReg*: SET;
@@ -69,19 +69,20 @@ TYPE
 	IdentDesc* = RECORD
 		export*: BOOLEAN; name*: S.IdStr; obj*: Object; next*: Ident
 	END;
-	Scope* = POINTER TO RECORD first*, last: Ident; dsc*: Scope END;		
-	
+	Scope* = POINTER TO RECORD first*, last: Ident; dsc*: Scope END;
+
 	TypeDesc* = RECORD
-		notag*, mark, predef: BOOLEAN; form*: BYTE;
-		len*, size*, size0*, align*, nptr*, parblksize*, nfpar*: INTEGER;
+		notag*, untagged*, union*, mark, predef: BOOLEAN;
+		form*: BYTE; nPtr*, nTraced*, nProc*: INTEGER;
+		len*, size*, size0*, align*, parblksize*, nfpar*: INTEGER;
 		base*: Type; fields*: Ident; obj*: Object;
 		adr*, expno*, ref*: INTEGER; mod*: Module
 	END;
 
 VAR
 	topScope*, universe*, systemScope: Scope;
-	curLev*, modlev*: INTEGER; system*: BOOLEAN;
-	modid*: S.IdStr; modkey*: ModuleKey;
+	curLev*, modlev*: INTEGER;
+	modid*: S.IdStr; modkey*: ModuleKey; system*: BOOLEAN;
 	expList*, lastExp: ObjList; strList*: StrList; recList*: TypeList;
 	
 	(* Predefined Types *)
@@ -94,8 +95,8 @@ VAR
 		main*, console*, debug*, handle*, rtl*: BOOLEAN
 	END;
 	
-	symfile: Files.File; rider: Files.Rider;
 	imod, modList*: Module;
+	symfile: Files.File; rider: Files.Rider;
 	refno, preTypeNo, expno*, modno*: INTEGER;
 	
 	strbufSize*: INTEGER;
@@ -123,6 +124,13 @@ BEGIN
 	len := 0; WHILE str[len] # 0X DO INC(len) END;
 	RETURN len
 END StrLen;
+
+PROCEDURE Align(VAR n: INTEGER; align: INTEGER);
+BEGIN
+	IF n > 0 THEN n := (n + align - 1) DIV align * align
+	ELSIF n < 0 THEN n := n DIV align * align
+	END
+END Align;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -172,8 +180,10 @@ END NewPar;
 PROCEDURE NewField*(VAR rec: TypeDesc; tp: Type): Field;
 	VAR fld: Field;
 BEGIN
-	NEW(fld); fld.class := cField;
-	fld.type := tp; rec.nptr := rec.nptr + tp.nptr;
+	NEW(fld); fld.class := cField; fld.type := tp;
+	rec.nPtr := rec.nPtr + tp.nPtr;
+	rec.nProc := rec.nProc + tp.nProc;
+	rec.nTraced := rec.nTraced + tp.nTraced;
 	RETURN fld
 END NewField;
 
@@ -196,7 +206,8 @@ END NewStr;
 
 PROCEDURE NewStr2*(str: ARRAY OF CHAR): Str;
 	VAR slen: INTEGER;
-BEGIN slen := 0; WHILE str[slen] # 0X DO INC(slen) END; INC(slen);
+BEGIN
+	slen := 0; WHILE str[slen] # 0X DO INC(slen) END; INC(slen);
 	RETURN NewStr(str, slen)
 END NewStr2;
 
@@ -204,6 +215,7 @@ PROCEDURE NewProc*(): Proc;
 	VAR p: Proc;
 BEGIN
 	NEW(p); p.class := cProc; p.lev := curLev;
+	p.nPtr := 0; p.nProc := 0; p.nTraced := 0;
 	RETURN p
 END NewProc;
 
@@ -236,53 +248,61 @@ END NewTempVar;
 
 PROCEDURE NewType*(VAR typ: Type; form: INTEGER);
 BEGIN
-	NEW(typ); typ.form := form; typ.nptr := 0; typ.ref := -1;
-	typ.size := 0; typ.align := 0; typ.notag := FALSE
+	NEW(typ); typ.form := form; typ.size := 0; typ.align := 0;
+	typ.ref := -1; typ.mark := FALSE; typ.predef := FALSE;
+	typ.nPtr := 0; typ.nProc := 0; typ.nTraced := 0
 END NewType;
 
 PROCEDURE NewArray*(len: INTEGER): Type;
 	VAR tp: Type;
 BEGIN
-	NewType(tp, tArray); tp.len := len;
+	NewType(tp, tArray); tp.len := len; tp.untagged := FALSE;
 	RETURN tp
 END NewArray;
 
 PROCEDURE CompleteArray*(VAR tp: TypeDesc);
 BEGIN
 	IF tp.base.form = tArray THEN CompleteArray(tp.base^) END;
-	tp.nptr := tp.len * tp.base.nptr
+	tp.nPtr := tp.len * tp.base.nPtr;
+	tp.nTraced := tp.len * tp.base.nTraced;
+	tp.nProc := tp.len * tp.base.nProc
 END CompleteArray;
 
 PROCEDURE NewRecord*(): Type;
 	VAR tp: Type; p: TypeList;
 BEGIN
-	NewType(tp, tRec); tp.len := 0;
+	NewType(tp, tRec); tp.len := 0; tp.union := FALSE;
 	IF curLev >= 0 THEN
-		NEW(p); p.type := tp; p.next := recList; recList := p
+		NEW(p); p.type := tp;
+		p.next := recList; recList := p
 	ELSIF curLev = -1 THEN ASSERT(FALSE)
 	END;
 	RETURN tp
 END NewRecord;
 
 PROCEDURE ExtendRecord*(VAR recType: TypeDesc);
+	VAR baseType: Type;
 BEGIN
 	IF recType.base # NIL THEN
-		recType.len := recType.base.len + 1;
-		recType.nptr := recType.base.nptr
+		baseType := recType.base;
+		recType.len := baseType.len + 1;
+		recType.nPtr := baseType.nPtr;
+		recType.nTraced := baseType.nTraced;
+		recType.nProc := baseType.nProc
 	END
 END ExtendRecord;
 
 PROCEDURE NewPointer*(): Type;
 	VAR tp: Type;
 BEGIN
-	NewType(tp, tPtr); tp.nptr := 1;
+	NewType(tp, tPtr); tp.nPtr := 1; tp.nTraced := 1;
 	RETURN tp
 END NewPointer;
 
 PROCEDURE NewProcType*(): Type;
 	VAR tp: Type;
 BEGIN
-	NewType(tp, tProc); tp.nfpar := 0;
+	NewType(tp, tProc); tp.nfpar := 0; tp.nProc := 1;
 	RETURN tp
 END NewProcType;
 
@@ -378,9 +398,10 @@ BEGIN
 		exp.obj.class := cType; exp.obj.type := typ;
 		Files.WriteNum(rider, expno); Files.WriteNum(rider, typ.size0);
 		Files.WriteNum(rider, typ.size); Files.WriteNum(rider, typ.align);
+		Files.WriteBool(rider, typ.union);
 		DetectType(typ.base); fld := typ.fields;
 		WHILE fld # NIL DO ftyp := fld.obj.type;
-			IF fld.export OR (ftyp.nptr > 0) THEN
+			IF fld.export OR (ftyp.nPtr > 0) OR (ftyp.nProc > 0) THEN
 				Files.WriteNum(rider, cField);
 				IF fld.export THEN Files.WriteString(rider, fld.name)
 				ELSE Files.WriteString(rider, 0X)
@@ -397,6 +418,7 @@ BEGIN
 	ELSIF typ.form = tPtr THEN
 		Files.WriteNum(rider, typ.size);
 		Files.WriteNum(rider, typ.align);
+		Files.WriteNum(rider, typ.nTraced);
 		DetectType(typ.base)
 	ELSIF typ.form = tProc THEN
 		ExportProc(typ)
@@ -420,7 +442,8 @@ PROCEDURE ScanExportTypes(first: Ident; form: INTEGER);
 BEGIN ident := first;
 	WHILE ident # NIL DO type := ident.obj.type;
 		IF (form = tProc) OR ident.export
-		OR (form = tRec) & (type.nptr > 0) THEN 
+		OR (form = tProc) & (type.nPtr > 0)
+		OR (form = tProc) & (type.nProc > 0) THEN 
 			IF (type # NIL) & ~type.mark THEN ScanType(type) END
 		END;
 		ident := ident.next
@@ -574,9 +597,9 @@ PROCEDURE ImportType(VAR typ: Type; mod: Module);
 	PROCEDURE ImportRecord(VAR typ: TypeDesc; new: BOOLEAN);
 		VAR cls, off: INTEGER; fltype: Type; x: Field; name: S.IdStr;
 	BEGIN
-		typ.adr := 0;
 		Files.ReadNum(rider, typ.expno); Files.ReadNum(rider, typ.size0);
 		Files.ReadNum(rider, typ.size); Files.ReadNum(rider, typ.align);
+		Files.ReadBool(rider, typ.union); typ.adr := 0;
 		DetectTypeI(typ.base); ExtendRecord(typ);
 		Files.ReadNum(rider, cls); OpenScope;
 		WHILE cls # cType DO
@@ -600,6 +623,7 @@ PROCEDURE ImportType(VAR typ: Type; mod: Module);
 	BEGIN
 		Files.ReadNum(rider, typ.size);
 		Files.ReadNum(rider, typ.align);
+		Files.ReadNum(rider, typ.nTraced);
 		DetectTypeI(typ.base)
 	END ImportPointer;
 	
