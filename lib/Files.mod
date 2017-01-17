@@ -99,6 +99,7 @@ VAR
 		lpBuffer: Pointer;
 		nSize: Dword
 	): Dword;
+	GetCurrentProcessId: PROCEDURE(): Dword;
 	
 PROCEDURE Finalise(ptr: Rtl.Finalised);
 	VAR bRes: Bool; f: File;
@@ -142,17 +143,18 @@ BEGIN
 END Old;
 
 PROCEDURE New*(name: ARRAY OF CHAR): File;
-	VAR str, temp: PathStr; pathLen: Dword;
+	VAR str, temp: PathStr; pathLen, pid: Dword;
 		hFile: Handle; file: File; iRes: Int; time: INTEGER;
 BEGIN
 	pathLen := GetEnvironmentVariableW(
-		'USERPROFILE', SYSTEM.ADR(temp), LEN(temp)
+		'USERPROFILE', SYSTEM.ADR(str), LEN(str)
 	);
-	time := Rtl.Time();
-	IF pathLen < MAX_PATH-50 THEN
-		iRes := wsprintfW(str, '%s\.pocTemp%lu', SYSTEM.ADR(temp), time);
-		iRes := wsprintfW(temp, '%s_%lu', SYSTEM.ADR(str), tempId)
-	ELSE iRes := wsprintfW(temp, '.temp%lu_%lu', Rtl.Time(), tempId) 
+	pid := GetCurrentProcessId(); time := Rtl.Time();
+	IF pathLen < MAX_PATH-60 THEN
+		iRes := wsprintfW(temp, '%s\.pocTemp_%x', SYSTEM.ADR(str), pid);
+		iRes := wsprintfW(str, '%s_%lx', SYSTEM.ADR(temp), time);
+		iRes := wsprintfW(temp, '%s_%lx', SYSTEM.ADR(str), tempId)
+	ELSE iRes := wsprintfW(temp, '.temp%lu_%lu', time, tempId) 
 	END;
 	INC(tempId);
 	hFile := CreateFileW(
@@ -531,7 +533,8 @@ BEGIN
 	Import(SetEndOfFile, Kernel32, 'SetEndOfFile');
 	Import(GetFileSizeEx, Kernel32, 'GetFileSizeEx');
 	Import(wsprintfW, 'USER32.DLL', 'wsprintfW');
-	Import(GetEnvironmentVariableW, Kernel32, 'GetEnvironmentVariableW')
+	Import(GetEnvironmentVariableW, Kernel32, 'GetEnvironmentVariableW');
+	Import(GetCurrentProcessId, Kernel32, 'GetCurrentProcessId')
 END InitWin32;
 	
 BEGIN InitWin32
