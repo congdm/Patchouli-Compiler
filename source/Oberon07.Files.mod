@@ -263,49 +263,36 @@ BEGIN
 	END
 END CheckFilePos;
 
-PROCEDURE Read*(VAR r: Rider; VAR x: BYTE);
+PROCEDURE Read0(VAR r: Rider; VAR x: ARRAY OF BYTE);
 	VAR bRes: Bool; byteRead: Dword; f: File;
 BEGIN
 	f := r.f; CheckFilePos(r);
-	bRes := ReadFile(f.hFile, SYSTEM.ADR(x), 1, SYSTEM.ADR(byteRead), 0);
+	bRes := ReadFile(f.hFile, SYSTEM.ADR(x), LEN(x), SYSTEM.ADR(byteRead), 0);
 	r.eof := (bRes # 0) & (byteRead = 0);
 	IF ~r.eof THEN INC(r.pos, byteRead); INC(f.pos, byteRead) END
+END Read0;
+
+PROCEDURE Read*(VAR r: Rider; VAR x: BYTE);
+BEGIN Read0(r, x)
 END Read;
 
 PROCEDURE ReadInt*(VAR r: Rider; VAR x: INTEGER);
-	VAR bRes: Bool; byteRead: Dword; f: File;
-BEGIN
-	f := r.f; CheckFilePos(r);
-	bRes := ReadFile(f.hFile, SYSTEM.ADR(x), 8, SYSTEM.ADR(byteRead), 0);
-	r.eof := (bRes # 0) & (byteRead = 0);
-	IF ~r.eof THEN INC(r.pos, byteRead); INC(f.pos, byteRead) END
+BEGIN Read0(r, x)
 END ReadInt;
 
 PROCEDURE ReadReal*(VAR r: Rider; VAR x: REAL);
 	VAR bRes: Bool; byteRead: Dword; f: File;
-BEGIN
-	f := r.f; CheckFilePos(r);
-	bRes := ReadFile(f.hFile, SYSTEM.ADR(x), 8, SYSTEM.ADR(byteRead), 0);
-	r.eof := (bRes # 0) & (byteRead = 0);
-	IF ~r.eof THEN INC(r.pos, byteRead); INC(f.pos, byteRead) END
+BEGIN Read0(r, x)
 END ReadReal;
 
 PROCEDURE ReadCard32*(VAR r: Rider; VAR x: SYSTEM.CARD32);
 	VAR bRes: Bool; byteRead: Dword; f: File;
-BEGIN
-	f := r.f; CheckFilePos(r);
-	bRes := ReadFile(f.hFile, SYSTEM.ADR(x), 4, SYSTEM.ADR(byteRead), 0);
-	r.eof := (bRes # 0) & (byteRead = 0);
-	IF ~r.eof THEN INC(r.pos, byteRead); INC(f.pos, byteRead) END
+BEGIN Read0(r, x)
 END ReadCard32;
 
 PROCEDURE ReadCard16*(VAR r: Rider; VAR x: SYSTEM.CARD16);
 	VAR bRes: Bool; byteRead: Dword; f: File;
-BEGIN
-	f := r.f; CheckFilePos(r);
-	bRes := ReadFile(f.hFile, SYSTEM.ADR(x), 2, SYSTEM.ADR(byteRead), 0);
-	r.eof := (bRes # 0) & (byteRead = 0);
-	IF ~r.eof THEN INC(r.pos, byteRead); INC(f.pos, byteRead) END
+BEGIN Read0(r, x)
 END ReadCard16;
 
 PROCEDURE ReadNum*(VAR r: Rider; VAR x: INTEGER);
@@ -320,11 +307,7 @@ END ReadNum;
 
 PROCEDURE ReadChar*(VAR r: Rider; VAR x: CHAR);
 	VAR bRes: Bool; byteRead: Dword; f: File;
-BEGIN
-	f := r.f; CheckFilePos(r);
-	bRes := ReadFile(f.hFile, SYSTEM.ADR(x), 2, SYSTEM.ADR(byteRead), 0);
-	r.eof := (bRes # 0) & (byteRead = 0);
-	IF ~r.eof THEN INC(r.pos, byteRead); INC(f.pos, byteRead) END
+BEGIN Read0(r, x)
 END ReadChar;
 
 PROCEDURE ReadString*(VAR r: Rider; VAR x: ARRAY OF CHAR);
@@ -349,20 +332,12 @@ END ReadByteStr;
 
 PROCEDURE ReadSet*(VAR r: Rider; VAR x: SET);
 	VAR bRes: Bool; byteRead: Dword; f: File;
-BEGIN
-	f := r.f; CheckFilePos(r);
-	bRes := ReadFile(f.hFile, SYSTEM.ADR(x), 8, SYSTEM.ADR(byteRead), 0);
-	r.eof := (bRes # 0) & (byteRead = 0);
-	IF ~r.eof THEN INC(r.pos, byteRead); INC(f.pos, byteRead) END
+BEGIN Read0(r, x)
 END ReadSet;
 
 PROCEDURE ReadBool*(VAR r: Rider; VAR x: BOOLEAN);
 	VAR bRes: Bool; byteRead: Dword; f: File;
-BEGIN
-	f := r.f; CheckFilePos(r);
-	bRes := ReadFile(f.hFile, SYSTEM.ADR(x), 1, SYSTEM.ADR(byteRead), 0);
-	r.eof := (bRes # 0) & (byteRead = 0);
-	IF ~r.eof THEN INC(r.pos, byteRead); INC(f.pos, byteRead) END
+BEGIN Read0(r, x)
 END ReadBool;
 
 PROCEDURE ReadBytes*(VAR r: Rider; VAR x: ARRAY OF BYTE; n: INTEGER);
@@ -378,59 +353,37 @@ BEGIN
 	IF byteRead # n THEN r.res := n - byteRead ELSE r.res := 0 END
 END ReadBytes;
 
-PROCEDURE Write*(VAR r: Rider; x: BYTE);
-	VAR bRes: Bool; byteWritten: Dword; f: File;
+(* -------------------------------------------------------------------------- *)
+
+PROCEDURE Write0(VAR r: Rider; x: ARRAY OF BYTE);
+	VAR bRes: Bool; nWritten: Dword; f: File;
 BEGIN
 	f := r.f; CheckFilePos(r);
-	bRes := WriteFile(f.hFile, SYSTEM.ADR(x), 1, SYSTEM.ADR(byteWritten), 0);
+	bRes := WriteFile(f.hFile, SYSTEM.ADR(x), LEN(x), SYSTEM.ADR(nWritten), 0);
 	IF bRes # 0 THEN
-		INC(r.pos, byteWritten); INC(f.pos, byteWritten);
+		INC(r.pos, nWritten); INC(f.pos, nWritten);
 		IF f.pos > f.len THEN f.len := f.pos END
 	END
+END Write0;
+
+PROCEDURE Write*(VAR r: Rider; x: BYTE);
+BEGIN Write0(r, x)
 END Write;
 
 PROCEDURE WriteInt*(VAR r: Rider; x: INTEGER);
-	VAR bRes: Bool; byteWritten: Dword; f: File;
-BEGIN
-	f := r.f; CheckFilePos(r);
-	bRes := WriteFile(f.hFile, SYSTEM.ADR(x), 8, SYSTEM.ADR(byteWritten), 0);
-	IF bRes # 0 THEN
-		INC(r.pos, byteWritten); INC(f.pos, byteWritten);
-		IF f.pos > f.len THEN f.len := f.pos END
-	END
+BEGIN Write0(r, x)
 END WriteInt;
 
 PROCEDURE WriteReal*(VAR r: Rider; x: REAL);
-	VAR bRes: Bool; byteWritten: Dword; f: File;
-BEGIN
-	f := r.f; CheckFilePos(r);
-	bRes := WriteFile(f.hFile, SYSTEM.ADR(x), 8, SYSTEM.ADR(byteWritten), 0);
-	IF bRes # 0 THEN
-		INC(r.pos, byteWritten); INC(f.pos, byteWritten);
-		IF f.pos > f.len THEN f.len := f.pos END
-	END	
+BEGIN Write0(r, x)
 END WriteReal;
 
 PROCEDURE WriteCard32*(VAR r: Rider; x: SYSTEM.CARD32);
-	VAR bRes: Bool; byteWritten: Dword; f: File;
-BEGIN
-	f := r.f; CheckFilePos(r);
-	bRes := WriteFile(f.hFile, SYSTEM.ADR(x), 4, SYSTEM.ADR(byteWritten), 0);
-	IF bRes # 0 THEN
-		INC(r.pos, byteWritten); INC(f.pos, byteWritten);
-		IF f.pos > f.len THEN f.len := f.pos END
-	END
+BEGIN Write0(r, x)
 END WriteCard32;
 
 PROCEDURE WriteCard16*(VAR r: Rider; x: SYSTEM.CARD16);
-	VAR bRes: Bool; byteWritten: Dword; f: File;
-BEGIN
-	f := r.f; CheckFilePos(r);
-	bRes := WriteFile(f.hFile, SYSTEM.ADR(x), 2, SYSTEM.ADR(byteWritten), 0);
-	IF bRes # 0 THEN
-		INC(r.pos, byteWritten); INC(f.pos, byteWritten);
-		IF f.pos > f.len THEN f.len := f.pos END
-	END
+BEGIN Write0(r, x)
 END WriteCard16;
 
 PROCEDURE WriteNum*(VAR r: Rider; x: INTEGER);
@@ -442,14 +395,7 @@ BEGIN
 END WriteNum;
 
 PROCEDURE WriteChar*(VAR r: Rider; x: CHAR);
-	VAR bRes: Bool; byteWritten: Dword; f: File;
-BEGIN
-	f := r.f; CheckFilePos(r);
-	bRes := WriteFile(f.hFile, SYSTEM.ADR(x), 2, SYSTEM.ADR(byteWritten), 0);
-	IF bRes # 0 THEN
-		INC(r.pos, byteWritten); INC(f.pos, byteWritten);
-		IF f.pos > f.len THEN f.len := f.pos END
-	END
+BEGIN Write0(r, x)
 END WriteChar;
 
 PROCEDURE WriteString*(VAR r: Rider; x: ARRAY OF CHAR);
@@ -468,25 +414,11 @@ BEGIN i := 0;
 END WriteByteStr;
 
 PROCEDURE WriteSet*(VAR r: Rider; x: SET);
-	VAR bRes: Bool; byteWritten: Dword; f: File;
-BEGIN
-	f := r.f; CheckFilePos(r);
-	bRes := WriteFile(f.hFile, SYSTEM.ADR(x), 8, SYSTEM.ADR(byteWritten), 0);
-	IF bRes # 0 THEN
-		INC(r.pos, byteWritten); INC(f.pos, byteWritten);
-		IF f.pos > f.len THEN f.len := f.pos END
-	END
+BEGIN Write0(r, x)
 END WriteSet;
 
 PROCEDURE WriteBool*(VAR r: Rider; x: BOOLEAN);
-	VAR bRes: Bool; byteWritten: Dword; f: File;
-BEGIN
-	f := r.f; CheckFilePos(r);
-	bRes := WriteFile(f.hFile, SYSTEM.ADR(x), 1, SYSTEM.ADR(byteWritten), 0);
-	IF bRes # 0 THEN
-		INC(r.pos, byteWritten); INC(f.pos, byteWritten);
-		IF f.pos > f.len THEN f.len := f.pos END
-	END
+BEGIN Write0(r, x)
 END WriteBool;
 
 PROCEDURE WriteBytes*(VAR r: Rider; x: ARRAY OF BYTE; n: INTEGER);
@@ -507,34 +439,23 @@ END WriteBytes;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE Import*(VAR proc: ARRAY OF BYTE; libPath, name: ARRAY OF CHAR);
-	VAR hLib, adr, i: INTEGER; byteStr: ARRAY 256 OF BYTE;
-BEGIN SYSTEM.LoadLibraryW(hLib, libPath);
-	IF hLib # 0 THEN i := 0;
-		WHILE name[i] # 0X DO byteStr[i] := ORD(name[i]); INC(i) END;
-		byteStr[i] := 0; SYSTEM.GetProcAddress(adr, hLib, SYSTEM.ADR(byteStr))
-	ELSE adr := 0
-	END;
-	SYSTEM.PUT(SYSTEM.ADR(proc), adr)
-END Import;
-
 PROCEDURE InitWin32;
 	CONST Kernel32 = 'KERNEL32.DLL';
 BEGIN
-	Import(GetFileAttributesW, Kernel32, 'GetFileAttributesW');
-	Import(CreateFileW, Kernel32, 'CreateFileW');
-	Import(CloseHandle, Kernel32, 'CloseHandle');
-	Import(MoveFileExW, Kernel32, 'MoveFileExW');
-	Import(DeleteFileW, Kernel32, 'DeleteFileW');
-	Import(ReadFile, Kernel32, 'ReadFile');
-	Import(WriteFile, Kernel32, 'WriteFile');
-	Import(SetFilePointerEx, Kernel32, 'SetFilePointerEx');
-	Import(FlushFileBuffers, Kernel32, 'FlushFileBuffers');
-	Import(SetEndOfFile, Kernel32, 'SetEndOfFile');
-	Import(GetFileSizeEx, Kernel32, 'GetFileSizeEx');
-	Import(wsprintfW, 'USER32.DLL', 'wsprintfW');
-	Import(GetEnvironmentVariableW, Kernel32, 'GetEnvironmentVariableW');
-	Import(GetCurrentProcessId, Kernel32, 'GetCurrentProcessId')
+	Rtl.Import(GetFileAttributesW, Kernel32, 'GetFileAttributesW');
+	Rtl.Import(CreateFileW, Kernel32, 'CreateFileW');
+	Rtl.Import(CloseHandle, Kernel32, 'CloseHandle');
+	Rtl.Import(MoveFileExW, Kernel32, 'MoveFileExW');
+	Rtl.Import(DeleteFileW, Kernel32, 'DeleteFileW');
+	Rtl.Import(ReadFile, Kernel32, 'ReadFile');
+	Rtl.Import(WriteFile, Kernel32, 'WriteFile');
+	Rtl.Import(SetFilePointerEx, Kernel32, 'SetFilePointerEx');
+	Rtl.Import(FlushFileBuffers, Kernel32, 'FlushFileBuffers');
+	Rtl.Import(SetEndOfFile, Kernel32, 'SetEndOfFile');
+	Rtl.Import(GetFileSizeEx, Kernel32, 'GetFileSizeEx');
+	Rtl.Import(wsprintfW, 'USER32.DLL', 'wsprintfW');
+	Rtl.Import(GetEnvironmentVariableW, Kernel32, 'GetEnvironmentVariableW');
+	Rtl.Import(GetCurrentProcessId, Kernel32, 'GetCurrentProcessId')
 END InitWin32;
 	
 BEGIN InitWin32

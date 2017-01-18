@@ -2352,23 +2352,21 @@ BEGIN
 				LoadImm (reg_A, 8, key[1]); SetRm_regI(reg_SI, 400H-8);
 				EmitRegRm(CMPd, reg_A, 8); ModKeyTrap(ccNZ, 0, imod);
 			
-				IF imod.impList # NIL THEN
-					SetRm_regI(reg_SI, 400H-40); EmitRegRm(MOVd, reg_DI, 8);
-					ident := imod.impList; EmitRR(ADDd, reg_DI, 8, reg_SI);
-					WHILE ident # NIL DO x := ident.obj;
-						IF x.class = B.cType THEN
-							ASSERT(x.type.form = B.tRec);
-							adr := x.type.adr; expno := x.type.expno
-						ELSIF x IS B.Var THEN
-							adr := x(B.Var).adr; expno := x(B.Var).expno
-						ELSIF x IS B.Proc THEN
-							adr := x(B.Proc).adr; expno := x(B.Proc).expno
-						END;
-						ASSERT(adr >= 128); SetRm_regI(reg_DI, (expno-1)*4);
-						EmitRegRm(MOVd, reg_A, 4);
-						EmitRR(ADDd, reg_A, 8, reg_SI); SetRm_regI(reg_B, adr);
-						EmitRegRm(MOV, reg_A, 8); ident := ident.next
-					END
+				ident := imod.impList;
+				WHILE ident # NIL DO x := ident.obj;
+					IF x.class = B.cType THEN
+						ASSERT(x.type.form = B.tRec);
+						adr := x.type.adr; expno := x.type.expno
+					ELSIF x IS B.Var THEN
+						adr := x(B.Var).adr; expno := x(B.Var).expno
+					ELSIF x IS B.Proc THEN
+						adr := x(B.Proc).adr; expno := x(B.Proc).expno
+					END;
+					ASSERT(adr >= 128);
+					EmitRR(MOVd, reg_C, 8, reg_SI); LoadImm(reg_D, 4, expno);
+					SetRm_regI(reg_B, GetProcAddress); EmitRm(CALL, 4);
+					SetRm_regI(reg_B, adr); EmitRegRm(MOV, reg_A, 8);
+					ident := ident.next
 				END
 			END;
 			imod := imod.next
