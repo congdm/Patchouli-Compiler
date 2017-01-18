@@ -84,7 +84,7 @@ VAR
     keyTab: ARRAY NKW OF RECORD sym: INTEGER; id: IdStr END;
 	
 	bufPos, lastPos, filePos, bufSize: INTEGER;
-	buffer: ARRAY 100000H OF BYTE;
+	buffer: ARRAY 80000H OF BYTE;
 	
 	SetCompilerFlag: SetCompilerFlagProc;
 	NotifyError: NotifyErrorProc;

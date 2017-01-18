@@ -105,7 +105,7 @@ VAR
 	refno, preTypeNo, expno*, modno*: INTEGER;
 	
 	strbufSize*: INTEGER;
-	strbuf*: ARRAY 100000H OF CHAR;
+	strbuf*: ARRAY 10000H OF CHAR;
 	symPath, srcPath, sym: ARRAY 1024 OF CHAR;
 	
 	ExportType0: PROCEDURE(typ: Type);

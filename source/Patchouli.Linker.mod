@@ -24,7 +24,9 @@ VAR
 	debug_abbrev_rawsize, debug_abbrev_fadr: INTEGER;
 	
 	Kernel32Table: ARRAY 6 OF INTEGER;
-	modPtrTable: INTEGER; fname: ARRAY 512 OF CHAR;
+	modPtrTable, exportAdrTable_rva: INTEGER;
+	
+	fname: ARRAY 512 OF CHAR;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -257,6 +259,7 @@ BEGIN (* Write_edata_section *)
 	Files.WriteCard32(rider, edata_rva + dirSz + adrTblSz + namePtrTblSz);
 	
 	(* Export address table *)
+	exportAdrTable_rva := edata_rva + dirSz;
 	Files.Set(rider, out, edata_fadr + dirSz); exp := B.expList;
 	WHILE exp # NIL DO x := exp.obj;
 		IF x.class = B.cType THEN rva := data_rva + x.type.adr
@@ -419,7 +422,8 @@ BEGIN
 	);
 	
 	(* Compiler-specifics data *)
-	Files.Set(rider, out, 400H - 32);
+	Files.Set(rider, out, 400H - 40);
+	Files.WriteInt(rider, exportAdrTable_rva);
 	Files.WriteInt(rider, code_rva); Files.WriteInt(rider, pdata_rva+32);
 	Files.WriteInt(rider, B.modkey[0]); Files.WriteInt(rider, B.modkey[1])
 END Write_PEHeader;
