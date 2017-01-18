@@ -1,11 +1,11 @@
-..\lib\Crypt.mod
-..\lib\Rtl.mod
-..\lib\Out.mod
-..\lib\Files.mod
+Oberon07.Rtl.mod
+Oberon07.Out.mod
+Oberon07.Files.mod
 
-..\source\Scanner.mod
-..\source\Base.mod
-..\source\Linker.mod
-..\source\Generator.mod
-..\source\Parser.mod
-..\source\Poc.mod
+Patchouli.Crypt.mod
+Patchouli.Scanner.mod
+Patchouli.Base.mod
+Patchouli.Linker.mod
+Patchouli.Generator.mod
+Patchouli.Parser.mod
+Poc.mod

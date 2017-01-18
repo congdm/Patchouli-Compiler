@@ -1,5 +1,5 @@
 echo off
 cd build
-..\bin\Poc /B Buildfile /sym ..\lib;..\source
+..\bin\Poc /B Buildfile /sym "..\source"
 cd ..
 echo on

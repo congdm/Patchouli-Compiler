@@ -19,9 +19,9 @@
 	CONNECTION WITH THE DEALINGS IN OR USE OR PERFORMANCE OF THE SOFTWARE.
 *)
 
-MODULE Scanner; (* Modified from ORS module in Project Oberon *)
+MODULE Patchouli Scanner; (* Modified from ORS module in Project Oberon *)
 IMPORT
-	SYSTEM, Rtl, Files;
+	SYSTEM, Rtl := [Oberon07 Rtl], Files := [Oberon07 Files];
   
 CONST
 	MaxIdLen* = 63; MaxStrLen* = 255;
@@ -418,4 +418,4 @@ BEGIN
 	KWX[9] := k;
 	EnterKW(null, 'EXTENSIBLE');
 	KWX[10] := k
-END Scanner.
+END Patchouli Scanner.

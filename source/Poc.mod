@@ -2,8 +2,10 @@ MODULE Poc;
 (*$CONSOLE*)
 
 IMPORT
-	SYSTEM, Rtl, Out, Files,
-	S := Scanner, B := Base, G := Generator, P := Parser;
+	SYSTEM,
+	Rtl := [Oberon07 Rtl], Out := [Oberon07 Out], Files := [Oberon07 Files],
+	S := [Patchouli Scanner], B := [Patchouli Base],
+	G := [Patchouli Generator], P := [Patchouli Parser];
 	
 VAR
 	arg, fname: ARRAY 1024 OF CHAR;
@@ -114,7 +116,7 @@ BEGIN
 		ELSE ErrorNotFound(fname)
 		END
 	ELSE
-		Out.String('Patchouli Oberon-07 Compiler v0.8f'); Out.Ln;
+		Out.String('Patchouli Oberon-07 Compiler v0.8g'); Out.Ln;
  		Out.String('Usage: Poc <inputfile>'); Out.Ln
 	END
 END Poc.

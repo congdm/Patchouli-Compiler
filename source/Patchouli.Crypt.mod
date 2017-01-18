@@ -1,4 +1,4 @@
-MODULE Crypt;
+MODULE Patchouli Crypt;
 (*$RTL-*)
 
 IMPORT
@@ -186,4 +186,4 @@ BEGIN k := 0;
 END Init;
 	
 BEGIN Init
-END Crypt.
+END Patchouli Crypt.

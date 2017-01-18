@@ -1,6 +1,6 @@
-MODULE Generator;
+MODULE Patchouli Generator;
 IMPORT
-	SYSTEM, Files,
+	SYSTEM, Files := [Oberon07 Files],
 	S := Scanner, B := Base, Linker;
 
 CONST
@@ -96,7 +96,6 @@ VAR
 
 	code: ARRAY 200000H OF BYTE; pc*, stack: INTEGER;
 	sPos, pass, varSize*, staticSize*, baseOffset: INTEGER;
-	modid: S.IdStr;
 	
 	procList, curProc: B.ProcList;
 	modInitProc, trapProc, trapProc2, dllInitProc: Proc;
@@ -522,17 +521,6 @@ BEGIN size := proc.locblksize;
 	END
 END SetProcVarSize;
 
-PROCEDURE AllocImportModules*;
-	VAR i, j, size: INTEGER; imod: B.Module;
-BEGIN imod := B.modList;
-	WHILE imod # NIL DO
-		j := 0; WHILE imod.name[j] # 0X DO INC(j) END;
-		size := (j+5)*2; imod.adr := staticSize;
-		INC(staticSize, size); imod := imod.next
-	END;
-	Align(staticSize, 16)
-END AllocImportModules;
-
 PROCEDURE AllocImport*(x: B.Object; module: B.Module);
 	VAR p: B.Ident; adr: INTEGER;
 BEGIN
@@ -541,26 +529,39 @@ BEGIN
 	IF x IS B.Var THEN x(B.Var).adr := adr
 	ELSIF x IS B.Proc THEN x(B.Proc).adr := adr
 	ELSIF x.class = B.cType THEN
-		IF x.type.form = B.tRec THEN x.type.adr := adr
-		ELSIF x.type.form = B.tPtr THEN x.type.base.adr := adr
-		END
+		ASSERT(x.type.form = B.tRec); x.type.adr := adr
 	END
 END AllocImport;
+
+PROCEDURE AllocImportModules;
+	VAR size: INTEGER; imod: B.Module;
+		str: ARRAY 512 OF CHAR;
+BEGIN
+	Align(staticSize, 16); imod := B.modList;
+	WHILE imod # NIL DO
+		IF imod.import OR (imod.impList # NIL) THEN
+			B.ModIdToStr(imod.id, str); size := (B.StrLen(str)+5)*2;
+			imod.adr := staticSize; INC(staticSize, size)
+		END;
+		imod := imod.next
+	END
+END AllocImportModules;
 
 PROCEDURE AllocStaticData;
 	VAR p: B.StrList; q: B.TypeList;
 		x: B.Object; y: B.Str; strSize, tdSize, align: INTEGER;
 BEGIN
-	staticSize := (staticSize + 15) DIV 16 * 16; p := B.strList;
+	Align(staticSize, 16); p := B.strList;
 	WHILE p # NIL DO
 		y := p.obj; strSize := 2*y.len;
 		y.adr := staticSize; INC(staticSize, strSize); p := p.next
 	END;
-	staticSize := (staticSize + 15) DIV 16 * 16; q := B.recList;
+	Align(staticSize, 16); q := B.recList;
 	WHILE q # NIL DO
 		tdSize := (24 + 8*(B.MaxExt + q.type.nTraced)) DIV 16 * 16;
 		q.type.adr := staticSize; INC(staticSize, tdSize); q := q.next
 	END;
+	AllocImportModules;
 	IF staticSize + varSize > MaxSize THEN
 		S.Mark('static variables size too big'); ASSERT(FALSE)
 	END
@@ -699,17 +700,17 @@ END NewProc;
 
 PROCEDURE Pass1(VAR modinit: B.Node);
 	VAR fixAmount: INTEGER; obj: B.Proc;
-		str: ARRAY LEN(modid)*2 OF CHAR;
+		str, str2: ARRAY 512 OF CHAR;
 BEGIN
-	modidStr := B.NewStr2(modid);
+	B.ModIdToStr(B.modid, str); modidStr := B.NewStr2(str);
 	errFmtStr := B.NewStr2('Error code: %d; Source pos: %d');
 	err2FmtStr := B.NewStr2('Module key of %s is mismatched');
 	err3FmtStr := B.NewStr2('Unknown exception; Pc: %x');
 	err4FmtStr := B.NewStr2('Cannot load module %s (not exist?)');
-	rtlName := B.NewStr2('RTL.DLL'); user32name := B.NewStr2('USER32.DLL');
+	rtlName := B.NewStr2(B.RtlName); user32name := B.NewStr2('USER32.DLL');
 	
-	str := 'Error in module '; B.Append(modid, str);
-	err5FmtStr := B.NewStr2(str);
+	str2 := 'Error in module '; B.Append(str, str2);
+	err5FmtStr := B.NewStr2(str2);
 	
 	AllocStaticData; ScanDeclaration(B.universe.first, 0);
 	baseOffset := (-staticSize) DIV 4096 * 4096;
@@ -2337,15 +2338,14 @@ BEGIN
 				ident := imod.impList;
 				WHILE ident # NIL DO x := ident.obj;
 					IF x.class = B.cType THEN
-						IF x.type.form = B.tRec THEN
-							adr := x.type.adr; expno := x.type.expno
-						ELSE adr := x.type.base.adr; expno := x.type.base.expno
-						END
+						ASSERT(x.type.form = B.tRec);
+						adr := x.type.adr; expno := x.type.expno
 					ELSIF x IS B.Var THEN
 						adr := x(B.Var).adr; expno := x(B.Var).expno
 					ELSIF x IS B.Proc THEN
 						adr := x(B.Proc).adr; expno := x(B.Proc).expno
 					END;
+					ASSERT(adr >= 128);
 					EmitRR(MOVd, reg_C, 8, reg_SI); LoadImm(reg_D, 4, expno);
 					SetRm_regI(reg_B, GetProcAddress); EmitRm(CALL, 4);
 					SetRm_regI(reg_B, adr); EmitRegRm(MOV, reg_A, 8);
@@ -2363,7 +2363,7 @@ BEGIN
 			ELSE ASSERT(FALSE)
 			END;
 			WHILE tp.len >= 1 DO
-				SetRm_regI(reg_B, tp.adr);
+				SetRm_regI(reg_B, tp.adr); ASSERT(tp.adr >= 128);
 				IF tp.mod = NIL THEN EmitRegRm(LEA, reg_A, 8)
 				ELSE EmitRegRm(MOVd, reg_A, 8)
 				END;
@@ -2698,10 +2698,10 @@ END FoldConst;
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE Init*(modid0: S.IdStr);
+PROCEDURE Init*;
 	VAR fname: ARRAY 128 OF CHAR;
 BEGIN
-	modid := modid0; varSize := 0; staticSize := 128;
+	varSize := 0; staticSize := 128;
 	procList := NIL; curProc := NIL;
 	B.intType.size := 8; B.intType.align := 8;
 	B.byteType.size := 1; B.byteType.align := 1;
@@ -2774,4 +2774,4 @@ END Cleanup;
 
 BEGIN
 	MakeItem0 := MakeItem
-END Generator.
+END Patchouli Generator.

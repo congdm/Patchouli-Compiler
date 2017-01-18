@@ -1,4 +1,4 @@
-MODULE Files;
+MODULE Oberon07 Files;
 IMPORT SYSTEM, Rtl;
 
 CONST
@@ -538,4 +538,4 @@ BEGIN
 END InitWin32;
 	
 BEGIN InitWin32
-END Files.
+END Oberon07 Files.

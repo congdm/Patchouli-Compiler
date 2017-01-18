@@ -1,6 +1,6 @@
-MODULE Linker;
+MODULE Patchouli Linker;
 IMPORT
-	SYSTEM, Files,
+	SYSTEM, Files := [Oberon07 Files],
 	B := Base;
 	
 CONST
@@ -24,7 +24,7 @@ VAR
 	debug_abbrev_rawsize, debug_abbrev_fadr: INTEGER;
 	
 	Kernel32Table: ARRAY 6 OF INTEGER;
-	modPtrTable: INTEGER;
+	modPtrTable: INTEGER; fname: ARRAY 512 OF CHAR;
 	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -108,9 +108,10 @@ BEGIN
 END Write_pointer_offset;
 
 PROCEDURE Write_data_section;
-	VAR basefadr, i, j, adr: INTEGER; b: BYTE;
+	VAR basefadr, i, adr: INTEGER; b: BYTE;
 		imod: B.Module; slist: B.StrList; ident: B.Ident;
 		x: B.Str; t: B.TypeList; obj: B.Object;
+		str: ARRAY 512 OF CHAR;
 BEGIN
 	basefadr := data_fadr;
 	Files.Set(rider, out, basefadr); i := 0;
@@ -119,11 +120,12 @@ BEGIN
 	END;
 	imod := B.modList;
 	WHILE imod # NIL DO
-		Files.Set(rider, out, basefadr + imod.adr); j := 0;
-		WHILE imod.name[j] # 0X DO
-			Files.WriteChar(rider, imod.name[j]); INC(j)
+		IF imod.import OR (imod.impList # NIL) THEN
+			Files.Set(rider, out, basefadr + imod.adr);
+			B.ModIdToStr(imod.id, str); B.Append('.dll', str);
+			Files.WriteString(rider, str)
 		END;
-		Files.WriteString(rider, '.dll'); imod := imod.next
+		imod := imod.next
 	END;
 	slist := B.strList;
 	WHILE slist # NIL DO x := slist.obj;
@@ -203,10 +205,9 @@ PROCEDURE Write_edata_section;
 			no: INTEGER; ident: B.Ident; next: Export
 		END;	
 	VAR
-		namedList, p: Export;
-		exp: B.ObjList; x: B.Object; name: ARRAY LEN(B.modid)+4 OF CHAR;
+		namedList, p: Export; exp: B.ObjList; x: B.Object;
 		i, rva, expno, nameRva, nameSz, namecnt: INTEGER;
-		adrTblSz, namePtrTblSz, ordTblSz: INTEGER;	
+		adrTblSz, namePtrTblSz, ordTblSz: INTEGER;
 
 	PROCEDURE Insert(VAR list: Export; x: Export);
 		VAR p: Export;
@@ -232,10 +233,7 @@ BEGIN (* Write_edata_section *)
 	edata_rva := pdata_rva + pdata_size; Align(edata_rva, 4096);
 	edata_fadr := pdata_fadr + pdata_rawsize;
 
-	name := B.modid;
-	IF B.Flag.main THEN B.Append('.exe', name)
-	ELSE B.Append('.dll', name)
-	END; nameSz := B.StrLen(name)+1;
+	nameSz := B.StrLen(fname)+1;
 	expno := B.expno; adrTblSz := expno*4;
 	
 	exp := B.expList; namecnt := 0; i := 1;
@@ -280,7 +278,7 @@ BEGIN (* Write_edata_section *)
 	END;
 		
 	(* Name string *)
-	Files.WriteByteStr(rider, name);
+	Files.WriteByteStr(rider, fname);
 	IF namecnt > 0 THEN p := namedList;
 		WHILE p # NIL DO
 			Files.WriteByteStr(rider, p.ident.name); p := p.next
@@ -433,9 +431,9 @@ PROCEDURE Link*(
 	debug: Files.File; code: ARRAY OF BYTE;
 	pc0, entry0, staticSize, varSize, modPtrTable0: INTEGER
 );
-	VAR n: INTEGER; fname: ARRAY 512 OF CHAR;
+	VAR n: INTEGER;
 BEGIN
-	fname := B.modid;
+	B.ModIdToStr(B.modid, fname);
 	IF B.Flag.main THEN B.Append('.exe', fname)
 	ELSE B.Append('.dll', fname)
 	END;
@@ -474,4 +472,4 @@ BEGIN
 	Files.Register(out)
 END Link;
 
-END Linker.
+END Patchouli Linker.

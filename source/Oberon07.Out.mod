@@ -1,4 +1,4 @@
-MODULE Out;
+MODULE Oberon07 Out;
 (*$RTL-*)
 
 IMPORT
@@ -88,4 +88,4 @@ BEGIN
 	Rtl.Import(GetStdHandle, Kernel32, 'GetStdHandle');
 	Rtl.Import(AllocConsole, Kernel32, 'AllocConsole');
 	Rtl.Import(WriteFile, Kernel32, 'WriteFile')
-END Out.
+END Oberon07 Out.

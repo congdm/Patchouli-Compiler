@@ -1,4 +1,4 @@
-MODULE Parser;
+MODULE Patchouli Parser;
 IMPORT
 	S := Scanner, B := Base, G := Generator;
 	
@@ -280,6 +280,25 @@ BEGIN scope := B.topScope; found := FALSE;
 	RETURN x
 END FindIdent;
 
+PROCEDURE CheckImport(x: B.Object; mod: B.Module);
+	VAR t: B.Object; tp: B.Type;
+BEGIN
+	IF (x IS B.Var) & (x(B.Var).lev < -1) & (x(B.Var).adr = 0)
+	OR (x IS B.Proc) & (x(B.Proc).lev < -1) & (x(B.Proc).adr = 0)
+	THEN G.AllocImport(x, mod)
+	ELSIF x.class = B.cType THEN
+		IF x.type.form = B.tRec THEN
+			IF x.type.adr = 0 THEN G.AllocImport(x, mod) END
+		ELSIF x.type.form = B.tPtr THEN tp := x.type.base;
+			IF (tp = NIL) & (S.errcnt # 0) THEN (* ignore *)
+			ELSIF tp.adr = 0 THEN t := tp.obj;
+				IF t = NIL THEN t := B.NewTypeObj(tp) END;
+				G.AllocImport(t, mod)
+			END
+		END
+	END
+END CheckImport;
+
 PROCEDURE qualident(): B.Object;
 	VAR x: B.Object; mod: B.Module; ident: B.Ident;
 BEGIN x := FindIdent(); GetSym;
@@ -289,16 +308,8 @@ BEGIN x := FindIdent(); GetSym;
 			WHILE (ident # NIL) & (ident.name # S.id) DO
 				ident := ident.next
 			END;
-			IF ident # NIL THEN x := ident.obj;
-				IF (x IS B.Var) & (x(B.Var).lev < -1) & (x(B.Var).adr = 0)
-				OR (x IS B.Proc) & (x(B.Proc).lev < -1) & (x(B.Proc).adr = 0)
-				THEN G.AllocImport(x, mod)
-				ELSIF (x.class = B.cType) & (x.type.mod # NIL) THEN
-					IF (x.type.form = B.tRec) & (x.type.adr = 0)
-					OR (x.type.form = B.tPtr) & (x.type.base.adr = 0) THEN
-						G.AllocImport(x, mod)
-					END
-				END
+			IF ident # NIL THEN
+				x := ident.obj; CheckImport(x, mod)
 			ELSE Mark('not found'); x := NIL
 			END; GetSym
 		ELSE Missing(S.ident); x := NIL
@@ -685,7 +696,7 @@ END ConstExpression;
 (* -------------------------------------------------------------------------- *)
 
 PROCEDURE StdProc(f: B.SProc): B.Object;
-	VAR x, y, z, t: B.Object; hasParen: BOOLEAN;
+	VAR x, y, z, t: B.Object; bType: B.Type; hasParen: BOOLEAN;
 BEGIN hasParen := TRUE;
 	IF f.id # S.spINT3 THEN Check0(S.lparen)
 	ELSIF sym = S.lparen THEN GetSym ELSE hasParen := FALSE
@@ -701,12 +712,12 @@ BEGIN hasParen := TRUE;
 		y := expression(); CheckInt(y); x := NewNode(f.id, x, y)
 	ELSIF f.id = S.spNEW THEN
 		IF ~B.Flag.rtl THEN Mark('Must have RTL to call NEW') END;
-		x := designator(); Check1(x, {B.tPtr}); CheckVar(x, FALSE);
-		IF (x.type.base.mod # NIL) & (x.type.base.adr = 0) THEN
-			t := x.type.base.obj;
-			IF t = NIL THEN t := x.type.obj END;
-			IF t = NIL THEN t := B.NewTypeObj(x.type.base) END;
-			G.AllocImport(t, x.type.base.mod)
+		x := designator(); Check1(x, {B.tPtr});
+		CheckVar(x, FALSE); bType := x.type.base;
+		IF (S.errcnt # 0) & (bType = NIL) THEN (* ignore *)
+		ELSIF (bType.mod # NIL) & (bType.adr = 0) THEN
+			t := bType.obj; IF t = NIL THEN t := B.NewTypeObj(bType) END;
+			G.AllocImport(t, bType.mod)
 		END;
 		x := NewNode(S.spNEW, x, NIL)
 	ELSIF f.id = S.spASSERT THEN
@@ -1268,15 +1279,36 @@ BEGIN
 	END
 END DeclarationSequence;
 
+PROCEDURE ModuleId(VAR modid: B.ModuleId);
+	VAR plen: INTEGER;
+BEGIN
+	modid.name := S.id; GetSym;
+	IF sym = S.ident THEN plen := modid.plen;
+		IF plen < LEN(modid.prefix) THEN
+			modid.prefix[plen] := modid.name; INC(modid.plen)
+		ELSE Mark('prefix too long')
+		END;
+		ModuleId(modid)
+	END
+END ModuleId;
+
 PROCEDURE import;
-	VAR ident: B.Ident; name: S.IdStr;
+	VAR ident: B.Ident; id: B.ModuleId; name: S.IdStr;
 BEGIN
 	ident := NewIdent(S.id); name := S.id; GetSym;
 	IF sym = S.becomes THEN GetSym;
-		IF sym = S.ident THEN name := S.id; GetSym ELSE Missing(S.ident) END
+		IF sym = S.ident THEN name := S.id; GetSym
+		ELSIF sym = S.lbrak THEN GetSym; id.plen := 0;
+			IF sym = S.ident THEN ModuleId(id) ELSE Missing(S.ident) END;
+			Check0(S.rbrak); name := 0X
+		ELSE Missing(S.ident)
+		END
 	END;
-	IF name # 'SYSTEM' THEN B.NewModule(ident, name)
-	ELSE B.NewSystemModule(ident)
+	IF S.errcnt = 0 THEN
+		IF name = 'SYSTEM' THEN B.NewSystemModule(ident)
+		ELSIF name # 0X THEN B.NewModule(ident, name)
+		ELSE B.NewModule0(ident, id)
+		END
 	END
 END import;
 
@@ -1286,26 +1318,25 @@ BEGIN GetSym;
 	WHILE sym = S.comma DO GetSym;
 		IF sym = S.ident THEN import ELSE Missing(S.ident) END
 	END;
-	Check0(S.semicolon);
-	IF S.errcnt = 0 THEN G.AllocImportModules END
+	Check0(S.semicolon)
 END ImportList;
 
 PROCEDURE Module*(): B.Node;
-	VAR modid: S.IdStr; modinit: B.Node;
+	VAR modid: B.ModuleId; modinit: B.Node;
 BEGIN
-	GetSym; modid[0] := 0X;
-	IF sym = S.ident THEN modid := S.id; GetSym ELSE Missing(S.ident) END;
-	B.Init(modid); G.Init(modid); Check0(S.semicolon);
-	IF sym = S.import THEN ImportList END;
-
+	GetSym; modid.plen := 0;
+	IF sym # S.ident THEN Missing(S.ident) ELSE ModuleId(modid) END;
+	IF S.errcnt = 0 THEN
+		B.Init(modid); G.Init; Check0(S.semicolon);
+		IF sym = S.import THEN ImportList END
+	END;
 	IF S.errcnt = 0 THEN
 		DeclarationSequence(NIL);
-		IF sym = S.begin THEN
-			GetSym; modinit := StatementSequence()
-		END;
+		IF sym = S.begin THEN GetSym; modinit := StatementSequence() END;
 		Check0(S.end);
 		IF sym = S.ident THEN
-			IF S.id # modid THEN Mark('wrong module name') END; GetSym
+			modid.plen := 0; ModuleId(modid);
+			IF ~B.EqlModId(modid, B.modid) THEN Mark('wrong module id') END
 		ELSE Missing(S.ident)
 		END;
 		Check0(S.period)
@@ -1316,4 +1347,4 @@ END Module;
 BEGIN
 	type0 := type; expression0 := expression;
 	StatementSequence0 := StatementSequence
-END Parser.
+END Patchouli Parser.
