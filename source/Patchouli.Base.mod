@@ -115,6 +115,15 @@ VAR
 (* -------------------------------------------------------------------------- *)
 (* Utility *)
 
+PROCEDURE Insert*(
+	src: ARRAY OF CHAR; VAR dst: ARRAY OF CHAR; VAR pos: INTEGER
+);
+	VAR i, j: INTEGER;
+BEGIN i := pos; j := 0;
+	WHILE src[j] # 0X DO dst[i] := src[j]; INC(i); INC(j) END;
+	dst[i] := 0X; pos := i
+END Insert;
+
 PROCEDURE Append*(src: ARRAY OF CHAR; VAR dst: ARRAY OF CHAR);
 	VAR i, j: INTEGER;
 BEGIN
@@ -347,13 +356,22 @@ END Enter;
 (* -------------------------------------------------------------------------- *)
 
 PROCEDURE ModIdToStr*(id: ModuleId; VAR str: ARRAY OF CHAR);
-	VAR i: INTEGER;
-BEGIN str := 0X; i := 0;
+	VAR i, slen: INTEGER;
+BEGIN i := 0; slen := 0;
 	WHILE i < id.plen DO
-		Append(id.prefix[i], str); Append('.', str); INC(i)
+		Insert(id.prefix[i], str, slen); Insert('.', str, slen); INC(i)
 	END;
-	Append(id.name, str)
+	Insert(id.name, str, slen)
 END ModIdToStr;
+
+PROCEDURE ModIdToStr2*(id: ModuleId; VAR str: ARRAY OF CHAR; VAR pos: INTEGER);
+	VAR i: INTEGER;
+BEGIN i := 0;
+	WHILE i < id.plen DO
+		Insert(id.prefix[i], str, pos); Insert('.', str, pos); INC(i)
+	END;
+	Insert(id.name, str, pos)
+END ModIdToStr2;
 
 PROCEDURE EqlModId*(x, y: ModuleId): BOOLEAN;
 	VAR res: BOOLEAN; i: INTEGER;
@@ -379,16 +397,16 @@ PROCEDURE WriteModId(x: ModuleId);
 	VAR i: INTEGER;
 BEGIN
 	Files.WriteNum(rider, x.plen); i := 0;
-	WHILE i < x.plen DO Files.WriteString(rider, x.prefix[i]); INC(i) END;
-	Files.WriteString(rider, x.name)
+	WHILE i < x.plen DO Files.WriteByteStr(rider, x.prefix[i]); INC(i) END;
+	Files.WriteByteStr(rider, x.name)
 END WriteModId;
 
 PROCEDURE ReadModId(VAR x: ModuleId);
 	VAR i: INTEGER;
 BEGIN
 	Files.ReadNum(rider, x.plen); i := 0;
-	WHILE i < x.plen DO Files.ReadString(rider, x.prefix[i]); INC(i) END;
-	Files.ReadString(rider, x.name)
+	WHILE i < x.plen DO Files.ReadByteStr(rider, x.prefix[i]); INC(i) END;
+	Files.ReadByteStr(rider, x.name)
 END ReadModId;
 
 (* -------------------------------------------------------------------------- *)
@@ -437,7 +455,7 @@ BEGIN
 	Files.WriteNum(rider, typ.parblksize); DetectType(typ.base);
 	par := typ.fields;
 	WHILE par # NIL DO x := par.obj(Par);
-		Files.WriteNum(rider, cVar); Files.WriteString(rider, par.name);
+		Files.WriteNum(rider, cVar); Files.WriteByteStr(rider, par.name);
 		Files.WriteBool(rider, x.varpar); DetectType(x.type); par := par.next
 	END;
 	Files.WriteNum(rider, cNull)
@@ -464,8 +482,8 @@ BEGIN
 		WHILE fld # NIL DO ftyp := fld.obj.type;
 			IF fld.export OR (ftyp.nPtr > 0) OR (ftyp.nProc > 0) THEN
 				Files.WriteNum(rider, cField);
-				IF fld.export THEN Files.WriteString(rider, fld.name)
-				ELSE Files.WriteString(rider, 0X)
+				IF fld.export THEN Files.WriteByteStr(rider, fld.name)
+				ELSE Files.WriteByteStr(rider, 0X)
 				END;
 				Files.WriteNum(rider, fld.obj(Field).off); DetectType(ftyp)
 			END;
@@ -489,11 +507,11 @@ END ExportType;
 PROCEDURE WriteSymfile*;
 	VAR ident: Ident; exp: ObjList; i, k, n, size: INTEGER;
 		hash: Crypt.MD5Hash; chunk: ARRAY 64 OF BYTE;
-		symfname, str: ARRAY 512 OF CHAR; x: Object;
+		symfname: ARRAY 512 OF CHAR; x: Object;
 BEGIN
 	symfname := 0X; refno := 0; expno := 0;
-	Append(srcPath, symfname); ModIdToStr(modid, str);
-	Append(str, symfname); Append('.sym', symfname);
+	i := 0; Insert(srcPath, symfname, i);
+	ModIdToStr2(modid, symfname, i); Insert('.sym', symfname, i);
 	
 	symfile := Files.New(symfname);
 	Files.Set(rider, symfile, 16);
@@ -510,29 +528,29 @@ BEGIN
 		IF ident.export THEN x := ident.obj;
 			IF x.class = cConst THEN
 				Files.WriteNum(rider, cConst);
-				Files.WriteString(rider, ident.name);
+				Files.WriteByteStr(rider, ident.name);
 				Files.WriteNum(rider, x(Const).val);
 				DetectType(x.type)
 			ELSIF x.class = cType THEN
 				Files.WriteNum(rider, cType);
-				Files.WriteString(rider, ident.name);
+				Files.WriteByteStr(rider, ident.name);
 				DetectType(x.type)
 			ELSIF x.class = cVar THEN
 				IF x IS Str THEN
 					Files.WriteNum(rider, cConst);
-					Files.WriteString(rider, ident.name);
+					Files.WriteByteStr(rider, ident.name);
 					NewExport(exp); exp.obj := x;
 					Files.WriteNum(rider, expno); DetectType(x.type);
 					Files.WriteNum(rider, x(Str).len)
 				ELSE
 					Files.WriteNum(rider, cVar);
-					Files.WriteString(rider, ident.name);
+					Files.WriteByteStr(rider, ident.name);
 					NewExport(exp); exp.obj := x;
 					Files.WriteNum(rider, expno); DetectType(x.type)
 				END 
 			ELSIF x.class = cProc THEN
 				Files.WriteNum(rider, cProc);
-				Files.WriteString(rider, ident.name);
+				Files.WriteByteStr(rider, ident.name);
 				NewExport(exp); exp.obj := x;
 				Files.WriteNum(rider, expno); DetectType(x.type)
 			ELSE ASSERT(FALSE)
@@ -640,7 +658,7 @@ PROCEDURE ImportType(VAR typ: Type; mod: Module);
 		IF S.errcnt = 0 THEN ExtendRecord(typ);
 			Files.ReadNum(rider, cls); OpenScope;
 			WHILE (cls = cField) & (S.errcnt = 0) DO
-				Files.ReadString(rider, name); Files.ReadNum(rider, off);
+				Files.ReadByteStr(rider, name); Files.ReadNum(rider, off);
 				DetectTypeI(fltype); Files.ReadNum(rider, cls);
 				IF new & (S.errcnt = 0) THEN
 					x := NewField(typ, fltype);
@@ -674,7 +692,7 @@ PROCEDURE ImportType(VAR typ: Type; mod: Module);
 		IF S.errcnt = 0 THEN
 			Files.ReadNum(rider, cls); OpenScope;
 			WHILE (cls = cVar) & (S.errcnt = 0) DO
-				Files.ReadString(rider, name); Files.ReadBool(rider, varpar);
+				Files.ReadByteStr(rider, name); Files.ReadBool(rider, varpar);
 				DetectTypeI(xtype); Files.ReadNum(rider, cls);
 				IF new & (S.errcnt = 0) THEN
 					x := NewPar(typ, xtype, varpar); NewImport(name, x)
@@ -759,7 +777,7 @@ BEGIN
 			Files.ReadNum(rider, cls)
 		END;
 		WHILE (cls = cConst) & (S.errcnt = 0) DO
-			Files.ReadString(rider, name);
+			Files.ReadByteStr(rider, name);
 			Files.ReadNum(rider, val); DetectTypeI(tp);
 			IF S.errcnt = 0 THEN
 				IF tp # strType THEN x := NewConst(tp, val)
@@ -771,12 +789,12 @@ BEGIN
 			Files.ReadNum(rider, cls)
 		END;
 		WHILE (cls = cType) & (S.errcnt = 0) DO
-			Files.ReadString(rider, name); DetectTypeI(tp);
+			Files.ReadByteStr(rider, name); DetectTypeI(tp);
 			IF S.errcnt = 0 THEN x := NewTypeObj(tp); NewImport(name, x) END;
 			Files.ReadNum(rider, cls)
 		END;
 		WHILE (cls = cVar) & (S.errcnt = 0) DO
-			Files.ReadString(rider, name);
+			Files.ReadByteStr(rider, name);
 			Files.ReadNum(rider, val); DetectTypeI(tp);
 			IF S.errcnt = 0 THEN
 				x := NewVar(tp); x(Var).ronly := TRUE;
@@ -785,7 +803,7 @@ BEGIN
 			Files.ReadNum(rider, cls)
 		END;
 		WHILE (cls = cProc) & (S.errcnt = 0) DO
-			Files.ReadString(rider, name);
+			Files.ReadByteStr(rider, name);
 			Files.ReadNum(rider, val); DetectTypeI(tp);
 			IF S.errcnt = 0 THEN
 				x := NewProc(); x(Proc).adr := 0;
@@ -828,9 +846,8 @@ BEGIN (* NewModule0 *)
 	mod := FindMod(id); IF (mod # NIL) & ~mod.import THEN mod := NIL END;
 	IF EqlModId(id, modid) THEN S.Mark('Cannot import self')
 	ELSIF mod = NIL THEN
-		ModIdToStr(id, symfname); Append('.sym', symfname);
-		path := symfname; i := 0;
-		symfile := Files.Old(path); found := symfile # NIL;
+		i := 0; ModIdToStr2(id, symfname, i); Insert('.sym', symfname, i);
+		symfile := Files.Old(symfname); found := symfile # NIL; i := 0;
 		WHILE (symPath[i] # 0X) & ~found DO
 			GetPath(path, i);
 			IF path # 0X THEN
@@ -896,11 +913,11 @@ END SetSrcPath;
 (* -------------------------------------------------------------------------- *)
 
 PROCEDURE Init*(modid0: ModuleId);
-	VAR str, str2: ARRAY 512 OF CHAR; res: INTEGER;
+	VAR symfname: ARRAY 512 OF CHAR; i, res: INTEGER;
 BEGIN
-	modid := modid0; str := 0X; Append(srcPath, str);
-	Append(srcPath, str); ModIdToStr(modid, str2);
-	Append(str2, str); Append('.sym', str); Files.Delete(str, res);
+	modid := modid0; i := 0; Insert(srcPath, symfname, i);
+	ModIdToStr2(modid, symfname, i); Insert('.sym', symfname, i);
+	Files.Delete(symfname, res);
 
 	NEW(universe); topScope := universe; curLev := -1;
 	system := FALSE; modno := -2; strbufSize := 0;

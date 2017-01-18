@@ -122,8 +122,8 @@ BEGIN
 	WHILE imod # NIL DO
 		IF imod.import OR (imod.impList # NIL) THEN
 			Files.Set(rider, out, basefadr + imod.adr);
-			B.ModIdToStr(imod.id, str); B.Append('.dll', str);
-			Files.WriteString(rider, str)
+			i := 0; B.ModIdToStr2(imod.id, str, i);
+			B.Insert('.dll', str, i); Files.WriteString(rider, str)
 		END;
 		imod := imod.next
 	END;

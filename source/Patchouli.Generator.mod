@@ -156,15 +156,32 @@ BEGIN
 END Put1;
 
 PROCEDURE Put2(n: INTEGER);
-BEGIN Put1(n); n := n DIV 256; Put1(n)
+	VAR val: SYSTEM.CARD16;
+BEGIN
+	IF pass > 2 THEN
+		ASSERT(pc+2 <= LEN(code)); val := n;
+		SYSTEM.PUT(SYSTEM.ADR(code)+pc, val)
+	END;
+	INC(pc, 2)
 END Put2;
 
 PROCEDURE Put4(n: INTEGER);
-BEGIN Put2(n); n := n DIV 10000H; Put2(n)
+	VAR val: SYSTEM.CARD32;
+BEGIN
+	IF pass > 2 THEN
+		ASSERT(pc+4 <= LEN(code)); val := n;
+		SYSTEM.PUT(SYSTEM.ADR(code)+pc, val)
+	END;
+	INC(pc, 4)
 END Put4;
 
 PROCEDURE Put8(n: INTEGER);
-BEGIN Put4(n); n := n DIV 100000000H; Put4(n)
+BEGIN
+	IF pass > 2 THEN
+		ASSERT(pc+8 <= LEN(code));
+		SYSTEM.PUT(SYSTEM.ADR(code)+pc, n)
+	END;
+	INC(pc, 8)
 END Put8;
 	
 (* -------------------------------------------------------------------------- *)
