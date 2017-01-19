@@ -964,6 +964,7 @@ BEGIN
 	Enter(NewSProc(S.sfBIT, cSFunc), 'BIT');
 	Enter(NewSProc(S.sfVAL, cSFunc), 'VAL');
 	Enter(NewSProc(S.sfNtCurrentTeb, cSFunc), 'NtCurrentTeb');
+	Enter(NewSProc(S.sfCAS, cSFunc), 'CAS');
 	
 	Enter(NewTypeObj(byteType), 'BYTE');
 	Enter(NewTypeObj(card16Type), 'CARD16');

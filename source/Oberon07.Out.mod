@@ -87,5 +87,6 @@ END Ln;
 BEGIN
 	Rtl.Import(GetStdHandle, Kernel32, 'GetStdHandle');
 	Rtl.Import(AllocConsole, Kernel32, 'AllocConsole');
-	Rtl.Import(WriteFile, Kernel32, 'WriteFile')
+	Rtl.Import(WriteFile, Kernel32, 'WriteFile');
+	Open
 END Oberon07 Out.

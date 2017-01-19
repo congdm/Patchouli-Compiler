@@ -504,6 +504,12 @@ BEGIN GetSym;
 		END
 	ELSIF f.id = S.sfNtCurrentTeb THEN
 		x := NewNode(f.id, NIL, NIL); x.type := B.intType
+	ELSIF f.id = S.sfCAS THEN
+		x := expression0(); CheckInt(x); CheckVar(x, FALSE);
+		Check0(S.comma); y := expression0(); CheckInt(y);
+		Check0(S.comma); z := expression0(); CheckInt(z);
+		y := NewNode(S.null, y, z); x := NewNode(S.sfCAS, x, y);
+		x.type := B.intType
 	ELSE ASSERT(FALSE)
 	END;
 	Check0(S.rparen);

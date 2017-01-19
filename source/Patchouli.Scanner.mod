@@ -54,7 +54,7 @@ CONST
 	sfFLOOR* = 116; sfFLT* = 117; sfORD* = 118; sfCHR* = 119;
 	
 	sfADR* = 120; sfBIT* = 121; sfVAL* = 122; sfSIZE* = 123;
-	sfNtCurrentTeb* = 124;
+	sfNtCurrentTeb* = 124; sfCAS* = 125;
 	endSf* = 129;
 	
 	spINC* = 130; spDEC* = 131; spINCL* = 132; spEXCL* = 133;

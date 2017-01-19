@@ -329,6 +329,14 @@ BEGIN
 	Put1(op); EmitModRM(reg)
 END EmitMOVSX;
 
+PROCEDURE EmitCMPXCHG(reg, rsize: INTEGER);
+BEGIN
+	Put1(0F0H); (* LOCK prefix *)
+	Emit16bitPrefix(rsize); EmitREX(reg, rsize);
+	Put1(0FH); IF rsize > 1 THEN Put1(0B1H) ELSE Put1(0B0H) END;
+	EmitModRM(reg)
+END EmitCMPXCHG;
+
 (* -------------------------------------------------------------------------- *)
 
 PROCEDURE SetRm_reg(reg: INTEGER);
@@ -657,7 +665,8 @@ BEGIN (* ScanNode *)
 		ELSIF node.op = S.becomes THEN
 			IF left.type.form IN {B.tArray, B.tRec} THEN
 				node.regUsed := node.regUsed + {reg_SI, reg_DI}
-			END		
+			END
+		ELSIF node.op = S.sfCAS THEN INCL(node.regUsed, reg_A)
 		END
 	ELSIF node.op = S.call THEN
 		IF left IS B.Node THEN
@@ -732,7 +741,9 @@ BEGIN
 	AllocStaticData; ScanDeclaration(B.universe.first, 0);
 	baseOffset := (-staticSize) DIV 4096 * 4096;
 	
-	IF modinit # NIL THEN NewProc(modInitProc, modinit) END;
+	IF modinit # NIL THEN
+		ScanNode(modinit(B.Node)); NewProc(modInitProc, modinit)
+	END;
 	NewProc(dllInitProc, NIL); NewProc(trapProc, NIL); NewProc(trapProc2, NIL)
 END Pass1;
 
@@ -1580,8 +1591,8 @@ BEGIN
 END Call;
 
 PROCEDURE StdFunc(VAR x: Item; node: Node);
-	VAR id, op, L, valSize: INTEGER; r: BYTE; obj1, obj2: B.Object;
-		oldStat: MakeItemState; y: Item; valType: B.Type;
+	VAR id, op, L, valSize: INTEGER; r: BYTE; obj1, obj2, obj3: B.Object;
+		oldStat: MakeItemState; y, z: Item; valType: B.Type;
 BEGIN id := node.op; obj1 := node.left; obj2 := node.right;
 	IF id = S.sfABS THEN MakeItem0(x, obj1); Load(x);
 		IF x.type.form = B.tInt THEN
@@ -1678,6 +1689,17 @@ BEGIN id := node.op; obj1 := node.left; obj2 := node.right;
 		mem.idx := reg_SP; mem.scl := 0; mem.disp := 30H;
 		(* GS prefix *) Put1(65H); EmitREX(x.r, 8);
 		Put1(MOVd+1); EmitModRM(x.r)
+	ELSIF id = S.sfCAS THEN
+		obj3 := obj2(B.Node).right; obj2 := obj2(B.Node).left;
+		oldStat := MkItmStat; AvoidUsedBy(obj2); AvoidUsedBy(obj3);
+		SetAvoid(reg_A); MakeItem0(x, obj1); RefToRegI(x); ResetMkItmStat;
+		AvoidUsedBy(obj3); SetBestReg(reg_A); MakeItem0(y, obj2); Load(y);
+		ResetMkItmStat; SetAvoid(reg_A); MakeItem0(z, obj3); Load(z);
+		IF y.r # reg_A THEN RelocReg(y.r, reg_A) END;
+		
+		SetRmOperand(x); EmitCMPXCHG(z.r, x.type.size);
+		FreeReg(z.r); FreeReg2(x); MkItmStat := oldStat;
+		x.mode := mReg; x.r := reg_A
 	ELSE ASSERT(FALSE)
 	END
 END StdFunc;
