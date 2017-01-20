@@ -1,6 +1,6 @@
-MODULE Patchouli Generator;
+MODULE Patchouli.Generator;
 IMPORT
-	SYSTEM, Files := [Oberon07 Files],
+	SYSTEM, Files := [Oberon07.Files],
 	S := Scanner, B := Base, Linker;
 
 CONST
@@ -2819,4 +2819,4 @@ END Cleanup;
 
 BEGIN
 	MakeItem0 := MakeItem
-END Patchouli Generator.
+END Generator.

@@ -1,4 +1,4 @@
-MODULE Patchouli Parser;
+MODULE Patchouli.Parser;
 IMPORT
 	S := Scanner, B := Base, G := Generator;
 	
@@ -1301,12 +1301,15 @@ PROCEDURE ModuleId(VAR modid: B.ModuleId);
 	VAR plen: INTEGER;
 BEGIN
 	modid.name := S.id; GetSym;
-	IF sym = S.ident THEN plen := modid.plen;
-		IF plen < LEN(modid.prefix) THEN
-			modid.prefix[plen] := modid.name; INC(modid.plen)
-		ELSE Mark('prefix too long')
-		END;
-		ModuleId(modid)
+	IF sym = S.period THEN GetSym;
+		IF sym = S.ident THEN plen := modid.plen;
+			IF plen < LEN(modid.prefix) THEN
+				modid.prefix[plen] := modid.name; INC(modid.plen)
+			ELSE Mark('prefix too long')
+			END;
+			ModuleId(modid)
+		ELSE Missing(S.ident)
+		END
 	END
 END ModuleId;
 
@@ -1353,8 +1356,7 @@ BEGIN
 		IF sym = S.begin THEN GetSym; modinit := StatementSequence() END;
 		Check0(S.end);
 		IF sym = S.ident THEN
-			modid.plen := 0; ModuleId(modid);
-			IF ~B.EqlModId(modid, B.modid) THEN Mark('wrong module id') END
+			IF S.id # modid.name THEN Mark('wrong module name') END; GetSym
 		ELSE Missing(S.ident)
 		END;
 		Check0(S.period)
@@ -1365,4 +1367,4 @@ END Module;
 BEGIN
 	type0 := type; expression0 := expression;
 	StatementSequence0 := StatementSequence
-END Patchouli Parser.
+END Parser.

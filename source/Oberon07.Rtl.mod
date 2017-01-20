@@ -1,4 +1,4 @@
-MODULE Oberon07 Rtl; (* multi-threaded application NOT SUPPORTED *)
+MODULE Oberon07.Rtl; (* multi-threaded application NOT SUPPORTED *)
 (*$RTL-*)
 IMPORT SYSTEM;
 	
@@ -486,4 +486,4 @@ BEGIN
 	Import(CharLowerBuffW, 'User32.dll', 'CharLowerBuffW');
 	
 	GetArgv; InitHeap
-END Oberon07 Rtl.
+END Rtl.

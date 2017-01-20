@@ -1,6 +1,6 @@
-MODULE Patchouli Linker;
+MODULE Patchouli.Linker;
 IMPORT
-	SYSTEM, Files := [Oberon07 Files],
+	SYSTEM, Files := [Oberon07.Files],
 	B := Base;
 	
 CONST
@@ -476,4 +476,4 @@ BEGIN
 	Files.Register(out)
 END Link;
 
-END Patchouli Linker.
+END Linker.

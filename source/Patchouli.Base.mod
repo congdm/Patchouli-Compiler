@@ -1,6 +1,6 @@
-MODULE Patchouli Base;
+MODULE Patchouli.Base;
 IMPORT
-	SYSTEM, Files := [Oberon07 Files],
+	SYSTEM, Files := [Oberon07.Files],
 	Crypt, S := Scanner;
 
 CONST
@@ -997,4 +997,4 @@ BEGIN
 	NewPredefinedType(noType, tPtr); noType.base := intType;
 	NewPredefinedType(card16Type, tInt);
 	NewPredefinedType(card32Type, tInt)
-END Patchouli Base.
+END Base.
