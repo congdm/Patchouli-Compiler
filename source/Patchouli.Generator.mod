@@ -2267,7 +2267,7 @@ BEGIN
 			END;
 			INC(r)
 		END;
-		EmitBare(LEAVE); EmitBare(RET)
+		EmitRR(MOVd, reg_SP, 8, reg_BP); PopR(reg_BP); EmitBare(RET)
 	END;
 	FinishProc
 END Procedure;
