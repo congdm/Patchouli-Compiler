@@ -1,7 +1,7 @@
-MODULE Test7;(*$CONSOLE*)
-IMPORT Rtl, Files;
-VAR file: Files.File;
-
+MODULE Test7;
+IMPORT SYSTEM;
+TYPE Block = RECORD tdAdr, mark: INTEGER END;
+VAR x, i: INTEGER;
 BEGIN
-	file := Files.Old('Test7.mod'); file := NIL; Rtl.Collect
+	i := SYSTEM.CAS(x{Block}.mark, 0, 0)
 END Test7.

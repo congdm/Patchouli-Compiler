@@ -1464,6 +1464,11 @@ BEGIN oldStat := MkItmStat; AvoidUsedBy(node.right);
 	MkItmStat := oldStat
 END Index;
 
+PROCEDURE RecordCast(VAR x: Item; node: Node);
+BEGIN
+	MakeItem0(x, node.left); Load(x); x.mode := mRegI; x.a := 0
+END RecordCast;
+
 PROCEDURE SingletonSet(VAR x: Item; node: Node);
 	VAR r: INTEGER; oldStat: MakeItemState;
 BEGIN
@@ -2112,6 +2117,7 @@ BEGIN
 		ELSIF node.op = S.period THEN Field(x, node)
 		ELSIF node.op = S.lparen THEN TypeCheck(x, node)
 		ELSIF node.op = S.lbrak THEN Index(x, node)
+		ELSIF node.op = S.lbrace THEN RecordCast(x, node)
 		ELSIF node.op = S.bitset THEN SingletonSet(x, node)
 		ELSIF node.op = S.upto THEN RangeSet(x, node)
 		ELSIF node.op = S.call THEN Call(x, node)

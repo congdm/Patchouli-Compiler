@@ -425,6 +425,18 @@ BEGIN x := qualident();
 			x.type := ytype
 		END;
 		Check0(S.rparen)
+	ELSIF sym = S.lbrace DO
+		IF ~B.system THEN Mark('Casting not allowed') END;
+		CheckInt(x); GetSym; y := NIL; xtype := x.type;
+		IF sym = S.ident THEN y := qualident() ELSE Missing(S.ident) END;
+		IF (y # NIL) & (y.class = B.cType) THEN ytype := x.type;
+			IF y.type.form = B.tRec THEN ytype := y.type
+			ELSE Mark('not record type')
+			END
+		ELSE Mark('not type')
+		END;
+		x := NewNode(S.lbrace, x, y); x.type := ytype;
+		x(B.Node).ronly := FALSE; ronly := FALSE; Check0(S.rbrace)
 	END;
 	RETURN x
 END designator;
