@@ -958,6 +958,7 @@ BEGIN
 	Enter(NewSProc(S.spLoadLibraryW, cSProc), 'LoadLibraryW');
 	Enter(NewSProc(S.spGetProcAddress, cSProc), 'GetProcAddress');
 	Enter(NewSProc(S.spINT3, cSProc), 'INT3');
+	Enter(NewSProc(S.spPAUSE, cSProc), 'PAUSE');
 	
 	Enter(NewSProc(S.sfADR, cSFunc), 'ADR');
 	Enter(NewSProc(S.sfSIZE, cSFunc), 'SIZE');

@@ -427,9 +427,9 @@ BEGIN x := qualident();
 		Check0(S.rparen)
 	ELSIF sym = S.lbrace DO
 		IF ~B.system THEN Mark('Casting not allowed') END;
-		CheckInt(x); GetSym; y := NIL; xtype := x.type;
+		CheckInt(x); GetSym; y := NIL; ytype := x.type;
 		IF sym = S.ident THEN y := qualident() ELSE Missing(S.ident) END;
-		IF (y # NIL) & (y.class = B.cType) THEN ytype := x.type;
+		IF (y # NIL) & (y.class = B.cType) THEN
 			IF y.type.form = B.tRec THEN ytype := y.type
 			ELSE Mark('not record type')
 			END
@@ -716,7 +716,7 @@ END ConstExpression;
 PROCEDURE StdProc(f: B.SProc): B.Object;
 	VAR x, y, z, t: B.Object; bType: B.Type; hasParen: BOOLEAN;
 BEGIN hasParen := TRUE;
-	IF f.id # S.spINT3 THEN Check0(S.lparen)
+	IF (f.id # S.spINT3) & (f.id # S.spPAUSE) THEN Check0(S.lparen)
 	ELSIF sym = S.lparen THEN GetSym ELSE hasParen := FALSE
 	END;
 	IF (f.id = S.spINC) OR (f.id = S.spDEC) THEN
@@ -775,6 +775,8 @@ BEGIN hasParen := TRUE;
 		x := NewNode(S.spGetProcAddress, x, NewNode(S.null, y, z))
 	ELSIF f.id = S.spINT3 THEN
 		x := NewNode(S.spINT3, NIL, NIL)
+	ELSIF f.id = S.spPAUSE THEN
+		x := NewNode(S.spPAUSE, NIL, NIL)
 	ELSE Mark('unsupported');
 	END;
 	IF hasParen THEN Check0(S.rparen) END;

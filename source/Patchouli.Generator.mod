@@ -46,6 +46,7 @@ CONST
 	CMPSB = 0A6H; CMPSW = 0A766H; CMPSD = 0A7H; CMPSQ = 0A748H;
 	LODSB = 0ACH; LODSW = 0AD66H; LODSD = 0ADH; LODSQ = 0AD48H;
 	STOSB = 0AAH; STOSW = 0AB66H; STOSD = 0ABH; STOSQ = 0AB48H;
+	PAUSE = 90F3H;
 	
 	(* REP instructions *)
 	MOVSrep = 0A4H;
@@ -1980,6 +1981,8 @@ BEGIN
 		IF curProc.obj.homeSpace < 32 THEN curProc.obj.homeSpace := 32 END
 	ELSIF id = S.spINT3 THEN
 		EmitBare(INT3)
+	ELSIF id = S.spPAUSE THEN
+		EmitBare(PAUSE)
 	ELSE ASSERT(FALSE)
 	END
 END StdProc;
@@ -2124,7 +2127,7 @@ BEGIN
 		ELSIF (node.op >= S.begSf) & (node.op <= S.endSf) THEN StdFunc(x, node)
 		ELSIF (node.op = S.becomes)
 		OR (node.op >= S.if) & (node.op <= S.for)
-		OR (node.op >= S.spINC) & (node.op <= S.spINT3) THEN
+		OR (node.op >= S.begSp) & (node.op <= S.endSp) THEN
 			ResetMkItmStat; allocReg := {}; allocXReg := {};
 			IF node.op = S.becomes THEN Becomes(node)
 			ELSIF node.op = S.if THEN If(node)
