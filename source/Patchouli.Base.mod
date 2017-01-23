@@ -92,7 +92,7 @@ VAR
 	
 	(* Predefined Types *)
 	intType*, byteType*, realType*: Type;
-	card16Type*, card32Type*: Type;
+	card16Type*, card32Type*, int8Type*, int16Type*, int32Type*: Type;
 	boolType*, setType*, charType*, nilType*, strType*: Type;
 	noType*: Type; predefTypes: TypeList;
 	
@@ -970,6 +970,9 @@ BEGIN
 	Enter(NewTypeObj(byteType), 'BYTE');
 	Enter(NewTypeObj(card16Type), 'CARD16');
 	Enter(NewTypeObj(card32Type), 'CARD32');
+	Enter(NewTypeObj(int8Type), 'INT8');
+	Enter(NewTypeObj(int16Type), 'INT16');
+	Enter(NewTypeObj(int32Type), 'INT32');
 	systemScope := topScope; CloseScope;
 	
 	curLev := 0
@@ -997,5 +1000,8 @@ BEGIN
 	NewPredefinedType(strType, tStr);
 	NewPredefinedType(noType, tPtr); noType.base := intType;
 	NewPredefinedType(card16Type, tInt);
-	NewPredefinedType(card32Type, tInt)
+	NewPredefinedType(card32Type, tInt);
+	NewPredefinedType(int8Type, tInt);
+	NewPredefinedType(int16Type, tInt);
+	NewPredefinedType(int32Type, tInt)
 END Base.
