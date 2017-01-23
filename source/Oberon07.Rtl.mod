@@ -6,7 +6,7 @@ CONST
 	MinInt = 8000000000000000H; MaxInt = 7FFFFFFFFFFFFFFFH;
 
 	Kernel32 = 'KERNEL32.DLL';
-	HeapMax = 80000000H;
+	HeapMax = 80000000H; blkMeta = 16; markedSentinel = 2;
 	
 	GENERIC_READ = {31}; GENERIC_WRITE = {30};
 	MEM_RESERVE = 2000H; MEM_COMMIT = 1000H; PAGE_READWRITE = 4;
@@ -45,7 +45,7 @@ VAR
 	VirtualAlloc: PROCEDURE(
 		lpAddress, dwSize, flAllocationType, flProtect: INTEGER
 	): Pointer;
-	heapBase, heapSize: INTEGER; allocated*: INTEGER;
+	heapBase, heapSize, markedList: INTEGER; allocated*: INTEGER;
 	fList: ARRAY 4 OF INTEGER; fList0: INTEGER;
 	
 	(* Unicode *)
@@ -92,50 +92,6 @@ PROCEDURE MessageBox*(title, msg: ARRAY OF CHAR);
 	VAR iRes: Int;
 BEGIN iRes := MessageBoxW(0, SYSTEM.ADR(msg), SYSTEM.ADR(title), 0)
 END MessageBox;
-
-PROCEDURE Format*(
-	type: INTEGER; src: ARRAY OF BYTE; VAR dst: ARRAY OF CHAR
-): INTEGER;
-	CONST MinIntStr = '-9223372036854775808';
-	VAR neg: BOOLEAN; x, i, j, dstLen: INTEGER; y: BYTE;
-		s: ARRAY 32 OF CHAR;
-BEGIN
-	IF type = 0 (* Decimal Int *) THEN
-		IF LEN(src) = 8 THEN SYSTEM.GET(SYSTEM.ADR(src), x)
-		ELSIF LEN(src) = 1 THEN x := src[0] ELSE ASSERT(FALSE)
-		END;
-		IF x # MinInt THEN i := 0; j := 0;
-			IF x < 0 THEN neg := TRUE; x := -x ELSE neg := FALSE END;
-			REPEAT s[i] := CHR(x MOD 10 + ORD('0')); INC(i); x := x DIV 10
-			UNTIL x = 0;		
-			IF ~neg THEN
-				WHILE j < i DO dst[j] := s[i-1-j]; INC(j) END;
-				dst[j] := 0X; dstLen := j+1
-			ELSE dst[0] := '-';
-				WHILE j < i DO dst[j+1] := s[i-1-j]; INC(j) END;
-				dst[j+1] := 0X; dstLen := j+2
-			END
-		ELSE dst := MinIntStr; dstLen := LEN(MinIntStr)
-		END
-	ELSIF type = 1 (* Hexadecimal Int *) THEN
-		IF LEN(src) = 8 THEN SYSTEM.GET(SYSTEM.ADR(src), x)
-		ELSIF LEN(src) = 1 THEN x := src[0] ELSE ASSERT(FALSE)
-		END; i := 15; j := 0;
-		WHILE (ASR(x, i*4) MOD 16 = 0) & (i > 0) DO DEC(i) END;
-		WHILE i >= 0 DO y := ASR(x, i*4) MOD 16;
-			IF y <= 9 THEN dst[j] := CHR(y + ORD('0'))
-			ELSE dst[j] := CHR(y-10 + ORD('a'))
-			END; INC(j); DEC(i)
-		END;
-		dst[j] := 0X; dstLen := j+1
-	ELSE ASSERT(FALSE)
-	END;
-	RETURN dstLen
-END Format;
-
-PROCEDURE Parse*(type: INTEGER; src: ARRAY OF CHAR; VAR dst: ARRAY OF BYTE);
-BEGIN ASSERT(FALSE)
-END Parse;
 
 PROCEDURE GetArg*(VAR out: ARRAY OF CHAR; n: INTEGER);
 	VAR i, arg: INTEGER;
@@ -208,13 +164,6 @@ BEGIN
 	END;
 	INC(nMod); SYSTEM.PUT(modList+nMod*8-8, modAdr)
 END Register;
-
-PROCEDURE TrapHandler(ExceptionInfo: INTEGER): INTEGER;
-	VAR ExceptionRecord: INTEGER;
-BEGIN
-	SYSTEM.GET(ExceptionInfo, ExceptionRecord);
-	RETURN 0
-END TrapHandler;
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -325,7 +274,20 @@ END New;
 
 (* -------------------------------------------------------------------------- *)
 (* Mark and Sweep *)
+(* Combined ideas from both N. Wirth's and F. Negele's Garbage Collectors *)
 
+(* Block metadata is 16 bytes for allocated block *)
+(* First word: Type desc address *)
+(* Second word: Mark word - 0 is not marked - 1 is marked - otherwise *)
+(*              pointer to the next element in marked list            *)
+
+(* For free block is 32 bytes *)
+(* First word: Size *)
+(* Second word: Mark = -1 *)
+(* Third word: Next element in free list *)
+(* Fourth word: Unused *)
+
+(*
 PROCEDURE Mark(pref, modBase: INTEGER);
 	VAR pvadr, offadr, offset, tag, p, q, r: INTEGER;
 BEGIN SYSTEM.GET(pref, pvadr); (* pointers < heapBase considered NIL *)
@@ -358,6 +320,29 @@ BEGIN SYSTEM.GET(pref, pvadr); (* pointers < heapBase considered NIL *)
 		INC(pref, 8); SYSTEM.GET(pref, pvadr)
 	END
 END Mark;
+*)
+
+PROCEDURE Mark(blk: INTEGER);
+	VAR mark: INTEGER;
+BEGIN SYSTEM.GET(blk+8, mark);
+	IF mark # 0 THEN (* already marked *)
+	ELSE SYSTEM.PUT(blk+8, markedList); markedList := blk
+	END
+END Mark;
+
+PROCEDURE TraceMarked;
+	VAR list, tdAdr, off, ptr, next: INTEGER;
+BEGIN list := markedList; markedList := markedSentinel;
+	WHILE list # markedSentinel DO
+		SYSTEM.GET(list, tdAdr); INC(tdAdr, 64); SYSTEM.GET(tdAdr, off);
+		WHILE off # -1 DO
+			SYSTEM.GET(list+blkMeta+off, ptr); DEC(ptr, blkMeta);
+			IF ptr >= heapBase THEN Mark(ptr) END;
+			INC(tdAdr, 8); SYSTEM.GET(tdAdr, off)
+		END;
+		SYSTEM.GET(list+8, next); SYSTEM.PUT(list+8, 1); list := next
+	END
+END TraceMarked;
 
 PROCEDURE Scan;
 	VAR p, q, mark, tag, size: INTEGER;
@@ -419,13 +404,18 @@ BEGIN ptr := finalisedList;
 END Finalise;
 
 PROCEDURE Collect*;
-	VAR i, modBase, ptrTable, off: INTEGER;
+	VAR i, modBase, ptrTable, off, ptr: INTEGER;
 BEGIN i := 0;
-	WHILE i < nMod DO
-		SYSTEM.GET(modList+i*8, modBase); SYSTEM.GET(modBase+112, ptrTable);
-		Mark(ptrTable, modBase); INC(i)
+	WHILE i < nMod DO SYSTEM.GET(modList+i*8, modBase);
+		SYSTEM.GET(modBase+112, ptrTable); SYSTEM.GET(ptrTable, off);
+		WHILE off # -1 DO
+			SYSTEM.GET(modBase+off, ptr); DEC(ptr, blkMeta);
+			IF ptr >= heapBase THEN Mark(ptr) END;
+			INC(ptrTable, 8); SYSTEM.GET(ptrTable, off)
+		END;
+		INC(i)
 	END;
-	Finalise; Scan
+	WHILE markedList # markedSentinel DO TraceMarked END; Finalise; Scan
 END Collect;
 
 PROCEDURE RegisterFinalised*(ptr: Finalised; finalise: FinaliseProc);
@@ -446,7 +436,8 @@ BEGIN
 	
 	FOR i := 0 TO LEN(fList)-1 DO fList[i] := 0 END;
 	p := heapBase; fList0 := heapBase; allocated := 0;
-	SYSTEM.PUT(p, heapSize); SYSTEM.PUT(p+8, -1); SYSTEM.PUT(p+16, 0)
+	SYSTEM.PUT(p, heapSize); SYSTEM.PUT(p+8, -1); SYSTEM.PUT(p+16, 0);
+	markedList := markedSentinel
 END InitHeap;
 
 (* -------------------------------------------------------------------------- *)

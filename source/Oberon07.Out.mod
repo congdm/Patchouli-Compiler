@@ -10,8 +10,8 @@ CONST
 
 TYPE
 	Handle = INTEGER;
-	Dword = INTEGER;
-	Bool = INTEGER;
+	Dword = SYSTEM.CARD32;
+	Bool = SYSTEM.CARD32;
 
 VAR
 	GetStdHandle: PROCEDURE(nStdHandle: Dword): Handle;
@@ -20,6 +20,12 @@ VAR
 		hFile, lpBuffer, nNumberOfBytesToWrite,
 		lpNumberOfBytesWrite, lpOverlapped: INTEGER
 	): Bool;
+	
+	wsprintfW: PROCEDURE(
+		VAR lpOut: ARRAY [untagged] OF CHAR;
+		lpFmt: ARRAY [untagged] OF CHAR;
+		par1, par2: INTEGER
+	): INTEGER;
 
 PROCEDURE Open*;
 	VAR hOut: INTEGER;
@@ -53,10 +59,10 @@ END String;
 PROCEDURE Int*(i, n: INTEGER);
 	VAR str: ARRAY 64 OF CHAR;
 BEGIN
-	ASSERT(n < LEN(str)); i := Rtl.Format(0, i, str);
+	ASSERT((n < LEN(str)) & (n >= 0)); i := wsprintfW(str, "%ld", i, 0);
 	IF i < n THEN str[n] := 0X; DEC(i); DEC(n);
 		WHILE i >= 0 DO str[n] := str[i]; DEC(i); DEC(n) END;
-		WHILE n >= 0 DO str[n] := 20X END
+		WHILE n >= 0 DO str[n] := 20X; DEC(n) END
 	END;
 	String(str)
 END Int;
@@ -64,10 +70,10 @@ END Int;
 PROCEDURE Hex*(i, n: INTEGER);
 	VAR str: ARRAY 64 OF CHAR;
 BEGIN
-	ASSERT(n < LEN(str)); i := Rtl.Format(1, i, str);
+	ASSERT((n < LEN(str)) & (n >= 0)); i := wsprintfW(str, "%lx", i, 0);
 	IF i < n THEN str[n] := 0X; DEC(i); DEC(n);
 		WHILE i >= 0 DO str[n] := str[i]; DEC(i); DEC(n) END;
-		WHILE n >= 0 DO str[n] := 20X END
+		WHILE n >= 0 DO str[n] := 20X; DEC(n) END
 	END;
 	String(str)
 END Hex;
@@ -88,5 +94,6 @@ BEGIN
 	Rtl.Import(GetStdHandle, Kernel32, 'GetStdHandle');
 	Rtl.Import(AllocConsole, Kernel32, 'AllocConsole');
 	Rtl.Import(WriteFile, Kernel32, 'WriteFile');
+	Rtl.Import(wsprintfW, 'USER32.DLL', 'wsprintfW');
 	Open
 END Out.

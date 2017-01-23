@@ -1,5 +1,5 @@
 MODULE Oberon07.Files;
-IMPORT SYSTEM, Rtl;
+IMPORT SYSTEM, Rtl, Out;
 
 CONST
 	(* Win32 Const *)
@@ -104,7 +104,9 @@ VAR
 PROCEDURE Finalise(ptr: Rtl.Finalised);
 	VAR bRes: Bool; f: File;
 BEGIN
-	f := ptr(File); bRes := CloseHandle(f.hFile); ASSERT(bRes # 0)
+	f := ptr(File); bRes := CloseHandle(f.hFile); ASSERT(bRes # 0);
+	(*Out.String('Release ');
+	IF f.new THEN Out.String(f.temp) ELSE Out.String(f.name) END; Out.Ln*)
 END Finalise;
 
 PROCEDURE NewFile(VAR file: File; hFile: Handle);
