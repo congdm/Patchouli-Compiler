@@ -49,7 +49,7 @@ TYPE
 		expno*, lev*, nPtr*, nProc*, nTraced*: INTEGER;
 		decl*: Ident; statseq*: Node; return*: Object;
 		(* Generator dependent fields *)
-		adr*, locblksize*: INTEGER; usedReg*, usedXReg*: SET;
+		adr*, descAdr*, locblksize*: INTEGER; usedReg*, usedXReg*: SET;
 		homeSpace*, stack*, fix*, lim*: INTEGER
 	END;
 	

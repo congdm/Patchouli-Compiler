@@ -47,6 +47,7 @@ VAR
 	): Pointer;
 	heapBase, heapSize, markedList: INTEGER; allocated*: INTEGER;
 	fList: ARRAY 4 OF INTEGER; fList0: INTEGER;
+	Collect0: PROCEDURE; justCollected: BOOLEAN;
 	
 	(* Unicode *)
 	WideCharToMultiByte: PROCEDURE(
@@ -204,7 +205,12 @@ BEGIN q0 := 0; q1 := fList0; done := FALSE;
 			IF q0 # 0 THEN SYSTEM.PUT(q0+16, q1) ELSE fList0 := q1 END
 		END
 	END ;
-	IF ~done THEN ExtendHeap; p := GetBlock(need) END ;
+	IF ~done THEN
+		IF ~justCollected THEN Collect0
+		ELSE ExtendHeap; justCollected := FALSE
+		END ;
+		p := GetBlock(need)
+	END ;
 	RETURN p
 END GetBlock;
 
@@ -287,41 +293,6 @@ END New;
 (* Third word: Next element in free list *)
 (* Fourth word: Unused *)
 
-(*
-PROCEDURE Mark(pref, modBase: INTEGER);
-	VAR pvadr, offadr, offset, tag, p, q, r: INTEGER;
-BEGIN SYSTEM.GET(pref, pvadr); (* pointers < heapBase considered NIL *)
-	WHILE pvadr # -1 DO
-		INC(pvadr, modBase); SYSTEM.GET(pvadr, p);
-		IF p >= heapBase THEN SYSTEM.GET(p-8, offadr) END ;
-		IF (p >= heapBase) & (offadr = 0) THEN q := p;
-			(*mark elements in data structure with root p*)
-			REPEAT SYSTEM.GET(p-8, offadr); (* mark word *)
-				IF offadr = 0 THEN SYSTEM.GET(p-16, tag); offadr := tag + 64
-				ELSE INC(offadr, 8)
-				END ;
-				SYSTEM.PUT(p-8, offadr); SYSTEM.GET(offadr, offset);
-				IF offset # -1 THEN (*down*)
-					SYSTEM.GET(p+offset, r);
-					IF r >= heapBase THEN SYSTEM.GET(r-8, offadr);
-						IF offadr = 0 THEN
-							SYSTEM.PUT(p+offset, q); q := p; p := r
-						END
-					END
-				ELSE (*up*)
-					SYSTEM.GET(q-8, offadr); SYSTEM.GET(offadr, offset);
-					IF p # q THEN
-						SYSTEM.GET(q+offset, r); SYSTEM.PUT(q+offset, p);
-						p := q; q := r
-					END
-				END
-			UNTIL (p = q) & (offset = -1)
-		END ;
-		INC(pref, 8); SYSTEM.GET(pref, pvadr)
-	END
-END Mark;
-*)
-
 PROCEDURE Mark(blk: INTEGER);
 	VAR mark: INTEGER;
 BEGIN SYSTEM.GET(blk+8, mark);
@@ -345,12 +316,14 @@ BEGIN list := markedList; markedList := markedSentinel;
 END TraceMarked;
 
 PROCEDURE Scan;
-	VAR p, q, mark, tag, size: INTEGER;
-BEGIN p := heapBase;
+	VAR p, q, mark, tag, size, heapLimit: INTEGER;
+BEGIN
+	p := heapBase; heapLimit := HeapLimit();
 	REPEAT SYSTEM.GET(p+8, mark); q := p;
 		WHILE mark = 0 DO
-			SYSTEM.GET(p, tag); SYSTEM.GET(tag, size); INC(size, 16);
-			Rounding(size); INC(p, size); SYSTEM.GET(p+8, mark)
+			SYSTEM.GET(p, tag); SYSTEM.GET(tag, size);
+			INC(size, 16); Rounding(size); INC(p, size);
+			IF p < heapLimit THEN SYSTEM.GET(p+8, mark) ELSE mark := -1 END
 		END ;
 		size := p - q; DEC(allocated, size);  (* size of free block *)
 		IF size > 0 THEN
@@ -382,9 +355,9 @@ BEGIN p := heapBase;
 		IF mark > 0 THEN
 			SYSTEM.GET(p, tag); SYSTEM.GET(tag, size);
 			SYSTEM.PUT(p+8, 0); INC(size, 16); Rounding(size); INC(p, size)
-		ELSE (*free*) SYSTEM.GET(p, size); INC(p, size)
+		ELSIF p < heapLimit THEN (*free*) SYSTEM.GET(p, size); INC(p, size)
 		END
-	UNTIL p >= HeapLimit()
+	UNTIL p >= heapLimit
 END Scan;
 
 PROCEDURE Finalise;
@@ -404,7 +377,7 @@ BEGIN ptr := finalisedList;
 END Finalise;
 
 PROCEDURE Collect*;
-	VAR i, modBase, ptrTable, off, ptr: INTEGER;
+	VAR i, modBase, stkDesc, stkBase, ptrTable, off, ptr: INTEGER;
 BEGIN i := 0;
 	WHILE i < nMod DO SYSTEM.GET(modList+i*8, modBase);
 		SYSTEM.GET(modBase+112, ptrTable); SYSTEM.GET(ptrTable, off);
@@ -413,9 +386,20 @@ BEGIN i := 0;
 			IF ptr >= heapBase THEN Mark(ptr) END;
 			INC(ptrTable, 8); SYSTEM.GET(ptrTable, off)
 		END;
+		SYSTEM.GET(modBase+104, stkDesc);
+		WHILE stkDesc # 0 DO SYSTEM.GET(stkDesc, stkBase);
+			SYSTEM.GET(stkDesc+8, ptrTable); SYSTEM.GET(ptrTable, off);
+			WHILE off # -1 DO
+				SYSTEM.GET(stkBase+off, ptr); DEC(ptr, blkMeta);
+				IF ptr >= heapBase THEN Mark(ptr) END;
+				INC(ptrTable, 8); SYSTEM.GET(ptrTable, off)
+			END;
+			SYSTEM.GET(stkDesc+16, stkDesc)
+		END;
 		INC(i)
 	END;
-	WHILE markedList # markedSentinel DO TraceMarked END; Finalise; Scan
+	WHILE markedList # markedSentinel DO TraceMarked END;
+	Finalise; Scan; justCollected := TRUE
 END Collect;
 
 PROCEDURE RegisterFinalised*(ptr: Finalised; finalise: FinaliseProc);
@@ -437,7 +421,7 @@ BEGIN
 	FOR i := 0 TO LEN(fList)-1 DO fList[i] := 0 END;
 	p := heapBase; fList0 := heapBase; allocated := 0;
 	SYSTEM.PUT(p, heapSize); SYSTEM.PUT(p+8, -1); SYSTEM.PUT(p+16, 0);
-	markedList := markedSentinel
+	markedList := markedSentinel; Collect0 := Collect
 END InitHeap;
 
 (* -------------------------------------------------------------------------- *)

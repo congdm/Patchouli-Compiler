@@ -32,8 +32,7 @@ BEGIN
 		Out.String('Compile time: ');
 		Out.Int(Rtl.TimeToMSecs(endTime - startTime), 0);
 		Out.String(' miliseconds'); Out.Ln
-	END;
-	Rtl.Collect
+	END
 END Compile;
 
 PROCEDURE ErrorNotFound(fname: ARRAY OF CHAR);

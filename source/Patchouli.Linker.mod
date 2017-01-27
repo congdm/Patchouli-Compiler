@@ -109,6 +109,35 @@ BEGIN
 	END
 END Write_pointer_offset;
 
+PROCEDURE Write_proc_pointer_offset(ident: B.Ident);
+	VAR x: B.Proc;
+	PROCEDURE Write(x: B.Proc);
+		VAR ident: B.Ident; basefadr, adr: INTEGER; y: B.Object;
+	BEGIN basefadr := data_fadr;
+		Files.Set(rider, out, basefadr + x.descAdr); ident := x.decl;
+		WHILE ident # NIL DO y := ident.obj;
+			IF (y IS B.Var) & ~(y IS B.Str) & ~(y IS B.Par)
+			OR (y IS B.Par) & ~y(B.Par).varpar & (y.type.size = 8) THEN
+				IF y.type.nTraced > 0 THEN adr := y(B.Var).adr;
+					IF y.type.form = B.tPtr THEN Files.WriteInt(rider, adr)
+					ELSE Write_pointer_offset(adr, y.type)
+					END
+				END
+			END;
+			ident := ident.next
+		END;
+		Files.WriteInt(rider, -1)
+	END Write;
+BEGIN (* Write_proc_pointer_offset *)
+	WHILE ident # NIL DO
+		IF ident.obj IS B.Proc THEN
+			x := ident.obj(B.Proc); Write_proc_pointer_offset(x.decl);
+			IF x.nTraced > 0 THEN Write(x) END
+		END;
+		ident := ident.next
+	END
+END Write_proc_pointer_offset;
+
 PROCEDURE Write_data_section;
 	VAR basefadr, i, adr: INTEGER; b: BYTE;
 		imod: B.Module; slist: B.StrList; ident: B.Ident;
@@ -156,7 +185,8 @@ BEGIN
 		END;
 		ident := ident.next
 	END;
-	Files.WriteInt(rider, -1)
+	Files.WriteInt(rider, -1);
+	Write_proc_pointer_offset(B.universe.first)
 END Write_data_section;
 
 PROCEDURE Write_code_section(code: ARRAY OF BYTE);

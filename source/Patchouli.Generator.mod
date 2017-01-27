@@ -114,7 +114,7 @@ VAR
 	AddVectoredExceptionHandler: INTEGER;
 	MessageBoxW, wsprintfW: INTEGER;
 	(* others *)
-	adrOfNEW, modPtrTable, adrOfPtrTable: INTEGER;
+	adrOfNEW, modPtrTable, adrOfPtrTable, adrOfStackPtrList: INTEGER;
 	
 	debug: Files.File; rider: Files.Rider;
 		
@@ -688,6 +688,10 @@ END ScanNode;
 PROCEDURE ScanProc(proc: B.Proc);
 BEGIN
 	proc.adr := -1; proc.fix := -1;
+	IF proc.nTraced > 0 THEN
+		INC(proc.locblksize, 24); Align(staticSize, 16);
+		proc.descAdr := staticSize; INC(staticSize, (proc.nTraced+1)*8)
+	END;
 	IF curProc # NIL THEN NEW(curProc.next); curProc := curProc.next
 	ELSIF curProc = NIL THEN NEW(procList); curProc := procList
 	END;
@@ -699,20 +703,23 @@ BEGIN
 END ScanProc;
 
 PROCEDURE ScanDeclaration(decl: B.Ident; lev: INTEGER);
-	VAR ident: B.Ident; obj: B.Object;
+	VAR ident: B.Ident; obj: B.Object; ptrTableSize: INTEGER;
 BEGIN ident := decl;
-	IF lev = 0 THEN Align(staticSize, 16); modPtrTable := staticSize END;
+	IF lev = 0 THEN ptrTableSize := 8 END;
 	WHILE ident # NIL DO obj := ident.obj;
 		IF obj IS B.Proc THEN
 			ScanDeclaration(obj(B.Proc).decl, lev+1); ScanProc(obj(B.Proc))
 		ELSIF (lev = 0) & (obj IS B.Var) & ~(obj IS B.Str) THEN
 			IF obj.type.nTraced > 0 THEN
-				INC(staticSize, obj.type.nTraced*8)
+				INC(ptrTableSize, obj.type.nTraced*8)
 			END
 		END;
 		ident := ident.next
 	END;
-	IF lev = 0 THEN INC(staticSize, 8) (* for -1 at the end of table *) END
+	IF lev = 0 THEN
+		Align(staticSize, 16); modPtrTable := staticSize;
+		INC(staticSize, ptrTableSize)
+	END
 END ScanDeclaration;
 
 PROCEDURE NewProc(VAR proc: Proc; statseq: Node);
@@ -2223,8 +2230,7 @@ END FinishProc;
 
 PROCEDURE Procedure;
 	VAR locblksize, homeSpace, nSave, nSaveX, n, i, j, L: INTEGER;
-		r: BYTE; x: Item; obj: B.Proc;
-		param, ident: B.Ident; pType: B.Type;
+		r: BYTE; x: Item; obj: B.Proc; param, ident: B.Ident; pType: B.Type;
 BEGIN
 	BeginProc; obj := curProc.obj;
 	IF pass = 3 THEN
@@ -2291,6 +2297,15 @@ BEGIN
 			L := pc; SetRm_regX(reg_BP, reg_C, 3, 0);
 			EmitRegRm(MOV, reg_A, 8); EmitRI(ADDi, reg_C, 8, 1); BJump(L, ccL)
 		END;
+		IF obj.nTraced > 0 THEN
+			SetRm_regI(reg_BP, -obj.locblksize); EmitRegRm(MOV, reg_BP, 8);
+			SetRm_regI(reg_B, obj.descAdr); EmitRegRm(LEA, reg_A, 8);
+			SetRm_regI(reg_BP, -obj.locblksize+8); EmitRegRm(MOV, reg_A, 8);
+			SetRm_regI(reg_B, adrOfStackPtrList); EmitRegRm(MOVd, reg_A, 8);
+			SetRm_regI(reg_BP, -obj.locblksize+16); EmitRegRm(MOV, reg_A, 8);
+			SetRm_regI(reg_BP, -obj.locblksize); EmitRegRm(LEA, reg_A, 8);
+			SetRm_regI(reg_B, adrOfStackPtrList); EmitRegRm(MOV, reg_A, 8)
+		END;
 		IF obj.statseq # NIL THEN MakeItem(x, obj.statseq) END;
 		IF obj.return # NIL THEN ResetMkItmStat;
 			MakeItem(x, obj.return); Load(x);
@@ -2298,6 +2313,10 @@ BEGIN
 				IF x.mode = mReg THEN RelocReg(x.r, 0) ELSE RelocXReg(x.r, 0)
 				END
 			END
+		END;
+		IF obj.nTraced > 0 THEN
+			SetRm_regI(reg_BP, -obj.locblksize+16); EmitRegRm(MOVd, reg_C, 8);
+			SetRm_regI(reg_B, adrOfStackPtrList); EmitRegRm(MOV, reg_C, 8)
 		END
 	END;
 	
@@ -2805,8 +2824,9 @@ BEGIN
 	
 	adrOfNEW := 120;
 	adrOfPtrTable := 112;
-	wsprintfW := 104;
-	MessageBoxW := 96;
+	adrOfStackPtrList := 104;
+	wsprintfW := 96;
+	MessageBoxW := 88;
 	
 	AddVectoredExceptionHandler := 32;
 	GetModuleHandleExW := 24;

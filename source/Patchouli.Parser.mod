@@ -1276,7 +1276,12 @@ BEGIN
 		WHILE par # NIL DO
 			ident := NewIdent(par.name); NEW(parobj); ident.obj := parobj;
 			parobj^ := par.obj(B.Par)^; parobj.ident := ident;
-			INC(parobj.lev); par := par.next
+			INC(parobj.lev); par := par.next;
+			IF (parobj.type.form = B.tPtr) & ~parobj.varpar
+			OR (parobj.type.form = B.tRec) & (parobj.type.size = 8)
+				& (parobj.type.nTraced = 1) & ~parobj.varpar
+			THEN INC(proc.nTraced)
+			END
 		END;
 		IF procid # NIL THEN procid.obj := proc; proc.ident := procid END;
 		DeclarationSequence(proc); proc.decl := B.topScope.first;		
