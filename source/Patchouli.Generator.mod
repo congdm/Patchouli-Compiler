@@ -99,7 +99,8 @@ VAR
 	sPos, pass, varSize*, staticSize*, baseOffset: INTEGER;
 	
 	procList, curProc: B.ProcList;
-	modInitProc, trapProc, trapProc2, dllInitProc: Proc;
+	modInitProc, trapProc, trapProc2: Proc;
+	dllInitProc, dllAttachProc, dllDetachProc: Proc;
 	
 	modidStr, errFmtStr, err2FmtStr, err3FmtStr: B.Str;
 	err4FmtStr, err5FmtStr, err6FmtStr, rtlName, user32name: B.Str;
@@ -752,6 +753,7 @@ BEGIN
 	IF modinit # NIL THEN
 		ScanNode(modinit(B.Node)); NewProc(modInitProc, modinit)
 	END;
+	NewProc(dllAttachProc, NIL); NewProc(dllDetachProc, NIL);
 	NewProc(dllInitProc, NIL); NewProc(trapProc, NIL); NewProc(trapProc2, NIL)
 END Pass1;
 
@@ -2373,21 +2375,16 @@ BEGIN
 	SetRm_reg(reg_A); EmitRm(CALL, 4)
 END ImportRTL;
 
-PROCEDURE DLLInit;
-	VAR i, j, adr, expno, L: INTEGER;
+PROCEDURE DLLAttach;
+	VAR i, j, adr, expno: INTEGER;
 		imod: B.Module; key: B.ModuleKey;
 		ident: B.Ident; x: B.Object; t: B.TypeList; tp: B.Type;
 BEGIN
 	BeginProc;
 	IF pass = 3 THEN
-		IF B.Flag.debug THEN EmitBare(INT3) END;
-		IF ~B.Flag.main THEN
-			EmitRI(CMPi, reg_D, 4, 1); L := pc; Jcc1(ccZ, 0);
-			EmitBare(RET); Fixup(L, pc)
-		END;
-		
-		PushR(reg_SI); PushR(reg_DI);
-		PushR(reg_B); EmitRI(SUBi, reg_SP, 8, 64);
+		PushR(reg_C); PushR(reg_D); PushR(reg_R8); PushR(reg_R9);
+		PushR(reg_SI); PushR(reg_DI); PushR(reg_B);
+		EmitRI(SUBi, reg_SP, 8, 64);
 		(* Load the base of current module to RBX *)
 		SetRm_RIP(baseOffset-pc-7); EmitRegRm(LEA, reg_B, 8);
 		
@@ -2477,13 +2474,46 @@ BEGIN
 			t := t.next
 		END;
 		
-		IF modInitProc # NIL THEN CallProc(modInitProc) END;
+		EmitRI(ADDi, reg_SP, 8, 64);
+		PopR(reg_B); PopR(reg_DI); PopR(reg_SI);
+		PopR(reg_R9); PopR(reg_R8); PopR(reg_D); PopR(reg_C);
+		EmitBare(RET)
+	END;
+	FinishProc
+END DLLAttach;
 
-		IF B.Flag.main THEN
-			ClearReg(reg_C); SetRm_regI(reg_B, ExitProcess); EmitRm(CALL, 4)
-		ELSE
-			LoadImm(reg_A, 4, 1); EmitRI(ADDi, reg_SP, 8, 64);
-			PopR(reg_B); PopR(reg_DI); PopR(reg_SI); EmitBare(RET)
+PROCEDURE DLLDetach;
+BEGIN
+	BeginProc;
+	IF pass = 3 THEN
+		EmitBare(RET)
+	END;
+	FinishProc
+END DLLDetach;
+
+PROCEDURE DLLInit;
+	VAR i, j, adr, expno, L: INTEGER;
+		imod: B.Module; key: B.ModuleKey;
+		ident: B.Ident; x: B.Object; t: B.TypeList; tp: B.Type;
+BEGIN
+	BeginProc;
+	IF pass = 3 THEN
+		IF B.Flag.debug THEN EmitBare(INT3) END;
+		(* Load the base of current module to RBX *)
+		PushR(reg_B); SetRm_RIP(baseOffset-pc-7); EmitRegRm(LEA, reg_B, 8);
+		IF ~B.Flag.main THEN
+			EmitRI(CMPi, reg_D, 4, 1); L := pc; Jcc1(ccNZ, 0)
+		END;
+		CallProc(dllAttachProc);
+		IF modInitProc # NIL THEN CallProc(modInitProc) END;
+		IF ~B.Flag.main THEN
+			Fixup(L, pc); EmitRR(TEST, reg_D, 4, reg_D); L := pc; Jcc1(ccNZ, 0)
+		END;
+		CallProc(dllDetachProc);
+		IF ~B.Flag.main THEN
+			Fixup(L, pc); LoadImm(reg_A, 4, 1); PopR(reg_B); EmitBare(RET)
+		ELSE EmitRR(XOR, reg_A, 4, reg_A);
+			SetRm_regI(reg_B, ExitProcess); EmitRm(CALL, 4)
 		END
 	END;
 	FinishProc
@@ -2848,6 +2878,8 @@ BEGIN
 		IF curProc.obj = trapProc THEN TrapHandler
 		ELSIF curProc.obj = trapProc2 THEN ModKeyTrapHandler
 		ELSIF curProc.obj = dllInitProc THEN DLLInit
+		ELSIF curProc.obj = dllAttachProc THEN DLLAttach
+		ELSIF curProc.obj = dllDetachProc THEN DLLDetach
 		ELSE Procedure
 		END;
 		curProc := curProc.next
@@ -2859,6 +2891,8 @@ BEGIN
 		IF curProc.obj = trapProc THEN TrapHandler
 		ELSIF curProc.obj = trapProc2 THEN ModKeyTrapHandler
 		ELSIF curProc.obj = dllInitProc THEN DLLInit
+		ELSIF curProc.obj = dllAttachProc THEN DLLAttach
+		ELSIF curProc.obj = dllDetachProc THEN DLLDetach
 		ELSE Procedure
 		END;
 		curProc := curProc.next
