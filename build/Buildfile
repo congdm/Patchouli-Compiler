@@ -1,5 +1,6 @@
 ..\source\Oberon07.Rtl.mod
 ..\source\Oberon07.Out.mod
+..\source\Oberon07.In.mod
 ..\source\Oberon07.Files.mod
 
 ..\source\Patchouli.Crypt.mod
