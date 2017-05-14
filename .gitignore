@@ -11,3 +11,6 @@ build/*.exe
 .pocDebug
 .tempOut
 .tempSymfile
+build/movebin.bat
+source/movebin.bat
+source/Oberon07.Rtl2.mod
