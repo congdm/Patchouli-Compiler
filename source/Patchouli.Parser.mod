@@ -744,7 +744,7 @@ BEGIN hasParen := TRUE;
 		x := designator(); CheckReal(x); CheckVar(x, FALSE); Check0(S.comma);
 		y := expression(); CheckInt(y); x := NewNode(S.spPACK, x, y)
 	ELSIF f.id = S.spUNPK THEN
-		x := designator(); CheckInt(x); CheckVar(x, FALSE); Check0(S.comma);
+		x := designator(); CheckReal(x); CheckVar(x, FALSE); Check0(S.comma);
 		y := designator(); CheckInt(y); CheckVar(y, FALSE);
 		x := NewNode(S.spUNPK, x, y)
 	ELSIF f.id = S.spGET THEN

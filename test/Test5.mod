@@ -1,6 +1,6 @@
 MODULE Test5;
 (*$CONSOLE*)
-IMPORT SYSTEM, Rtl, Out;
+IMPORT SYSTEM, Rtl := [Oberon07.Rtl], Out := [Oberon07.Out];
 
 TYPE
 	Handle = INTEGER;

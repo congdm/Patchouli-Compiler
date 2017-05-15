@@ -56,10 +56,36 @@ BEGIN
 	)
 END String;
 
+PROCEDURE IntToDecStr(i: INTEGER; VAR str: ARRAY OF CHAR);
+	VAR s: ARRAY 19 OF CHAR; j, k: INTEGER;
+BEGIN
+	IF i # 8000000000000000H THEN j := 0; k := 0;
+		IF i < 0 THEN i := -i; str[k] := '-'; INC(k) END;
+		REPEAT s[j] := CHR(ORD('0') + i MOD 10); i := i DIV 10; INC(j)
+		UNTIL i = 0;
+		WHILE j > 0 DO DEC(j); str[k] := s[j]; INC(k) END; str[k] := 0X
+	ELSE str := '-9223372036854775808'
+	END
+END IntToDecStr;
+
+PROCEDURE IntToHexStr(i: INTEGER; VAR str: ARRAY OF CHAR);
+	VAR s: ARRAY 16 OF CHAR; j, k: INTEGER;
+BEGIN
+	j := 0; k := 0;
+	REPEAT
+		IF i MOD 16 < 10 THEN s[j] := CHR(ORD('0') + i MOD 16)
+		ELSE s[j] := CHR(ORD('a') - 10 + i MOD 16)
+		END;
+		INC(j); i := i DIV 16
+	UNTIL (i = 0) OR (i < 0) & (j = 16);
+	WHILE j > 0 DO DEC(j); str[k] := s[j]; INC(k) END; str[k] := 0X
+END IntToHexStr;
+
 PROCEDURE Int*(i, n: INTEGER);
 	VAR str: ARRAY 64 OF CHAR;
 BEGIN
-	ASSERT((n < LEN(str)) & (n >= 0)); i := wsprintfW(str, "%ld", i, 0);
+	ASSERT((n < LEN(str)) & (n >= 0)); IntToDecStr(i, str);
+	i := 0; WHILE str[i] # 0X DO INC(i) END;
 	IF i < n THEN str[n] := 0X; DEC(i); DEC(n);
 		WHILE i >= 0 DO str[n] := str[i]; DEC(i); DEC(n) END;
 		WHILE n >= 0 DO str[n] := 20X; DEC(n) END
@@ -70,7 +96,8 @@ END Int;
 PROCEDURE Hex*(i, n: INTEGER);
 	VAR str: ARRAY 64 OF CHAR;
 BEGIN
-	ASSERT((n < LEN(str)) & (n >= 0)); i := wsprintfW(str, "%lx", i, 0);
+	ASSERT((n < LEN(str)) & (n >= 0)); IntToHexStr(i, str);
+	i := 0; WHILE str[i] # 0X DO INC(i) END;
 	IF i < n THEN str[n] := 0X; DEC(i); DEC(n);
 		WHILE i >= 0 DO str[n] := str[i]; DEC(i); DEC(n) END;
 		WHILE n >= 0 DO str[n] := 20X; DEC(n) END

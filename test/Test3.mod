@@ -1,6 +1,6 @@
 MODULE Test3;
 (*$CONSOLE*)
-IMPORT SYSTEM, Out;
+IMPORT SYSTEM, Out := [Oberon07.Out];
 
 VAR
 	teb: INTEGER;
@@ -14,8 +14,8 @@ END LargeStack;
 
 BEGIN
 	teb := SYSTEM.NtCurrentTeb();
-	Out.String('Thread Information Block address: '); Out.Int(teb, 0); Out.Ln;
+	Out.String('Thread Information Block address: '); Out.Hex(teb, 0); Out.Ln;
 	SYSTEM.GET(teb+30H, teb);
-	Out.String('Thread Information Block address: '); Out.Int(teb, 0);
+	Out.String('Thread Information Block address: '); Out.Hex(teb, 0);
 	LargeStack
 END Test3.

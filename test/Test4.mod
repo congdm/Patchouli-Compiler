@@ -1,6 +1,6 @@
 MODULE Test4;
 (*$CONSOLE*)
-IMPORT SYSTEM, Rtl, Out;
+IMPORT SYSTEM, Rtl := [Oberon07.Rtl], Out := [Oberon07.Out];
 TYPE List = POINTER TO RECORD x: INTEGER; next: List END;
 VAR i, adr, off, ptrTable: INTEGER; p1, p2: List;
 	i1: BYTE; i2: SYSTEM.CARD16; i4: SYSTEM.CARD32;

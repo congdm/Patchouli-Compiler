@@ -1,6 +1,6 @@
 MODULE Test6;
 (*$CONSOLE*)
-IMPORT Out;
+IMPORT Out := [Oberon07.Out];
 CONST MinInt = 8000000000000000H; MaxInt = MinInt - 1; MinusOne = -1;
 TYPE
 	R0 = RECORD END; P0 = POINTER TO R0;

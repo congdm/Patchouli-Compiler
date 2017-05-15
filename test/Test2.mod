@@ -1,5 +1,5 @@
 MODULE Test2;(*$CONSOLE*)
-IMPORT Out;
+IMPORT Out := [Oberon07.Out];
 TYPE
 	Rec = RECORD a: ARRAY 8 OF BYTE END;
 	Rec2 = RECORD END;
