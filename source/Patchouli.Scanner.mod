@@ -21,13 +21,13 @@
 
 MODULE Patchouli.Scanner; (* Modified from ORS module in Project Oberon *)
 IMPORT
-	SYSTEM, Rtl := [Oberon07.Rtl], Files := [Oberon07.Files];
+	SYSTEM, Rtl := [Oberon07.Rtl], Files := [Oberon07.Files], Out := [Oberon07.Out];
   
 CONST
 	MaxIdLen* = 63; MaxStrLen* = 255;
 	MaxInt = 9223372036854775807; MinInt = -MaxInt - 1;
     NKW = 35;  (* Number of keywords *)
-    maxExp = 38; stringBufSize = 256;
+    maxExp = 308; stringBufSize = 256;
   
     (* Symbols *)
     null* = 0; times* = 1; rdiv* = 2; div* = 3; mod* = 4;

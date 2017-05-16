@@ -105,7 +105,32 @@ BEGIN
 	String(str)
 END Hex;
 
-(*PROCEDURE Real (x: REAL; n: INTEGER);*)
+PROCEDURE Real*(x: REAL; n: INTEGER);
+	VAR str, s: ARRAY 64 OF CHAR; ten: REAL;
+		i, k, exp, d: INTEGER;
+BEGIN
+	ASSERT((n < LEN(str)) & (n >= 0)); i := 0; exp := 0; ten := 1.0;
+	IF x < 0.0 THEN str[i] := '-'; INC(i); x := -x END;
+	WHILE ten * 10.0 <= x DO INC(exp); ten := ten * 10.0 END;
+	WHILE x < 1.0 DO DEC(exp); x := x * 10.0 END; d := FLOOR(x / ten);
+	str[i] := CHR(ORD('0') + d); INC(i); str[i] := '.'; INC(i);
+	x := (x - FLT(d) * ten) * 10.0; k := 0;
+	REPEAT
+		d := FLOOR(x / ten); str[i] := CHR(ORD('0') + d); INC(i);
+		INC(k); x := (x - FLT(d) * ten) * 10.0
+	UNTIL (k = 16) OR (x = 0.0);
+	str[i] := 'e'; INC(i);
+	IF exp < 0 THEN str[i] := '-'; INC(i); exp := -exp END; k := 0;
+	REPEAT s[k] := CHR(ORD('0') + exp MOD 10); exp := exp DIV 10; INC(k)
+	UNTIL exp = 0;
+	WHILE k > 0 DO DEC(k); str[i] := s[k]; INC(i) END; str[i] := 0X;
+	
+	IF i < n THEN str[n] := 0X; DEC(i); DEC(n);
+		WHILE i >= 0 DO str[n] := str[i]; DEC(i); DEC(n) END;
+		WHILE n >= 0 DO str[n] := 20X; DEC(n) END
+	END;
+	String(str)
+END Real;
 
 PROCEDURE Ln*;
 	VAR crlf: ARRAY 2 OF BYTE; dwByteWritten, bRes: INTEGER;

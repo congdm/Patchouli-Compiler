@@ -391,12 +391,13 @@ BEGIN
 		ELSE mem.mod := 2
 		END
 	ELSIF x.mode = mRegI THEN SetRm_regI(x.r, x.a)
-	ELSIF x.mode = mReg THEN SetRm_reg(x.r)
+	ELSIF (x.mode = mReg) OR (x.mode = mXReg) THEN SetRm_reg(x.r)
 	ELSIF x.mode = mProc THEN mem.rm := reg_B; mem.disp := x.a;
 		IF x.a = 0 THEN mem.mod := 0 
 		ELSIF (x.a >= -128) & (x.a <= 127) THEN mem.mod := 1
 		ELSE mem.mod := 2
 		END
+	ELSE ASSERT(FALSE)
 	END
 END SetRmOperand;
 
@@ -1011,7 +1012,7 @@ PROCEDURE AllocXReg(): BYTE;
 	VAR reg: BYTE; cantAlloc: SET;
 BEGIN
 	cantAlloc := MkItmStat.xAvoid + allocXReg;
-	IF (MkItmStat.bestXReg = -1) OR (MkItmStat.bestXReg IN cantAlloc) THEN
+	IF (MkItmStat.bestXReg = 255) OR (MkItmStat.bestXReg IN cantAlloc) THEN
 		reg := 0; WHILE (reg < 16) & (reg IN cantAlloc) DO INC(reg) END;
 		IF reg >= 16 THEN S.Mark('Reg stack overflow'); ASSERT(FALSE) END
 	ELSE reg := MkItmStat.bestXReg
@@ -1448,7 +1449,7 @@ BEGIN
 		SetRmOperand(y); EmitXmmRm(COMISD, x.r, 4)
 	ELSE ASSERT(FALSE)
 	END;
-	FreeXReg(x.r); FreeReg2(y); SetCond(x, IntOpToCc(node.op))
+	FreeXReg(x.r); FreeReg2(y); SetCond(x, OpToCc(node.op))
 END CompareReal;
 
 PROCEDURE Compare(VAR x: Item; node: Node);
@@ -2717,7 +2718,8 @@ PROCEDURE FltConst*(x: B.Object): B.Object;
 	VAR val, exp, r: INTEGER; sign: BOOLEAN;
 BEGIN val := x(B.Const).val;
 	IF val = MinInt THEN val := -3C20000000000000H
-	ELSE exp := 0; sign := val < 0; IF sign THEN val := -val END; r := 0;
+	ELSIF val # 0 THEN
+		exp := 52; sign := val < 0; IF sign THEN val := -val END; r := 0;
 		WHILE val < n52 DO val := val * 2; DEC(exp) END;
 		WHILE val >= n52 * 2 DO
 			INC(r, LSL(val MOD 2, exp)); val := val DIV 2; INC(exp)

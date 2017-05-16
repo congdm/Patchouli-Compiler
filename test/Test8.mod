@@ -7,5 +7,6 @@ BEGIN
 	Out.String("The char you've just inputed is: "); Out.Char(ch); Out.Ln;
 	Out.String('Input two integer numbers: '); In.Int(i); In.Int(n);
 	Out.String("The numbers you've just inputed are: ");
-	Out.Int(i, 0); Out.Char(' '); Out.Int(n, 0)
+	Out.Int(i, 0); Out.Char(' '); Out.Int(n, 0); Out.Ln;
+	Out.String('A floating point number: '); Out.Real(653.385, 0)
 END Test8.
