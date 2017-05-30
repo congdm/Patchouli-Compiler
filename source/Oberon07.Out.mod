@@ -106,25 +106,50 @@ BEGIN
 END Hex;
 
 PROCEDURE Real*(x: REAL; n: INTEGER);
+	CONST p = 52;
 	VAR str, s: ARRAY 64 OF CHAR; ten: REAL;
-		i, k, exp, d: INTEGER;
+		i, k, exp10, exp2, d, f, m: INTEGER; quit: BOOLEAN;
 BEGIN
-	ASSERT((n < LEN(str)) & (n >= 0)); i := 0; exp := 0; ten := 1.0;
-	IF x < 0.0 THEN str[i] := '-'; INC(i); x := -x END;
-	WHILE ten * 10.0 <= x DO INC(exp); ten := ten * 10.0 END;
-	WHILE x < 1.0 DO DEC(exp); x := x * 10.0 END; d := FLOOR(x / ten);
-	str[i] := CHR(ORD('0') + d); INC(i); str[i] := '.'; INC(i);
-	x := (x - FLT(d) * ten) * 10.0; k := 0;
-	REPEAT
-		d := FLOOR(x / ten); str[i] := CHR(ORD('0') + d); INC(i);
-		INC(k); x := (x - FLT(d) * ten) * 10.0
-	UNTIL (k = 16) OR (x = 0.0);
-	str[i] := 'e'; INC(i);
-	IF exp < 0 THEN str[i] := '-'; INC(i); exp := -exp END; k := 0;
-	REPEAT s[k] := CHR(ORD('0') + exp MOD 10); exp := exp DIV 10; INC(k)
-	UNTIL exp = 0;
-	WHILE k > 0 DO DEC(k); str[i] := s[k]; INC(i) END; str[i] := 0X;
-	
+	ASSERT((n < LEN(str)) & (n >= 0));
+	IF x = 0.0 THEN str := '0.0'; i := 3
+	ELSE i := 0; exp10 := 0; ten := 1.0;
+		IF x < 0.0 THEN str[i] := '-'; INC(i); x := -x END;
+		IF x >= 10.0 THEN
+			REPEAT INC(exp10); ten := ten * 10.0 UNTIL x / ten < 10.0;
+			x := x / ten
+		ELSIF x < 1.0 THEN
+			REPEAT DEC(exp10); ten := ten * 10.0 UNTIL x * ten >= 1.0;
+			x := x * ten
+		END;
+		Char(0DX); Char(0AX);
+		UNPK(x, exp2); f := SYSTEM.VAL(INTEGER, x) MOD LSL(1, p) + LSL(1, p);
+		ASSERT((exp2 >= 0) & (exp2 <= 4)); f := LSL(f, exp2);
+		d := ASR(f, p); DEC(f, LSL(d, p)); str[i] := CHR(ORD('0') + d);
+		INC(i); str[i] := '.'; INC(i); m := 5; quit := FALSE;
+		REPEAT
+			String('f = '); Int(f, 0);
+			f := f * 10; d := ASR(f, p); DEC(f, LSL(d, p));
+			String('; d = '); Int(d, 0);
+			String('; f2 = '); Int(f, 0);
+			String('; m = '); Int(m, 0); Char(0DX); Char(0AX);
+			IF (f >= m) & (f <= LSL(1, p) - m) THEN
+				str[i] := CHR(ORD('0') + d); INC(i); m := m * 10
+			ELSE quit := TRUE
+			END 
+		UNTIL quit;
+		IF (f > LSL(1, p-1)) OR (f = LSL(1, p-1)) & (d MOD 2 = 1) THEN
+			str[i] := CHR(ORD('0') + d + 1); INC(i)
+		ELSE str[i] := CHR(ORD('0') + d); INC(i)
+		END;
+		
+		str[i] := 'e'; INC(i);
+		IF exp10 < 0 THEN str[i] := '-'; INC(i); exp10 := -exp10 END; k := 0;
+		REPEAT
+			s[k] := CHR(ORD('0') + exp10 MOD 10);
+			exp10 := exp10 DIV 10; INC(k)
+		UNTIL exp10 = 0;
+		WHILE k > 0 DO DEC(k); str[i] := s[k]; INC(i) END; str[i] := 0X;
+	END;
 	IF i < n THEN str[n] := 0X; DEC(i); DEC(n);
 		WHILE i >= 0 DO str[n] := str[i]; DEC(i); DEC(n) END;
 		WHILE n >= 0 DO str[n] := 20X; DEC(n) END
