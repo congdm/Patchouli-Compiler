@@ -28,6 +28,30 @@ BEGIN
 	out := res
 END Subtract;
 
+PROCEDURE DivideByTwo*(VAR res: BigNum; x: BigNum);
+VAR i, r0, rem: INTEGER;
+BEGIN
+	i := LEN(x) - 1; rem := 0;
+	WHILE i >= 0 DO
+		r0 := x[i] + rem * base; rem := r0 MOD 2; r0 := r0 DIV 2;
+		res[i] := r0; DEC(i)
+	END
+END DivideByTwo;
+
+PROCEDURE MultiplyByTen*(VAR res: BigNum; x: BigNum);
+VAR i, c0, r0, carry: INTEGER;
+BEGIN
+	i := 0; carry := 0;
+	WHILE i < LEN(x) DO
+		r0 := x[i]; c0 := carry; carry := r0 DIV (base DIV 10);
+		res[i] := (r0 - carry * (base DIV 10)) * 10 + c0; INC(i)
+	END
+END MultiplyByTen;
+
+PROCEDURE Multiply*(VAR res: BigNum; x, y: BigNum);
+BEGIN
+END Multiply;
+
 PROCEDURE Print*(x: BigNum);
 VAR i, x0, t: INTEGER;
 BEGIN
@@ -49,8 +73,16 @@ VAR i: INTEGER; x: BigNum;
 BEGIN
 	i := 0; WHILE i < LEN(Zero) DO Zero[i] := 0; INC(i) END;
 	Set0(x, 1241); i := 0;
-	WHILE i < 1000 DO
+	WHILE i < 100 DO
 		Print(x); Out.Ln; Add(x, x, x); INC(i)
+	END;
+	i := 0;
+	WHILE i < 100 DO
+		DivideByTwo(x, x); Print(x); Out.Ln; INC(i)
+	END;
+	i := 0;
+	WHILE i < 10 DO
+		MultiplyByTen(x, x); Print(x); Out.Ln; INC(i)
 	END
 END Init;
 
