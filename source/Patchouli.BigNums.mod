@@ -4,28 +4,26 @@ CONST bigNumSz = 2048; dSize = 60; intSize = 64; base = 1000000000000000000;
 TYPE BigNum* = ARRAY bigNumSz DIV intSize OF INTEGER;
 VAR Zero*: BigNum;
 
-PROCEDURE Add*(VAR out: BigNum; x, y: BigNum);
-VAR i, r0, carry: INTEGER; res: BigNum;
+PROCEDURE Add*(VAR res: BigNum; x, y: BigNum);
+VAR i, r0, carry: INTEGER;
 BEGIN
 	carry := 0; i := 0;
 	WHILE i < LEN(x) DO
 		r0 := x[i] + y[i] + carry;
 		IF r0 < base THEN carry := 0 ELSE carry := 1; DEC(r0, base) END;
 		res[i] := r0; INC(i)
-	END;
-	out := res
+	END
 END Add;
 
-PROCEDURE Subtract*(VAR out: BigNum; x, y: BigNum);
-VAR i, r0, borrow: INTEGER; res: BigNum;
+PROCEDURE Subtract*(VAR res: BigNum; x, y: BigNum);
+VAR i, r0, borrow: INTEGER;
 BEGIN
 	borrow := 0; i := 0;
 	WHILE i < LEN(x) DO
 		r0 := x[i] - y[i] - borrow;
 		IF r0 < 0 THEN borrow := 1 ELSE borrow := 0; INC(r0, base) END;
 		res[i] := r0; INC(i)
-	END;
-	out := res
+	END
 END Subtract;
 
 PROCEDURE DivideByTwo*(VAR res: BigNum; x: BigNum);
@@ -38,6 +36,10 @@ BEGIN
 	END
 END DivideByTwo;
 
+PROCEDURE ModuloTwo*(x: BigNum): INTEGER;
+RETURN x[0] MOD 2
+END ModuloTwo;
+
 PROCEDURE MultiplyByTen*(VAR res: BigNum; x: BigNum);
 VAR i, c0, r0, carry: INTEGER;
 BEGIN
@@ -48,9 +50,19 @@ BEGIN
 	END
 END MultiplyByTen;
 
-PROCEDURE Multiply*(VAR res: BigNum; x, y: BigNum);
+PROCEDURE DivideByTen*(VAR res: BigNum; x: BigNum);
+VAR i, rem, r0: INTEGER;
 BEGIN
-END Multiply;
+	i := LEN(x) - 1; rem := 0;
+	WHILE i >= 0 DO
+		r0 := x[i] DIV 10 + rem * (base DIV 10);
+		rem := x[i] MOD 10; res[i] := r0; DEC(i)
+	END
+END DivideByTen;
+
+PROCEDURE ModuloTen*(x: BigNum): INTEGER;
+RETURN x[0] MOD 10
+END ModuloTen;
 
 PROCEDURE Print*(x: BigNum);
 VAR i, x0, t: INTEGER;
