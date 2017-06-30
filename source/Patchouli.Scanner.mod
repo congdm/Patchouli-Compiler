@@ -21,7 +21,8 @@
 
 MODULE Patchouli.Scanner; (* Modified from ORS module in Project Oberon *)
 IMPORT
-	SYSTEM, Rtl := [Oberon07.Rtl], Files := [Oberon07.Files], Out := [Oberon07.Out];
+	SYSTEM, Rtl := [Oberon07.Rtl], Files := [Oberon07.Files],
+	Out := [Oberon07.Out], BigNums;
   
 CONST
 	MaxIdLen* = 63; MaxStrLen* = 255;
@@ -171,17 +172,81 @@ BEGIN
     Read; slen := i  (* no 0X appended! *)
 END HexString;
 
-PROCEDURE Ten(e: INTEGER): REAL;
-	VAR x, t: REAL;
-BEGIN
-	x := 1.0;
-	t := 10.0;
-    WHILE e > 0 DO
-		IF ODD(e) THEN x := t * x END ;
-		t := t * t; e := e DIV 2
-    END ;
-    RETURN x
-END Ten;
+PROCEDURE Real(VAR sym: INTEGER; d: ARRAY OF INTEGER; n: INTEGER);
+	VAR x, f, max, min, half: BigNums.BigNum;
+		i, k, e, float, last: INTEGER; negE: BOOLEAN;
+BEGIN i := n-1; k := 0; x := BigNums.Zero; f := BigNums.Zero;
+	REPEAT
+		IF d[i] > 10 THEN Mark('Bad number')
+		ELSE BigNums.SetDecimalDigit(x, k, d[i])
+		END;
+		DEC(i); INC(k)
+	UNTIL i < 0;
+	i := BigNums.MaxDecimalDigits-1;
+	WHILE (ch >= '0') & (ch <= '9') DO (* fraction *)
+		IF i > BigNums.MaxDecimalDigits-19 THEN
+			BigNums.SetDecimalDigit(f, i, ORD(ch)-30H)
+		ELSIF i = BigNums.MaxDecimalDigits-19 THEN Mark('Fraction too long')
+		END;
+		DEC(i); Read
+	END;
+	IF (ch = 'E') OR (ch = 'D') THEN (* scale factor *)
+		Read; e := 0; 
+		IF ch = '-' THEN negE := TRUE; Read
+		ELSE negE := FALSE; IF ch = '+' THEN Read END
+		END;
+		IF (ch >= '0') & (ch <= '9') THEN
+			REPEAT e := e*10 + ORD(ch)-30H; Read
+			UNTIL (ch < '0') OR (ch > '9') OR (e > maxExp);
+			IF e > maxExp THEN Mark('Exponent too large');
+				WHILE (ch < '0') OR (ch > '9') DO Read END
+			END;
+			IF negE THEN e := -e END
+		ELSE Mark('Digit?')
+		END;
+		i := BigNums.MaxDecimalDigits-1;
+		WHILE e > 0 DO BigNums.MultiplyByTen(x, x);
+			BigNums.SetDecimalDigit(x, 0, BigNums.DecimalDigit(f, i));
+			BigNums.SetDecimalDigit(f, i, 0); BigNums.MultiplyByTen(f, f);
+			DEC(e)
+		END;
+		WHILE e < 0 DO
+			last := BigNums.DecimalDigit(f, 0); BigNums.DivideByTen(f, f);
+			BigNums.SetDecimalDigit(f, i, BigNums.DecimalDigit(x, 0));
+			BigNums.DivideByTen(x, x);
+			IF (last > 5) OR (last = 5) & ODD(BigNums.DecimalDigit(f, 0)) THEN
+				IF BigNums.Compare(f, BigNums.MaxNum) = 0 THEN
+					f := BigNums.Zero; BigNums.Add(x, x, BigNums.One)
+				ELSE BigNums.Add(f, f, BigNums.One)
+				END
+			END;
+			INC(e)
+		END
+	END;
+	e := 52; half := BigNums.Zero;
+	i := BigNums.MaxDecimalDigits-1; BigNums.SetDecimalDigit(half, i, 5);
+	BigNums.Set0(max, 1FFFFFFFFFFFFFH); BigNums.Set0(min, 10000000000000H);
+	IF (BigNums.Compare(x, BigNums.Zero) # 0)
+	OR (BigNums.Compare(x, BigNums.Zero) # 0) THEN
+		WHILE BigNums.Compare(x, min) < 0 DO BigNums.Add(x, x, x);
+			IF BigNums.Compare(f, half) >= 0 THEN
+				BigNums.Subtract(f, f, half); BigNums.Add(x, x, BigNums.One)
+			END;
+			BigNums.Add(f, f, f); DEC(e)
+		END;
+		WHILE BigNums.Compare(x, max) > 0 DO BigNums.DivideByTwo(f, f);
+			IF BigNums.ModuloTwo(x) = 1 THEN BigNums.Add(f, f, half) END;
+			BigNums.DivideByTwo(x, x); INC(e)
+		END;
+		float := BigNums.Get0(x); i := BigNums.Compare(f, half);
+		IF (i > 0) OR (i = 0) & ODD(float) THEN INC(float);
+			IF float > 1FFFFFFFFFFFFFH THEN float := float DIV 2; INC(e) END
+		END;
+		float := float - 10000000000000H + (e+1023)*10000000000000H;
+	ELSE float := 0
+	END;
+	sym := real; rval := SYSTEM.VAL(REAL, float); ival := float
+END Real;
 
 PROCEDURE Number(VAR sym: INTEGER);
     CONST max = MaxInt;
@@ -224,34 +289,8 @@ BEGIN
 				INC(i)
 			UNTIL i = n;
 			sym := int; ival := k2
-		ELSE (* real number *) x := 0.0; e := 0;
-			REPEAT (* integer part *)
-				x := x * 10.0 + FLT(d[i]); INC(i)
-			UNTIL i = n;
-			WHILE (ch >= '0') & (ch <= '9') DO (* fraction *)
-				x := x * 10.0 + FLT(ORD(ch) - 30H); DEC(e); Read
-			END;
-			IF (ch = 'E') OR (ch = 'D') THEN (* scale factor *)
-				Read; s := 0; 
-				IF ch = '-' THEN negE := TRUE; Read
-				ELSE negE := FALSE; IF ch = '+' THEN Read END
-				END;
-				IF (ch >= '0') & (ch <= '9') THEN
-					REPEAT s := s*10 + ORD(ch)-30H; Read
-					UNTIL (ch < '0') OR (ch > '9');
-					IF negE THEN e := e-s ELSE e := e+s
-					END
-				ELSE Mark('Digit?')
-				END
-			END;
-			IF e < 0 THEN
-				IF e >= -maxExp THEN x := x / Ten(-e) ELSE x := 0.0 END
-			ELSIF e > 0 THEN
-				IF e <= maxExp THEN x := Ten(e) * x
-				ELSE x := 0.0; Mark('Too large')
-				END
-			END;
-			sym := real; rval := x; ival := SYSTEM.VAL(INTEGER, x);
+		ELSE (* real number *)
+			Real(sym, d, n)
 		END
     ELSE (* decimal integer *)
 		REPEAT
