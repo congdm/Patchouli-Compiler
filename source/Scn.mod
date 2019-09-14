@@ -2,8 +2,15 @@ MODULE Scn;
 
 IMPORT Files;
 
+CONST
+	StrLen* = 255;
+
+TYPE
+	Str = ARRAY StrLen+1 OF CHAR;
+
 VAR
 	ch: CHAR; eof, escUpto: BOOLEAN;
+	str*: Str;
 	
 PROCEDURE Init*(fname: ARRAY OF CHAR; pos: INTEGER);
 END Init;
@@ -11,17 +18,42 @@ END Init;
 PROCEDURE ReadCh;
 END ReadCh;
 
+PROCEDURE String(quote: CHAR);
+	VAR i: INTEGER;
+BEGIN
+	ReadCh; i := 0;
+	WHILE (i < StrLen) & (ch # quote) DO
+		str[i] := ch; INC(i); ReadCh
+	END ;
+	IF ch # quote THEN Mark('string too long') END ;
+	str[i] := 0X; ReadCh
+END String;
+
+PROCEDURE Comment(lev: INTEGER);
+BEGIN ReadCh;
+	REPEAT
+		WHILE (ch # '*') & ~eof DO
+			IF ch # '(' THEN ReadCh
+			ELSE ReadCh;
+				IF ch = '*' THEN Comment(lev+1) END
+			END
+		END ;
+		ReadCh
+	UNTIL eof OR (ch = ')');
+	IF ~eof THEN ReadCh ELSE Mark('comment without closure') END
+END Comment;
+
 PROCEDURE Get*(VAR sym: INTEGER);
 BEGIN
 	REPEAT
 		WHILE ~eof & (ch <= ' ') DO ReadCh END ;
 		IF ch < '0' THEN
-			IF ch = '"' THEN (* string *)
+			IF ch = '"' THEN sym := string; String('"')
 			ELSIF ch = '#' THEN ReadCh; sym := neq
 			ELSIF ch = '&' THEN ReadCh; sym := and
-			ELSIF ch = "'" THEN (* string *)
+			ELSIF ch = "'" THEN sym := string; String("'")
 			ELSIF ch = '(' THEN ReadCh;
-				IF ch # '*' THEN sym := lparen ELSE (* comment *) END
+				IF ch # '*' THEN sym := lparen ELSE Comment(0) END
 			ELSIF ch = ')' THEN ReadCh; sym := rparen
 			ELSIF ch = '*' THEN ReadCh; sym := times
 			ELSIF ch = '+' THEN ReadCh; sym := plus
