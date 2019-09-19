@@ -1,6 +1,10 @@
 MODULE Scn;
 
-IMPORT Files;
+IMPORT
+	SYSTEM,
+	(* This module isn't platform independent
+	   it needs INTEGER = int64 and REAL = double *)
+	Files, BigNums;
 
 CONST
 	StrLen* = 255; IdLen* = 63;
@@ -12,6 +16,7 @@ TYPE
 VAR
 	ch: CHAR; eof, escUpto: BOOLEAN;
 	str*: Str; id*: Ident;
+	ival*, rval*, slen*: INTEGER;
 	
 PROCEDURE Init*(fname: ARRAY OF CHAR; pos: INTEGER);
 END Init;
@@ -26,7 +31,7 @@ BEGIN ReadCh; i := 0;
 		str[i] := ch; INC(i); ReadCh
 	END ;
 	IF ch # quote THEN Mark('string too long') END ;
-	str[i] := 0X; ReadCh
+	str[i] := 0X; slen := i; ReadCh
 END String;
 
 PROCEDURE Comment(lev: INTEGER);
@@ -118,6 +123,140 @@ BEGIN i := 0; sym := ident; validChar := TRUE;
 	id[i] := 0X; IF ~notValidChar THEN Mark('identifier too long') END 
 END Identifier;
 
+PROCEDURE Real(VAR sym: INTEGER; d: ARRAY OF INTEGER; n: INTEGER);
+	VAR x, f, max, min, half: BigNums.BigNum;
+		i, k, e, float, last: INTEGER; negE: BOOLEAN;
+BEGIN
+	i := n-1; k := 0; x := BigNums.Zero; f := BigNums.Zero;
+	REPEAT
+		IF d[i] > 10 THEN Mark('Bad number')
+		ELSE BigNums.SetDecimalDigit(x, k, d[i])
+		END;
+		DEC(i); INC(k)
+	UNTIL i < 0;
+	i := BigNums.MaxDecimalDigits-1;
+	WHILE (ch >= '0') & (ch <= '9') DO (* fraction *)
+		IF i > BigNums.MaxDecimalDigits-19 THEN
+			BigNums.SetDecimalDigit(f, i, ORD(ch)-30H)
+		ELSIF i = BigNums.MaxDecimalDigits-19 THEN Mark('Fraction too long')
+		END ;
+		DEC(i); ReadCh
+	END ;
+	IF (ch = 'E') OR (ch = 'D') THEN (* scale factor *)
+		ReadCh; e := 0; 
+		IF ch = '-' THEN negE := TRUE; ReadCh
+		ELSE negE := FALSE; IF ch = '+' THEN ReadCh END
+		END ;
+		IF (ch >= '0') & (ch <= '9') THEN
+			REPEAT e := e*10 + ORD(ch)-30H; ReadCh
+			UNTIL (ch < '0') OR (ch > '9') OR (e > maxExp);
+			IF e > maxExp THEN Mark('Exponent too large');
+				WHILE (ch < '0') OR (ch > '9') DO ReadCh END
+			END ;
+			IF negE THEN e := -e END
+		ELSE Mark('Digit?')
+		END ;
+		i := BigNums.MaxDecimalDigits-1;
+		WHILE e > 0 DO BigNums.MultiplyByTen(x, x);
+			BigNums.SetDecimalDigit(x, 0, BigNums.DecimalDigit(f, i));
+			BigNums.SetDecimalDigit(f, i, 0); BigNums.MultiplyByTen(f, f);
+			DEC(e)
+		END ;
+		WHILE e < 0 DO
+			last := BigNums.DecimalDigit(f, 0); BigNums.DivideByTen(f, f);
+			BigNums.SetDecimalDigit(f, i, BigNums.DecimalDigit(x, 0));
+			BigNums.DivideByTen(x, x);
+			IF (last > 5) OR (last = 5) & ODD(BigNums.DecimalDigit(f, 0)) THEN
+				IF BigNums.Compare(f, BigNums.MaxNum) = 0 THEN
+					f := BigNums.Zero; BigNums.Add(x, x, BigNums.One)
+				ELSE BigNums.Add(f, f, BigNums.One)
+				END
+			END ;
+			INC(e)
+		END
+	END ;
+	e := 52; half := BigNums.Zero;
+	i := BigNums.MaxDecimalDigits-1; BigNums.SetDecimalDigit(half, i, 5);
+	BigNums.Set0(max, 1FFFFFFFFFFFFFH); BigNums.Set0(min, 10000000000000H);
+	IF (BigNums.Compare(x, BigNums.Zero) # 0)
+	OR (BigNums.Compare(x, BigNums.Zero) # 0) THEN
+		WHILE BigNums.Compare(x, min) < 0 DO BigNums.Add(x, x, x);
+			IF BigNums.Compare(f, half) >= 0 THEN
+				BigNums.Subtract(f, f, half); BigNums.Add(x, x, BigNums.One)
+			END ;
+			BigNums.Add(f, f, f); DEC(e)
+		END ;
+		WHILE BigNums.Compare(x, max) > 0 DO BigNums.DivideByTwo(f, f);
+			IF BigNums.ModuloTwo(x) = 1 THEN BigNums.Add(f, f, half) END;
+			BigNums.DivideByTwo(x, x); INC(e)
+		END ;
+		float := BigNums.Get0(x); i := BigNums.Compare(f, half);
+		IF (i > 0) OR (i = 0) & ODD(float) THEN INC(float);
+			IF float > 1FFFFFFFFFFFFFH THEN float := float DIV 2; INC(e) END
+		END ;
+		float := float - 10000000000000H + (e+1023)*10000000000000H;
+	ELSE float := 0
+	END ;
+	sym := real; rval := SYSTEM.VAL(REAL, float); ival := float
+END Real;
+
+PROCEDURE Number(VAR sym: INTEGER);
+    CONST max = MaxInt;
+	VAR i, k2, e, n, s, h: INTEGER; x: REAL;
+		d: ARRAY 21 OF INTEGER; negE: BOOLEAN;
+BEGIN
+	ival := 0; i := 0; n := 0; k2 := 0;
+    REPEAT
+		IF n < LEN(d) THEN d[n] := ORD(ch) - 30H; INC(n)
+		ELSE Mark('Too many digits'); n := 0
+		END ;
+		ReadCh
+    UNTIL (ch < '0') OR (ch > '9') & (ch < 'A') OR (ch > 'F');
+    IF (ch = 'H') OR (ch = 'R') OR (ch = 'X') THEN  (* hex *)
+		REPEAT h := d[i];
+			IF h >= 10 THEN h := h-7 END ;
+			k2 := k2*10H + h; INC(i) (* no overflow check *)
+		UNTIL i = n;
+		ival := k2;
+		IF ch = 'X' THEN sym := string;
+			IF ival >= 10000H THEN Mark('Illegal value'); ival := 0 END ;
+			IF ival = 0 THEN str[0] := 0X; slen := 1
+			ELSE str[0] := CHR(ival); str[1] := 0X; slen := 2
+			END
+		ELSIF ch = 'R' THEN sym := real; rval := SYSTEM.VAL(REAL, ival)
+		ELSE sym := int
+		END ;
+		ReadCh
+    ELSIF ch = '.' THEN ReadCh;
+		IF ch = '.' THEN (* double dot *) ch := 7FX; escUpto := TRUE;
+			(* decimal integer *)
+			REPEAT
+				IF d[i] < 10 THEN
+					IF k2 <= (max-d[i]) DIV 10 THEN k2 := k2 * 10 + d[i]
+					ELSE Mark('Too large'); k2 := 0
+					END
+				ELSE Mark('Bad integer')
+				END ;
+				INC(i)
+			UNTIL i = n;
+			sym := int; ival := k2
+		ELSE (* real number *)
+			Real(sym, d, n)
+		END
+    ELSE (* decimal integer *)
+		REPEAT
+			IF d[i] < 10 THEN
+				IF k2 <= (max-d[i]) DIV 10 THEN k2 := k2*10 + d[i]
+				ELSE Mark ('Too large'); k2 := 0
+				END
+			ELSE Mark('Bad integer')
+			END ;
+			INC(i)
+		UNTIL i = n;
+		sym := int; ival := k2
+    END
+END Number;
+
 PROCEDURE Get*(VAR sym: INTEGER);
 BEGIN
 	REPEAT
@@ -139,7 +278,7 @@ BEGIN
 			ELSIF ch = '/' THEN ReadCh; sym := rdiv
 			ELSE (* ! % *) ReadCh; sym := null
 			END
-		ELSIF ch <= '9' THEN (* number *)
+		ELSIF ch <= '9' THEN Number(sym)
 		ELSIF ch < 'A' THEN
 			IF ch = ':' THEN ReadCh; sym := colon
 			ELSIF ch = ';' THEN ReadCh; sym := semicolon
@@ -163,7 +302,9 @@ BEGIN
 			IF ch = '{' THEN sym := rbrace
 			ELSIF ch = '|' THEN sym := bar
 			ELSIF ch = 7FX (* escape *) THEN
-				IF escUpto THEN sym := upto ELSE sym := null END
+				IF escUpto THEN sym := upto; ReadCh; escUpto := FALSE
+				ELSE sym := null
+				END
 			ELSE (* others *) sym := null 
 			END ;
 			ReadCh
