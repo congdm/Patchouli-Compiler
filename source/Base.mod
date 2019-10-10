@@ -47,11 +47,11 @@ PROCEDURE NewIdent*(VAR ident: Ident; name: S.Ident);
 	VAR prev, x: Ident;
 BEGIN
 	x := topScope.first; NEW(ident); ident.name := name;
-	WHILE (x # NIL) & (x.name # name) DO
+	WHILE x # NIL DO
+		IF x # NIL THEN S.Mark('duplicated ident') END ;
 		prev := x; x := x.next
 	END ;
-	IF x # NIL THEN S.Mark('duplicated ident')
-	ELSIF prev # NIL THEN prev.next := ident
+	IF prev # NIL THEN prev.next := ident
 	ELSE topScope.first := ident
 	END
 END NewIdent;
@@ -61,6 +61,14 @@ PROCEDURE MakeConst*(VAR x: Object; t: Type; val: INTEGER);
 BEGIN
 	NEW(c); c.type := t; c.value := val; x := c
 END MakeConst;
+
+PROCEDURE MakeTypeObj*(VAR x: Object);
+BEGIN
+END MakeTypeObj;
+
+PROCEDURE MakeVar*(VAR x: Object; t: Type);
+BEGIN
+END MakeVar;
 
 PROCEDURE Init*(modid: S.Ident);
 BEGIN

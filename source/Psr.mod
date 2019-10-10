@@ -23,6 +23,21 @@ BEGIN
 	END
 END Missing;
 
+PROCEDURE CheckExport(VAR expo: BOOLEAN);
+BEGIN
+	IF sym = S.times THEN S.Get(sym);
+		IF B.mod.curLev = 0 THEN expo := TRUE
+		ELSE S.Mark('not exportable')
+		END
+	END
+END CheckExport;
+
+PROCEDURE MarkSuperfluous(sym0: INTEGER);
+BEGIN
+	IF sym0 = S.comma THEN Mark('Superfluous ,')
+	END
+END MarkSuperfluous;
+
 PROCEDURE expression(): B.Object;
 	RETURN NIL
 END expression;
@@ -32,23 +47,37 @@ PROCEDURE StatementSequence(): B.Node;
 END StatementSequence;
 
 PROCEDURE DeclarationSequence;
-	VAR ident: B.Ident; x: B.Object;
+	VAR id, fst: B.Ident; x: B.Object; tp: B.Type;
 BEGIN
 	IF sym = S.const THEN S.Get(sym);
 		WHILE sym = S.ident DO
-			B.NewIdent(ident, S.id); Check(S.eql); x := expression();
-			IF x IS B.Const THEN ident.obj := x
-			ELSE S.Mark('not a const'); B.MakeConst(ident.obj, B.mod.intType, 0)
+			B.NewIdent(id, S.id); S.Get(sym);
+			CheckExport(id.expo); Check(S.eql); x := expression();
+			IF ~(x IS B.Const) THEN 
+				S.Mark('not a const'); B.MakeConst(x, B.mod.intType, 0)
 			END ;
-			Check(S.semicolon) 
+			id.obj := x; Check(S.semicolon) 
 		END
 	END ;
 	IF sym = S.type THEN S.Get(sym);
 		WHILE sym = S.ident DO
+			B.NewIdent(id, S.id); S.Get(sym);
+			CheckExport(id.expo); Check(S.eql);
+			B.MakeTypeObj(x); x.type := type(); Check(S.semicolon)
 		END
 	END ;
 	IF sym = S.var THEN S.Get(sym);
 		WHILE sym = S.ident DO
+			B.NewIdent(fst, S.id); S.Get(sym); CheckExport(fst.expo);
+			WHILE sym = S.comma DO
+				IF sym = S.ident THEN
+					B.NewIdent(id, S.id); S.Get(sym); CheckExport(id.expo)
+				ELSE MarkSuperfluous(S.comma)
+				END
+			END ;
+			Check(S.colon); tp := type(); id := fst;
+			WHILE id # NIL DO B.MakeVar(id.obj, tp); id := id.next END ;
+			Check(S.semicolon)
 		END
 	END ;
 	WHILE sym = S.procedure DO
