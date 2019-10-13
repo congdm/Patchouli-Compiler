@@ -4,7 +4,7 @@ IMPORT
 	SYSTEM,
 	(* This module isn't platform independent
 	   it needs INTEGER = int64 and REAL = double *)
-	Files, BigNums;
+	BigNums;
 
 CONST
 	StrLen* = 255; IdLen* = 63;
@@ -32,15 +32,19 @@ TYPE
 	Ident* = ARRAY IdLen+1 OF CHAR;
 
 VAR
-	ch: CHAR; eof, escUpto: BOOLEAN;
+	ch: CHAR; eof, escUpto: BOOLEAN; errcnt*: INTEGER;
 	str*: Str; id*: Ident;
-	ival*, rval*, slen*: INTEGER;
+	ival*, slen*: INTEGER; rval*: REAL;
 	
 PROCEDURE Init*(fname: ARRAY OF CHAR; pos: INTEGER);
 END Init;
 
 PROCEDURE ReadCh;
 END ReadCh;
+
+PROCEDURE Mark*(msg: ARRAY OF CHAR);
+BEGIN
+END Mark;
 
 PROCEDURE String(quote: CHAR);
 	VAR i: INTEGER;
@@ -132,13 +136,13 @@ END KeyWordOrIdent;
 
 PROCEDURE Identifier;
 	VAR i: INTEGER; validChar: BOOLEAN;
-BEGIN i := 0; sym := ident; validChar := TRUE;
+BEGIN i := 0; validChar := TRUE;
 	WHILE (i < IdLen) & validChar DO
 		id[i] := ch; INC(i); ReadCh;
 		validChar := (ch >= 'a') & (ch <= 'z') OR (ch >= 'A') & (ch <= 'Z')
 			OR (ch >= '0') & (ch <= '9') OR (ch = '_')
 	END ;
-	id[i] := 0X; IF ~notValidChar THEN Mark('identifier too long') END 
+	id[i] := 0X; IF validChar THEN Mark('identifier too long') END 
 END Identifier;
 
 PROCEDURE Real(VAR sym: INTEGER; d: ARRAY OF INTEGER; n: INTEGER);
@@ -312,11 +316,11 @@ BEGIN
 			IF ch = ']' THEN sym := rbrak
 			ELSIF ch = '[' THEN sym := lbrak
 			ELSIF ch = '^' THEN sym := arrow
-			ELSIF ch = '_' THEN Identifier 
+			ELSIF ch = '_' THEN Identifier; sym := ident 
 			ELSE (* ` *) sym := null
 			END ;
 			ReadCh
-		ELSIF ch <= 'z' THEN Identifier ELSE
+		ELSIF ch <= 'z' THEN Identifier; sym := ident ELSE
 			IF ch = '{' THEN sym := rbrace
 			ELSIF ch = '|' THEN sym := bar
 			ELSIF ch = 7FX (* escape *) THEN
