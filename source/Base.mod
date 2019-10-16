@@ -9,6 +9,7 @@ CONST
 	(* Type form *)
 	tInt* = 0; tBool* = 1; tSet* = 2; tChar* = 3; tReal* = 4;
 	tPtr* = 5; tProc* = 6; tArray* = 7; tRec* = 8; tStr* = 9; tNil* = 10;
+	tStructs* = {tArray, tRec};
 
 TYPE
 	Type* = POINTER TO TypeDesc;
@@ -20,8 +21,16 @@ TYPE
 	ObjDesc = RECORD type*: Type END ;
 	Const* = POINTER TO RECORD (ObjDesc) value*: INTEGER END ;
 	TypeObj* = POINTER TO RECORD (ObjDesc) END ;
-	Var* = POINTER TO RECORD (ObjDesc) lev*: INTEGER END ;
+	Var* = POINTER TO RECORD (ObjDesc) lev*: INTEGER; ronly*: BOOLEAN END ;
+	Par* = POINTER TO RECORD (Var) varpar*: BOOLEAN END;
 	Field* = POINTER TO RECORD (ObjDesc) END ;
+	
+	Proc* = POINTER TO RECORD (ObjDesc)
+		lev*: INTEGER;
+		decl*: Ident; statseq*: Node; return*: Object
+	END;
+	
+	Module* = POINTER TO RECORD (ObjDesc) first*: Ident END ;
 
 	NodeDesc = RECORD (ObjDesc)
 		op*: INTEGER;
@@ -39,7 +48,7 @@ TYPE
 	END ;
 
 VAR
-	externalIdentNotFound*: Ident;
+	externalIdentNotFound*: Ident; guard*: Object;
 	mod*: POINTER TO RECORD
 		id*: S.Ident;
 		curLev*: INTEGER;
@@ -67,6 +76,10 @@ END OpenScope;
 PROCEDURE CloseScope*;
 END CloseScope;
 
+PROCEDURE IncLev*(x: INTEGER);
+BEGIN INC(mod.curLev, x)
+END IncLev;
+
 PROCEDURE NewConst*(t: Type; val: INTEGER): Const;
 	VAR c: Const;
 BEGIN NEW(c); c.type := t; c.value := val;
@@ -88,6 +101,13 @@ BEGIN
 	RETURN NIL
 END NewField;
 
+PROCEDURE NewProc*(): Proc;
+	VAR x: Proc;
+BEGIN
+	NEW(x); x.lev := mod.curLev;
+	RETURN x
+END NewProc;
+
 PROCEDURE NewArray*(VAR t: Type; len: INTEGER);
 END NewArray;
 
@@ -97,10 +117,19 @@ END NewRecord;
 PROCEDURE NewPointer*(VAR t: Type);
 END NewPointer;
 
+PROCEDURE NewProcType*(VAR t: Type);
+END NewProcType;
+
 PROCEDURE Init*(modid: S.Ident);
 BEGIN
 	NEW(mod); NEW(mod.universe); mod.id := modid;
 	mod.topScope := mod.universe
 END Init;
 
+PROCEDURE SetModinit*(modinit: Node);
+BEGIN mod.init := modinit
+END SetModinit;
+
+BEGIN
+	NEW(guard); NEW(externalIdentNotFound);
 END Base.

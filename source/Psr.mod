@@ -2,9 +2,15 @@ MODULE Psr;
 
 IMPORT
 	S := Scn, B := Base;
+
+TYPE
+	UndefPtrList = POINTER TO RECORD
+		name: S.Ident; tp: B.Type; next: UndefPtrList
+	END;
 	
 VAR
 	sym: INTEGER;
+	undefList: UndefPtrList;
 	type0: PROCEDURE(): B.Type;
 	
 PROCEDURE Check(expected: INTEGER);
@@ -55,20 +61,66 @@ BEGIN
 END MarkSflous;
 
 PROCEDURE AddUndef(ptr: B.Type; recName: S.Ident);
+	VAR undef: UndefPtrList;
+BEGIN
+	NEW(undef); undef.tp := ptr; undef.name := recName;
+	undef.next := undefList; undefList := undef
 END AddUndef;
 
 PROCEDURE FixUndef(rec: B.Type; recName: S.Ident);
+	VAR undef, prev: UndefPtrList;
+BEGIN
+	undef := undefList; prev := NIL;
+	WHILE (undef # NIL) & (undef.name # recName) DO
+		prev := undef; undef := undef.next
+	END;
+	IF undef # NIL THEN undef.tp.base := rec;
+		IF prev # NIL THEN prev.next := undef.next
+		ELSE undefList := undef.next
+		END
+	END
 END FixUndef;
 
 PROCEDURE CheckUndef;
+BEGIN
+	IF undefList # NIL THEN
+		undefList := NIL; S.Mark('some pointers didnt have base type')
+	END
 END CheckUndef;
 
 PROCEDURE qualident0(): B.Ident;
-	RETURN NIL
+	VAR x: B.Ident; id: S.Ident; mod: B.Module;
+BEGIN
+	id := S.id; x := B.mod.topScope.first; S.Get(sym);
+	WHILE (x # NIL) & (x.name # id) DO x := x.next END ;
+	IF x = NIL THEN x := B.mod.universe.first;
+		WHILE (x # NIL) & (x.name # id) DO x := x.next END ;
+		IF (x # NIL) & (x.obj # NIL)
+			& (x.obj IS B.Module) & (sym = S.period)
+		THEN S.Get(sym);
+			IF sym = S.ident THEN
+				id := S.id; S.Get(sym);
+				mod := x.obj(B.Module); x := mod.first;
+				WHILE (x # NIL) & (x.name # id) DO x := x.next END ;
+				IF x = NIL THEN x := B.externalIdentNotFound END 
+			ELSE MarkMissing(S.ident)
+			END
+		END
+	END ;
+	RETURN x
 END qualident0;
 
 PROCEDURE qualident(): B.Object;
-	RETURN NIL
+	VAR id: B.Ident; x: B.Object;
+BEGIN id := qualident0(); x := B.guard;
+	IF id # NIL THEN x := id.obj;
+		IF id # B.externalIdentNotFound THEN
+			IF x = NIL THEN S.Mark('identifier not defined yet') END
+		ELSE S.Mark('external identifier not found')
+		END
+	ELSE S.Mark('identifier not found')
+	END ;
+	RETURN x
 END qualident;
 
 PROCEDURE expression(): B.Object;
@@ -101,11 +153,16 @@ BEGIN
 	RETURN fst
 END IdentList;
 
+PROCEDURE FormalParameters(proc: B.Type);
+BEGIN
+	
+END FormalParameters;
+
 PROCEDURE PointerType(typeObj: B.TypeObj): B.Type;
 	VAR ptr, b: B.Type; id: S.Ident; x: B.Ident;
 BEGIN
 	B.NewPointer(ptr); S.Get(sym); Check(S.to);
-	IF typeObj # NIL THEN typeObj.type := ptr (* forward defining *) END ;
+	IF typeObj # NIL THEN typeObj.type := ptr END ;
 	IF sym = S.ident THEN id := S.id; x := qualident0();
 		IF x # NIL THEN
 			IF x.obj # NIL THEN CheckTypeObj(x.obj, b);
@@ -193,8 +250,17 @@ BEGIN t := B.mod.intType;
 	RETURN t
 END type;
 
+PROCEDURE CloneParameters(VAR proc: B.Type);
+	VAR p, id: B.Ident; x: B.Par;
+BEGIN p := proc.fields;
+	WHILE p # NIL DO
+		B.NewIdent(id, p.name); NEW(x); id.obj := x;
+		x^ := p.obj(B.Par)^; INC(x.lev); p := p.next
+	END
+END CloneParameters;
+
 PROCEDURE DeclarationSequence;
-	VAR id: B.Ident; x: B.Object; tp: B.Type;
+	VAR id: B.Ident; x, ret: B.Object; tp: B.Type;
 BEGIN
 	IF sym = S.const THEN S.Get(sym);
 		WHILE sym = S.ident DO
@@ -222,7 +288,34 @@ BEGIN
 			Check(S.semicolon)
 		END
 	END ;
-	WHILE sym = S.procedure DO
+	WHILE sym = S.procedure DO S.Get(sym);
+		IF sym # S.ident THEN id := NIL; S.Mark('proc name?')
+		ELSE B.NewIdent(id, S.id); S.Get(sym); CheckExport(id.expo)
+		END ;
+		x := B.NewProc(); B.NewProcType(tp); x.type := tp;
+		IF sym = S.lparen THEN FormalParameters(tp) END ;
+		Check(S.semicolon); B.OpenScope; B.IncLev(1); CloneParameters(tp);
+		IF id # NIL THEN id.obj := x END ;
+
+		DeclarationSequence; x(B.Proc).decl := B.mod.topScope.first;		
+		IF sym = S.begin THEN
+			S.Get(sym); x(B.Proc).statseq := StatementSequence()
+		END ;
+		IF sym = S.return THEN
+			IF tp.base = NIL THEN S.Mark('not function proc') END;
+			S.Get(sym); ret := expression(); x(B.Proc).return := ret;
+			IF ret.type.form IN B.tStructs THEN S.Mark('invalid type') END
+		ELSIF tp.base # NIL THEN MarkMissing(S.return)
+		END ;
+		B.CloseScope; B.IncLev(-1); Check(S.end);
+		IF sym = S.ident THEN
+			IF (id # NIL) & (id.name # S.id) THEN
+				S.Mark('wrong procedure identifier')
+			END ;
+			S.Get(sym)
+		ELSIF id # NIL THEN MarkMissing(S.ident)
+		END ;
+		Check(S.semicolon)
 	END
 END DeclarationSequence;
 
@@ -230,7 +323,7 @@ PROCEDURE ImportList;
 END ImportList;
 	
 PROCEDURE Module*;
-	VAR modid: S.Ident;
+	VAR modid: S.Ident; modinit: B.Node;
 BEGIN S.Get(sym);
 	IF sym = S.ident THEN modid := S.id
 	ELSE modid := 0X; MarkMissing(S.ident)
@@ -241,8 +334,8 @@ BEGIN S.Get(sym);
 	END ;
 	IF S.errcnt = 0 THEN
 		DeclarationSequence;
-		IF sym = S.begin THEN
-			S.Get(sym); B.mod.init := StatementSequence()
+		IF sym = S.begin THEN S.Get(sym);
+			modinit := StatementSequence(); B.SetModinit(modinit)
 		END ;
 		Check(S.end);
 		IF sym = S.ident THEN
