@@ -34,7 +34,7 @@ TYPE
 VAR
 	ch: CHAR; eof, escUpto: BOOLEAN; errcnt*: INTEGER;
 	str*: Str; id*: Ident;
-	ival*, slen*: INTEGER; rval*: REAL;
+	ival*, slen*, srcpos*: INTEGER; rval*: REAL;
 	
 PROCEDURE Init*(fname: ARRAY OF CHAR; pos: INTEGER);
 END Init;

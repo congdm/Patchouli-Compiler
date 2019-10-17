@@ -5,6 +5,7 @@ IMPORT
 
 CONST
 	MaxExt* = 7;
+	trueValue* = 1; falseValue* = 0;
 
 	(* Type form *)
 	tInt* = 0; tBool* = 1; tSet* = 2; tChar* = 3; tReal* = 4;
@@ -33,12 +34,13 @@ TYPE
 	Module* = POINTER TO RECORD (ObjDesc) first*: Ident END ;
 
 	NodeDesc = RECORD (ObjDesc)
-		op*: INTEGER;
+		op*, spos*: INTEGER;
 		left*, right*: Object
 	END ;
 
 	IdentDesc = RECORD
-		expo*: BOOLEAN; name*: S.Ident; obj*: Object; next*: Ident
+		expo*: BOOLEAN; spos*: INTEGER;
+		name*: S.Ident; obj*: Object; next*: Ident
 	END ;
 	ScopeDesc = RECORD first*: Ident; dsc: Scope END ;
 
@@ -47,20 +49,22 @@ TYPE
 		fields*: Ident; base*: Type
 	END ;
 
-VAR
-	externalIdentNotFound*: Ident; guard*: Object;
-	mod*: POINTER TO RECORD
+	CurrentModule* = POINTER TO RECORD
 		id*: S.Ident;
 		curLev*: INTEGER;
 		init*: Node;
 		topScope*, universe*: Scope;
 		intType*: Type
-	END ;
+	END
+
+VAR
+	externalIdentNotFound*: Ident; guard*: Object;
+	mod*: CurrentModule;
 
 PROCEDURE NewIdent*(VAR ident: Ident; name: S.Ident);
 	VAR prev, x: Ident;
-BEGIN
-	x := mod.topScope.first; NEW(ident); ident.name := name;
+BEGIN x := mod.topScope.first;
+	NEW(ident); ident.name := name; ident.spos := S.srcpos;
 	WHILE x # NIL DO
 		IF x # NIL THEN S.Mark('duplicated ident') END ;
 		prev := x; x := x.next
@@ -145,7 +149,9 @@ END NewProcType;
 PROCEDURE Init*(modid: S.Ident);
 BEGIN
 	NEW(mod); NEW(mod.universe); mod.id := modid;
-	mod.topScope := mod.universe
+	mod.topScope := mod.universe;
+
+	NEW(guard); NEW(externalIdentNotFound)
 END Init;
 
 PROCEDURE SetModinit*(modinit: Node);
@@ -153,6 +159,4 @@ BEGIN
 	mod.init := modinit
 END SetModinit;
 
-BEGIN
-	NEW(guard); NEW(externalIdentNotFound);
 END Base.

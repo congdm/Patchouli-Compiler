@@ -91,7 +91,7 @@ END CheckUndef;
 PROCEDURE NewNode(op: INTEGER; x, y: B.Object): B.Node;
 	VAR z: B.Node;
 BEGIN
-	NEW(z); z.op := op; z.sPos := S.Pos();
+	NEW(z); z.op := op; z.spos := S.srcpos;
 	z.left := x; z.right := y; z.ronly := FALSE;
 	RETURN z
 END NewNode;
@@ -351,8 +351,8 @@ PROCEDURE CloneParameters(VAR proc: B.Type);
 	VAR p, id: B.Ident; x: B.Par;
 BEGIN p := proc.fields;
 	WHILE p # NIL DO
-		B.NewIdent(id, p.name); NEW(x); id.obj := x;
-		x^ := p.obj(B.Par)^; INC(x.lev); p := p.next
+		B.NewIdent(id, p.name); NEW(x); id.spos := p.spos;
+		id.obj := x; x^ := p.obj(B.Par)^; INC(x.lev); p := p.next
 	END
 END CloneParameters;
 
