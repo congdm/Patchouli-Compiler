@@ -71,34 +71,56 @@ BEGIN
 END NewIdent;
 
 PROCEDURE OpenScope*;
+	VAR scp: Scope;
+BEGIN
+	NEW(scp); scp.dsc := mod.topScope; mod.topScope := scp
 END OpenScope;
 
 PROCEDURE CloseScope*;
+BEGIN
+	mod.topScope := mod.topScope.dsc
 END CloseScope;
 
 PROCEDURE IncLev*(x: INTEGER);
-BEGIN INC(mod.curLev, x)
+BEGIN
+	mod.curLev := mod.curLev + x
 END IncLev;
 
 PROCEDURE NewConst*(t: Type; val: INTEGER): Const;
 	VAR c: Const;
-BEGIN NEW(c); c.type := t; c.value := val;
+BEGIN
+	NEW(c); c.type := t; c.value := val;
 	RETURN c
 END NewConst;
 
 PROCEDURE NewTypeObj*(): TypeObj;
+	VAR t: TypeObj;
 BEGIN
-	RETURN NIL
+	NEW(t);
+	RETURN t
 END NewTypeObj;
 
 PROCEDURE NewVar*(t: Type): Var;
+	VAR v: Var;
 BEGIN
-	RETURN NIL
+	NEW(v); v.type := t; v.lev := mod.curLev; v.ronly := FALSE;
+	RETURN v
 END NewVar;
 
-PROCEDURE NewField*(t: Type): Field;
+PROCEDURE NewPar*(proc: Type; t: Type; varpar: BOOLEAN): Par;
+	VAR p: Par;
 BEGIN
-	RETURN NIL
+	NEW(p); p.type := t; p.lev := mod.curLev;
+	p.varpar := varpar; INC(proc.len);
+	p.ronly := ~varpar & (t.form IN tStructs);
+	RETURN p
+END NewPar;
+
+PROCEDURE NewField*(t: Type): Field;
+	VAR f: Field;
+BEGIN
+	NEW(f); f.type := t;
+	RETURN f
 END NewField;
 
 PROCEDURE NewProc*(): Proc;
@@ -127,7 +149,8 @@ BEGIN
 END Init;
 
 PROCEDURE SetModinit*(modinit: Node);
-BEGIN mod.init := modinit
+BEGIN
+	mod.init := modinit
 END SetModinit;
 
 BEGIN

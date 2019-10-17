@@ -88,6 +88,14 @@ BEGIN
 	END
 END CheckUndef;
 
+PROCEDURE NewNode(op: INTEGER; x, y: B.Object): B.Node;
+	VAR z: B.Node;
+BEGIN
+	NEW(z); z.op := op; z.sPos := S.Pos();
+	z.left := x; z.right := y; z.ronly := FALSE;
+	RETURN z
+END NewNode;
+
 PROCEDURE qualident0(): B.Ident;
 	VAR x: B.Ident; id: S.Ident; mod: B.Module;
 BEGIN
@@ -124,7 +132,41 @@ BEGIN id := qualident0(); x := B.guard;
 END qualident;
 
 PROCEDURE expression(): B.Object;
-	RETURN NIL
+	VAR x, y: B.Object; xt, tp: B.Type; op: INTEGER;
+BEGIN x := SimpleExpression();
+	IF (sym >= S.eql) & (sym <= S.geq) THEN
+		CheckLeft(x, sym); op := sym; S.Get(sym); y := SimpleExpression();
+		IF (x.type = y.type) OR CompTypes2(x.type, y.type) THEN
+			IF IsConst(x) & IsConst(y) THEN x := B.FoldConst(op, x, y)
+			ELSE x := NewNode(op, x, y); x.type := B.mod.boolType
+			END
+		ELSIF (x.type = B.mod.charType) & IsCharStr(y) THEN
+			x := NewNode(op, x, StrToChar(y)); x.type := B.mod.boolType
+		ELSIF (y.type = B.charType) & IsCharStr(x) THEN
+			x := NewNode(op, StrToChar(x), y); x.type := B.mod.boolType
+		ELSE S.Mark('invalid type')
+		END
+	ELSIF sym = S.in THEN
+		CheckInt(x); S.Get(sym); y := SimpleExpression(); CheckSet(y);
+		IF IsConst(x) & IsConst(y) THEN x := B.FoldConst(op, x, y)
+		ELSE x := NewNode(S.in, x, y); x.type := B.mod.boolType
+		END
+	ELSIF sym = S.is THEN
+		CheckLeft(x, S.is); S.Get(sym); xt := x.type;
+		IF sym = S.ident THEN y := qualident() ELSE MarkMissing(S.ident) END ;
+		IF (y # NIL) & (y IS B.TypeObj) THEN tp := y.type;
+			IF xt.form = tp.form THEN (* valid *)
+			ELSE S.Mark('invalid type'); tp := xt
+			END
+		ELSE S.Mark('not type'); tp := xt
+		END ;
+		IF xt # tp THEN
+			IF ~IsExt(tp, xt) THEN S.Mark('not extension') END ;
+			x := NewNode(S.is, x, y); x.type := B.mod.boolType
+		ELSE x := B.NewConst(B.mod.boolType, B.trueValue)
+		END
+	END ;
+	RETURN x
 END expression;
 
 PROCEDURE ConstExpression(): B.Const;
@@ -153,9 +195,64 @@ BEGIN
 	RETURN fst
 END IdentList;
 
-PROCEDURE FormalParameters(proc: B.Type);
+PROCEDURE FormalType(): B.Type;
+	VAR x: B.Object; t: B.Type;
+BEGIN t := B.mod.intType;
+	IF sym = S.ident THEN x := qualident();
+		IF (x # NIL) & (x IS B.TypeObj) THEN t := x.type
+		ELSE S.Mark('not type')
+		END
+	ELSIF sym = S.array THEN
+		B.NewArray(t, -1); S.Get(sym); Check(S.of);
+		IF sym = S.array THEN S.Mark('multi-dim open array not supported') END ;
+		t.base := FormalType()
+	END ;
+	RETURN t
+END FormalType;
+
+PROCEDURE FPSection(proc: B.Type);
+	VAR first, x: B.Ident; tp: B.Type; varpar: BOOLEAN;
 BEGIN
-	
+	IF sym = S.var THEN varpar := TRUE; S.Get(sym) ELSE varpar := FALSE END ;
+	IF sym = S.ident THEN
+		B.NewIdent(first, S.id); S.Get(sym);
+		WHILE sym = S.comma DO S.Get(sym);
+			IF sym = S.ident THEN
+				B.NewIdent(x, S.id); S.Get(sym);
+				IF first = NIL THEN first := x END
+			ELSE MarkSflous(S.comma)
+			END
+		END
+	ELSE S.Mark('no params?')
+	END ;
+	Check(S.colon); tp := FormalType(); x := first;
+	WHILE x # NIL DO
+		x.obj := B.NewPar(proc, tp, varpar); x := x.next
+	END
+END FPSection;
+
+PROCEDURE FormalParameters(proc: B.Type);
+	VAR x: B.Object;
+BEGIN S.Get(sym);
+	IF (sym = S.ident) OR (sym = S.var) THEN
+		B.OpenScope; FPSection(proc);
+		WHILE sym = S.semicolon DO S.Get(sym);
+			IF (sym = S.ident) OR (sym = S.var) THEN FPSection(proc)
+			ELSE S.Mark('param section?')
+			END
+		END ;
+		proc.fields := B.mod.topScope.first; B.CloseScope
+	END ;
+	Check(S.rparen);
+	IF sym = S.colon THEN S.Get(sym);
+		IF sym = S.ident THEN x := qualident() ELSE MarkMissing(S.ident) END ;
+		IF (x # NIL) & (x IS B.TypeObj) THEN
+			IF ~(x.type.form IN B.tStructs) THEN proc.base := x.type
+			ELSE S.Mark('invalid type')
+			END
+		ELSE S.Mark('not type')
+		END
+	END
 END FormalParameters;
 
 PROCEDURE PointerType(typeObj: B.TypeObj): B.Type;
