@@ -5,7 +5,7 @@ IMPORT
 
 CONST
 	MaxExt* = 7;
-	trueValue* = 1; falseValue* = 0;
+	true* = 1; false* = 0;
 
 	(* Type form *)
 	tInt* = 0; tBool* = 1; tSet* = 2; tChar* = 3; tReal* = 4;
@@ -31,14 +31,20 @@ TYPE
 	Const* = POINTER TO RECORD (ObjDesc) value*: INTEGER END ;
 	TypeObj* = POINTER TO RECORD (ObjDesc) END ;
 	Var* = POINTER TO RECORD (ObjDesc) lev*: INTEGER; ronly*: BOOLEAN END ;
-	Par* = POINTER TO RECORD (Var) varpar*: BOOLEAN END;
-	Str* = POINTER TO RECORD (Var) bufpos*, len*: INTEGER END;
+	Par* = POINTER TO RECORD (Var) varpar*: BOOLEAN END ;
+	Str* = POINTER TO RECORD (Var) bufpos*, len*: INTEGER END ;
 	Field* = POINTER TO RECORD (ObjDesc) END ;
-	
+	SProc* = POINTER TO RECORD (ObjDesc) name*: S.Ident END ;
+
 	Proc* = POINTER TO RECORD (ObjDesc)
 		lev*: INTEGER;
 		decl*: Ident; statseq*: Node; return*: Object
 	END;
+
+	ObjList* = POINTER TO RECORD obj*: Object; next*: ObjList END ;
+	TypeList* = POINTER TO RECORD type*: Type; next*: TypeList END ;
+	ProcList* = POINTER TO RECORD obj*: Proc; next*: ProcList END ;
+	StrList* = POINTER TO RECORD obj*: Str; next*: StrList END ;
 	
 	Module* = POINTER TO RECORD (ObjDesc) first*: Ident END ;
 
@@ -62,8 +68,9 @@ TYPE
 	CurrentModule* = POINTER TO RECORD
 		id*: S.Ident;
 		init*: Node; universe*: Scope;
-		strbuf*: ARRAY 10000H OF CHAR; strbufSize*: INTEGER
-	END;
+		strbuf*: ARRAY 10000H OF CHAR; strbufSize*: INTEGER;
+		strList*: StrList
+	END ;
 
 VAR
 	externalIdentNotFound*: Ident; guard*: Object;
@@ -72,7 +79,7 @@ VAR
 	curLev*: INTEGER;
 	topScope*: Scope;
 
-	intType*, boolType*, setType*: Type;
+	intType*, boolType*, setType*, realType*: Type;
 	charType*, strType*: Type;
 	nilType*: Type;
 
@@ -144,6 +151,23 @@ BEGIN
 	NEW(f); f.type := t;
 	RETURN f
 END NewField;
+
+PROCEDURE NewStr*(str: ARRAY OF CHAR; slen: INTEGER): Str;
+	VAR x: Str; i: INTEGER; p: StrList;
+BEGIN
+	NEW(x); x.ronly := TRUE;
+	x.type := strType; x.lev := curLev; x.len := slen;
+	IF x.lev >= -1 (* not imported str, need to alloc buffer *) THEN 
+		IF mod.strbufSize + slen >= LEN(mod.strbuf) THEN
+			S.Mark('too many strings'); x.bufpos := -1
+		ELSE x.bufpos := mod.strbufSize; INC(mod.strbufSize, slen);
+			FOR i := 0 TO slen-1 DO mod.strbuf[x.bufpos+i] := str[i] END ;
+			NEW(p); p.obj := x; p.next := mod.strList; mod.strList := p
+		END
+	ELSE x.bufpos := -1
+	END ;
+	RETURN x
+END NewStr;
 
 PROCEDURE NewProc*(): Proc;
 	VAR x: Proc;

@@ -15,6 +15,7 @@ VAR
 	sym: INTEGER;
 	undefList: UndefPtrList;
 	type0: PROCEDURE(): B.Type;
+	expression0: PROCEDURE(): B.Object;
 
 PROCEDURE MarkMissing(sym0: INTEGER);
 BEGIN
@@ -34,6 +35,10 @@ BEGIN
 	ELSE ASSERT(FALSE)
 	END
 END MarkSflous;
+
+PROCEDURE Reset(VAR x: B.Object);
+BEGIN x := B.NewConst(B.intType, 0)
+END Reset;
 
 PROCEDURE Check(expected: INTEGER);
 BEGIN
@@ -307,6 +312,26 @@ BEGIN id := qualident0(); x := B.guard;
 	RETURN x
 END qualident;
 
+PROCEDURE Call(x: B.Object): B.Node;
+BEGIN
+	RETURN NIL
+END Call;
+
+PROCEDURE designator(): B.Object;
+BEGIN
+	RETURN NIL
+END designator;
+
+PROCEDURE StdFunc(f: B.SProc): B.Object;
+BEGIN
+	RETURN NIL
+END StdFunc;
+
+PROCEDURE set(): B.Object;
+BEGIN
+	RETURN NIL
+END set;
+
 PROCEDURE factor(): B.Object;
 	CONST msgNotFunc = 'not function';
 	VAR x: B.Object; spos: INTEGER;
@@ -322,9 +347,9 @@ BEGIN
 		IF x IS B.SProc THEN
 			IF sym = S.lparen THEN
 				IF x.type # NIL THEN x := StdFunc(x(B.SProc))
-				ELSE x := B.NewConst(B.intType, 0); S.Mark(msgNotFunc)
+				ELSE Reset(x); S.Mark(msgNotFunc)
 				END
-			ELSE S.Mark('invalid factor or no (')
+			ELSE Reset(x); S.Mark('invalid factor or no (')
 			END
 		ELSIF (sym = S.lparen) & (x.type.form = B.tProc) THEN
 			IF x.type.base = NIL THEN S.Mark(msgNotFunc) END ;
@@ -336,7 +361,7 @@ BEGIN
 		IF ~IsConst(x) THEN x := NewNode(S.not, x, NIL, B.boolType, spos)
 		ELSE x := B.FoldConst(S.not, x, NIL)
 		END
-	ELSE Mark('Invalid factor'); x := B.NewConst(B.intType, 0)
+	ELSE Reset(x); S.Mark('invalid factor')
 	END ;
 	RETURN x
 END factor;
@@ -346,7 +371,9 @@ PROCEDURE term(): B.Object;
 BEGIN x := factor();
 	WHILE sym = S.times DO
 		spos := S.pos; CheckT(x, B.tTimes); S.Get(sym); y := factor();
-		IF CompTypes(x.type, y.type) THEN (*ok*) ELSE S.Mark(msgIvlType) END ;
+		IF CompTypes(x.type, y.type) THEN (*ok*)
+		ELSE Reset(x); Reset(y); S.Mark(msgIvlType)
+		END ;
 		IF ~IsConst(x) OR ~IsConst(y) THEN
 			IF x.type.form = B.tInt THEN t := B.intType ELSE t := x.type END ;
 			x := NewNode(S.times, x, y, t, spos)
@@ -354,7 +381,9 @@ BEGIN x := factor();
 		END
 	ELSIF sym = S.rdiv DO
 		spos := S.pos; CheckT(x, B.tRdivs); S.Get(sym); y := factor();
-		IF CompTypes(x.type, y.type) THEN (*ok*) ELSE S.Mark(msgIvlType) END ;
+		IF CompTypes(x.type, y.type) THEN (*ok*)
+		ELSE Reset(x); Reset(y); S.Mark(msgIvlType)
+		END ;
 		IF ~IsConst(x) OR ~IsConst(y) THEN
 			x := NewNode(S.rdiv, x, y, x.type, spos)
 		ELSE x := B.FoldConst(S.rdiv, x, y)
@@ -381,7 +410,10 @@ PROCEDURE SimpleExpression(): B.Object;
 BEGIN
 	IF sym = S.plus THEN S.Get(sym); x := term()
 	ELSIF sym = S.minus THEN
-		spos := S.pos; S.Get(sym); x := term(); CheckT(x, B.tAdds);
+		spos := S.pos; S.Get(sym); x := term();
+		IF x.type.form IN B.tAdds THEN (*ok*)
+		ELSE Reset(x); S.Mark(msgIvlType)
+		END ;
 		IF ~IsConst(x) THEN
 			IF x.type.form = B.tInt THEN t := B.intType ELSE t := x.type END ;
 			x := NewNode(S.minus, x, NIL, t, spos)
@@ -391,7 +423,9 @@ BEGIN
 	END ;
 	WHILE (sym = S.plus) OR (sym = S.minus) DO
 		spos := S.pos; op := sym; CheckT(x, B.tAdds); S.Get(sym); y := term();
-		IF CompTypes(x.type, y.type) THEN (*ok*) ELSE S.Mark(msgIvlType) END ;
+		IF CompTypes(x.type, y.type) THEN (*ok*)
+		ELSE Reset(x); Reset(y); S.Mark(msgIvlType)
+		END ;
 		IF ~IsConst(x) OR ~IsConst(y) THEN
 			IF x.type.form = B.tInt THEN t := B.intType ELSE t := x.type END ;
 			x := NewNode(op, x, y, t, spos)
@@ -416,7 +450,7 @@ BEGIN x := SimpleExpression();
 		IF (x.type = y.type) OR CompTypes2(x.type, y.type) THEN (* ok *)
 		ELSIF (x.type = B.charType) & IsCharStr(y) THEN y := StrToChar(y)
 		ELSIF (y.type = B.charType) & IsCharStr(x) THEN x := StrToChar(x)
-		ELSE S.Mark(msgIvlType)
+		ELSE Reset(x); Reset(y); S.Mark(msgIvlType)
 		END ;
 		IF ~IsConst(x) OR ~IsConst(y) THEN
 			x := NewNode(op, x, y, B.boolType, spos)
@@ -439,7 +473,7 @@ BEGIN x := SimpleExpression();
 		ELSE S.Mark(msgIvlType)
 		END ;
 		IF x.type # yt THEN x := NewNode(S.is, x, y, B.boolType, spos)
-		ELSE x := B.NewConst(B.boolType, B.trueValue)
+		ELSE x := B.NewConst(B.boolType, B.true)
 		END
 	END ;
 	RETURN x
@@ -730,5 +764,5 @@ BEGIN S.Get(sym);
 END Module;
 
 BEGIN
-	type0 := type
+	type0 := type; expression0 := expression
 END Psr.
