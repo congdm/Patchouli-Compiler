@@ -217,10 +217,10 @@ BEGIN
 	END
 END CheckLeft;
 
-PROCEDURE CheckForm(x: B.Object; forms: SET);
+PROCEDURE CheckT(x: B.Object; forms: SET);
 BEGIN
 	IF x.type.form IN forms THEN (*ok*) ELSE S.Mark(msgIvlType) END
-END CheckForm;
+END CheckT;
 
 PROCEDURE StrToChar(x: B.Object): B.Object;
 	RETURN B.NewConst(B.charType, ORD(B.mod.strbuf[x(B.Str).bufpos]))
@@ -307,38 +307,136 @@ BEGIN id := qualident0(); x := B.guard;
 	RETURN x
 END qualident;
 
+PROCEDURE factor(): B.Object;
+	CONST msgNotFunc = 'not function';
+	VAR x: B.Object; spos: INTEGER;
+BEGIN
+	IF sym = S.int THEN x := B.NewConst(B.intType, S.ival); S.Get(sym)
+	ELSIF sym = S.real THEN x := B.NewConst(B.realType, S.ival); S.Get(sym)
+	ELSIF sym = S.string THEN x := B.NewStr(S.str, S.slen); S.Get(sym)
+	ELSIF sym = S.nil THEN x := B.NewConst(B.nilType, 0); S.Get(sym)
+	ELSIF sym = S.true THEN x := B.NewConst(B.boolType, B.true); S.Get(sym)
+	ELSIF sym = S.false THEN x := B.NewConst(B.boolType, B.false); S.Get(sym)
+	ELSIF sym = S.lbrace THEN x := set()
+	ELSIF sym = S.ident THEN x := designator();
+		IF x IS B.SProc THEN
+			IF sym = S.lparen THEN
+				IF x.type # NIL THEN x := StdFunc(x(B.SProc))
+				ELSE x := B.NewConst(B.intType, 0); S.Mark(msgNotFunc)
+				END
+			ELSE S.Mark('invalid factor or no (')
+			END
+		ELSIF (sym = S.lparen) & (x.type.form = B.tProc) THEN
+			IF x.type.base = NIL THEN S.Mark(msgNotFunc) END ;
+			x := Call(x); IF x.type = NIL THEN x.type := B.intType END
+		END
+	ELSIF sym = S.lparen THEN S.Get(sym); x := expression0(); Check(S.rparen)
+	ELSIF sym = S.not THEN
+		spos := S.pos; S.Get(sym); x := factor(); CheckBool(x);
+		IF ~IsConst(x) THEN x := NewNode(S.not, x, NIL, B.boolType, spos)
+		ELSE x := B.FoldConst(S.not, x, NIL)
+		END
+	ELSE Mark('Invalid factor'); x := B.NewConst(B.intType, 0)
+	END ;
+	RETURN x
+END factor;
+
+PROCEDURE term(): B.Object;
+	VAR x, y: B.Object; t: B.Type; op, spos: INTEGER;
+BEGIN x := factor();
+	WHILE sym = S.times DO
+		spos := S.pos; CheckT(x, B.tTimes); S.Get(sym); y := factor();
+		IF CompTypes(x.type, y.type) THEN (*ok*) ELSE S.Mark(msgIvlType) END ;
+		IF ~IsConst(x) OR ~IsConst(y) THEN
+			IF x.type.form = B.tInt THEN t := B.intType ELSE t := x.type END ;
+			x := NewNode(S.times, x, y, t, spos)
+		ELSE x := B.FoldConst(S.times, x, y)
+		END
+	ELSIF sym = S.rdiv DO
+		spos := S.pos; CheckT(x, B.tRdivs); S.Get(sym); y := factor();
+		IF CompTypes(x.type, y.type) THEN (*ok*) ELSE S.Mark(msgIvlType) END ;
+		IF ~IsConst(x) OR ~IsConst(y) THEN
+			x := NewNode(S.rdiv, x, y, x.type, spos)
+		ELSE x := B.FoldConst(S.rdiv, x, y)
+		END
+	ELSIF (sym = S.div) OR (sym = S.mod) DO
+		spos := S.pos; op := sym; CheckInt(x);
+		S.Get(sym); y := factor(); CheckInt(y);
+		IF ~IsConst(x) OR ~IsConst(y) THEN
+			x := NewNode(op, x, y, B.intType, spos)
+		ELSE x := B.FoldConst(op, x, y)
+		END
+	ELSIF sym = S.and DO
+		spos := S.pos; CheckBool(x); S.Get(sym); y := factor(); CheckBool(y);
+		IF ~IsConst(x) OR ~IsConst(y) THEN
+			x := NewNode(S.and, x, y, B.boolType, spos)
+		ELSE x := B.FoldConst(S.and, x, y)
+		END
+	END ;
+	RETURN x
+END term;
+
 PROCEDURE SimpleExpression(): B.Object;
-	RETURN NIL
+	VAR x, y: B.Object; op, spos: INTEGER; t: B.Type;
+BEGIN
+	IF sym = S.plus THEN S.Get(sym); x := term()
+	ELSIF sym = S.minus THEN
+		spos := S.pos; S.Get(sym); x := term(); CheckT(x, B.tAdds);
+		IF ~IsConst(x) THEN
+			IF x.type.form = B.tInt THEN t := B.intType ELSE t := x.type END ;
+			x := NewNode(S.minus, x, NIL, t, spos)
+		ELSE x := B.FoldConst(S.minus, x, NIL) 
+		END
+	ELSE x := term()
+	END ;
+	WHILE (sym = S.plus) OR (sym = S.minus) DO
+		spos := S.pos; op := sym; CheckT(x, B.tAdds); S.Get(sym); y := term();
+		IF CompTypes(x.type, y.type) THEN (*ok*) ELSE S.Mark(msgIvlType) END ;
+		IF ~IsConst(x) OR ~IsConst(y) THEN
+			IF x.type.form = B.tInt THEN t := B.intType ELSE t := x.type END ;
+			x := NewNode(op, x, y, t, spos)
+		ELSE x := B.FoldConst(op, x, y)
+		END
+	ELSIF sym = S.or DO
+		spos := S.pos; CheckBool(x); S.Get(sym); y := term(); CheckBool(y);
+		IF ~IsConst(x) OR ~IsConst(y) THEN
+			x := NewNode(op, x, y, B.boolType, spos)
+		ELSE x := B.FoldConst(S.or, x, y)
+		END
+	END ;
+	RETURN x
 END SimpleExpression;
 
 PROCEDURE expression(): B.Object;
 	VAR x, y: B.Object; yt: B.Type; op, spos: INTEGER;
-BEGIN x := SimpleExpression(); spos := S.srcpos; 
+BEGIN x := SimpleExpression();
 	IF (sym >= S.eql) & (sym <= S.geq) THEN
-		CheckLeft(x, sym); op := sym; S.Get(sym); y := SimpleExpression();
+		spos := S.pos; op := sym;
+		CheckLeft(x, sym); S.Get(sym); y := SimpleExpression();
 		IF (x.type = y.type) OR CompTypes2(x.type, y.type) THEN (* ok *)
 		ELSIF (x.type = B.charType) & IsCharStr(y) THEN y := StrToChar(y)
 		ELSIF (y.type = B.charType) & IsCharStr(x) THEN x := StrToChar(x)
-		ELSE S.Mark('invalid type')
+		ELSE S.Mark(msgIvlType)
 		END ;
 		IF ~IsConst(x) OR ~IsConst(y) THEN
 			x := NewNode(op, x, y, B.boolType, spos)
 		ELSE x := B.FoldConst(op, x, y)
 		END
 	ELSIF sym = S.in THEN
-		CheckInt(x); S.Get(sym); y := SimpleExpression(); CheckSet(y);
+		spos := S.pos; CheckInt(x);
+		S.Get(sym); y := SimpleExpression(); CheckSet(y);
 		IF ~IsConst(x) OR ~IsConst(y) THEN
 			x := NewNode(S.in, x, y, B.boolType, spos)
 		ELSE x := B.FoldConst(S.in, x, y)
 		END
 	ELSIF sym = S.is THEN
-		CheckLeft(x, S.is); S.Get(sym); y := B.guard;
+		spos := S.pos; CheckLeft(x, S.is); S.Get(sym); y := B.guard;
 		IF sym = S.ident THEN y := qualident(); CheckTypeObj(y, yt);
 		ELSE yt := B.intType; MarkMissing(S.ident)
 		END ;
 		IF x.type.form = yt.form THEN
 			IF IsExt(yt, x.type) THEN (*ok*) ELSE S.Mark('not extension') END
-		ELSE S.Mark('invalid type')
+		ELSE S.Mark(msgIvlType)
 		END ;
 		IF x.type # yt THEN x := NewNode(S.is, x, y, B.boolType, spos)
 		ELSE x := B.NewConst(B.boolType, B.trueValue)
@@ -435,7 +533,7 @@ BEGIN S.Get(sym);
 		IF sym = S.ident THEN x := qualident() ELSE MarkMissing(S.ident) END ;
 		IF (x # NIL) & (x IS B.TypeObj) THEN
 			IF ~(x.type.form IN B.tStructs) THEN proc.base := x.type
-			ELSE S.Mark('invalid type')
+			ELSE S.Mark(msgIvlType)
 			END
 		ELSE S.Mark('not type')
 		END
@@ -588,7 +686,7 @@ BEGIN
 		IF sym = S.return THEN
 			IF tp.base = NIL THEN S.Mark('not function proc') END;
 			S.Get(sym); ret := expression(); x(B.Proc).return := ret;
-			IF ret.type.form IN B.tStructs THEN S.Mark('invalid type') END
+			IF ret.type.form IN B.tStructs THEN S.Mark(msgIvlType) END
 		ELSIF tp.base # NIL THEN MarkMissing(S.return)
 		END ;
 		B.CloseScope; B.IncLev(-1); Check(S.end);

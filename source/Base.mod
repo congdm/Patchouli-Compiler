@@ -15,6 +15,10 @@ CONST
 	tScalars* = {tInt, tBool, tSet, tChar, tReal, tPtr, tProc, tNil};
 	tEqls* = {tBool, tSet, tPtr, tProc, tNil};
 	tCmps* = {tInt, tReal, tChar, tStr};
+	
+	tAdds* = {tInt, tReal, tSet};
+	tTimes* = {tInt, tReal, tSet};
+	tRdivs* = {tReal, tSet}; 
 
 TYPE
 	Type* = POINTER TO TypeDesc;
@@ -80,7 +84,7 @@ END FoldConst;
 PROCEDURE NewIdent*(VAR ident: Ident; name: S.Ident);
 	VAR prev, x: Ident;
 BEGIN x := topScope.first;
-	NEW(ident); ident.name := name; ident.spos := S.srcpos;
+	NEW(ident); ident.name := name; ident.spos := S.pos;
 	WHILE x # NIL DO
 		IF x # NIL THEN S.Mark('duplicated ident') END ;
 		prev := x; x := x.next
