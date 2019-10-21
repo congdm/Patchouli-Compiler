@@ -13,15 +13,23 @@ CONST
 
 	tStructs* = {tArray, tRec};
 	tScalars* = {tInt, tBool, tSet, tChar, tReal, tPtr, tProc, tNil};
+
 	tEqls* = {tBool, tSet, tPtr, tProc, tNil};
 	tCmps* = {tInt, tReal, tChar, tStr};
-	
 	tAdds* = {tInt, tReal, tSet};
 	tTimes* = {tInt, tReal, tSet};
 	tRdivs* = {tReal, tSet};
 
 	(* Op code *)
-	opCall* = 100H; opPar* = 101H; opSproc* = 102H; opBitset* = 104H; 
+	opCall* = 100H; opPar* = 101H; opSproc* = 102H; opBitset* = 104H;
+	opABS* = 110H; opODD* = 111H; opLEN* = 112H;
+	opLSL* = 113H; opASR* = 114H; opROR* = 115H;
+	opFLOOR* = 116H; opFLT* = 117H; opORD* = 118H; opCHR* = 119H;
+	opADR* = 120H; opBIT* = 121H; opVAL* = 122H; opSIZE* = 123H;
+	
+	opINC* = 130H; opDEC* = 131H; opINCL* = 132H; opEXCL* = 133H;
+	opNEW* = 134H; opASSERT* = 135H; opPACK* = 136H; opUNPK* = 137H;
+	opGET* = 138H; opPUT* = 139H; opCOPY* = 140H;
 
 TYPE
 	Type* = POINTER TO TypeDesc;
@@ -37,7 +45,7 @@ TYPE
 	Par* = POINTER TO RECORD (Var) varpar*: BOOLEAN END ;
 	Str* = POINTER TO RECORD (Var) bufpos*, len*: INTEGER END ;
 	Field* = POINTER TO RECORD (ObjDesc) END ;
-	SProc* = POINTER TO RECORD (ObjDesc) name*: S.Ident END ;
+	SProc* = POINTER TO RECORD (ObjDesc) id*: INTEGER END ;
 
 	Proc* = POINTER TO RECORD (ObjDesc)
 		lev*: INTEGER;

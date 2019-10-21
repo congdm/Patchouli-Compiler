@@ -127,7 +127,7 @@ PROCEDURE CompTypes2(t1, t2: B.Type): BOOLEAN;
 END CompTypes2;
 
 PROCEDURE IsCharStr(x: B.Object): BOOLEAN;
-	RETURN (x IS B.Str) & (x(B.Str).len <= 2)
+	RETURN (x IS B.Str) & (x(B.Str).len <= 2) & (x(B.Str).bufpos >= 0)
 END IsCharStr;
 
 PROCEDURE CheckInt(x: B.Object);
@@ -323,8 +323,79 @@ BEGIN
 END designator;
 
 PROCEDURE StdFunc(f: B.SProc): B.Object;
-BEGIN
-	RETURN NIL
+	VAR par, par2: B.Node; x, y, z: B.Object; t: B.Type;
+		spos: INTEGER; ch: CHAR;
+BEGIN spos := S.pos; S.Get(sym);
+	IF f.id = B.opABS THEN
+		y := expression0(); CheckForm(y, {B.tInt, B.tReal});
+		IF ~(y IS B.Const) THEN
+			IF y.type.form = B.tInt THEN t := B.intType ELSE t := y.type END ;
+			x := NewNode(B.opABS, y, NIL, t, spos)
+		ELSE x := B.AbsConst(y)
+		END
+	ELSIF f.id = B.opODD THEN y := expression0(); CheckInt(y);
+		IF y IS B.Const THEN x := B.OddConst(y)
+		ELSE x := NewNode(B.opODD, y, NIL, B.boolType, spos)
+		END
+	ELSIF f.id = B.opLEN THEN
+		y := designator(); CheckForm(y, {B.tArray, B.tStr});
+		IF (y.type.form = B.tArray) & (y.type.len >= 0) THEN
+			x := B.NewConst(B.intType, y.type.len)
+		ELSIF (y.type.form = B.tStr) & (y(B.Str).len >= 0) THEN
+			x := B.NewConst(B.intType, y(B.Str).len)
+		ELSE x := NewNode(B.opLEN, y, NIL, B.intType, spos)
+		END
+	ELSIF (f.id >= B.opLSL) & (f.id <= B.opROR) THEN
+		y := expression0(); CheckInt(y);
+		Check(S.comma); z := expression0(); CheckInt(z);
+		IF (y IS B.Const) & (z IS B.Const) THEN x := B.ShiftConst(f.id, y, z)
+		ELSE x := NewNode(f.id, y, z, B.intType, spos)
+		END
+	ELSIF f.id = B.opFLOOR THEN y := expression0(); CheckReal(y);
+		IF y IS B.Const THEN x := B.FloorConst(y)
+		ELSE x := NewNode(B.opFLOOR, y, NIL, B.intType, spos)
+		END
+	ELSIF f.id = B.opFLT THEN y := expression0(); CheckInt(y);
+		IF y IS B.Const THEN x := B.FltConst(y)
+		ELSE x := NewNode(B.opFLT, y, NIL, B.realType, spos)
+		END
+	ELSIF f.id = B.opORD THEN y := expression0();
+		IF y.type # B.strType THEN Check1(y, {B.tSet, B.tBool, B.tChar})
+		ELSIF IsCharStr(y) THEN (*ok*)
+		ELSE Reset(y); S.Mark(msgIvlType)
+		END ;
+		IF IsConst(y) THEN x := B.TypeTransferConst(B.intType, y)
+		ELSE x := NewNode(B.opORD, y, NIL, B.intType, spos)
+		END
+	ELSIF f.id = B.opCHR THEN y := expression0(); CheckInt(y);
+		IF y IS B.Const THEN x := B.TypeTransferConst(B.charType, y)
+		ELSE x := NewNode(B.opCHR, y, NIL, B.charType, spos)
+		END
+	ELSIF f.id = B.opADR THEN
+		y := expression0(); CheckVar(y, TRUE);
+		x := NewNode(B.opADR, y, NIL, B.intType, spos)
+	ELSIF f.id = B.opSIZE THEN
+		y := qualident(); CheckTypeObj(y, t);
+		x := NewNode(B.opSIZE, y, NIL, B.intType, spos)
+	ELSIF f.id = B.opBIT THEN
+		y := expression0(); CheckInt(y);
+		Check(S.comma); z := expression0(); CheckInt(z);
+		x := NewNode(B.opBIT, y, z, B.boolType, spos)
+	ELSIF f.id = B.opVAL THEN y := qualident(); CheckTypeObj(y, t);
+		IF t.form IN B.tScalars THEN (*ok*)
+		ELSE t := B.intType; S.Mark('not scalar')
+		END ;
+		Check(S.comma); z := expression0();
+		IF (z.type.form IN B.tScalars) OR IsCharStr(z) THEN (*ok*)
+		ELSE Reset(z); S.Mark('not scalar')
+		END ;
+		IF IsConst(z) THEN x := B.TypeTransferConst(t, z)
+		ELSE x := NewNode(B.opVAL, z, NIL, t, spos)
+		END
+	ELSE ASSERT(FALSE)
+	END ;
+	Check(S.rparen);
+	RETURN x
 END StdFunc;
 
 PROCEDURE element(): B.Object;
