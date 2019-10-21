@@ -18,7 +18,10 @@ CONST
 	
 	tAdds* = {tInt, tReal, tSet};
 	tTimes* = {tInt, tReal, tSet};
-	tRdivs* = {tReal, tSet}; 
+	tRdivs* = {tReal, tSet};
+
+	(* Op code *)
+	opCall* = 100H; opPar* = 101H; opSproc* = 102H; opBitset* = 104H; 
 
 TYPE
 	Type* = POINTER TO TypeDesc;
@@ -83,21 +86,22 @@ VAR
 	charType*, strType*: Type;
 	nilType*: Type;
 
+(* Constanst folding *)
+
+PROCEDURE ConstSingletonSet*(x: Object): Object;
+	RETURN NIL
+END ConstSingletonSet;
+
+PROCEDURE ConstRangeSet*(x, y: Object): Object;
+	RETURN NIL
+END ConstRangeSet;
+
 PROCEDURE FoldConst*(op: INTEGER; x, y: Object): Object;
 BEGIN
 	RETURN NIL
 END FoldConst;
 
-PROCEDURE NewIdent*(VAR ident: Ident; name: S.Ident);
-	VAR prev, x: Ident;
-BEGIN x := topScope.first;
-	NEW(ident); ident.name := name; ident.spos := S.pos;
-	WHILE x # NIL DO
-		IF x # NIL THEN S.Mark('duplicated ident') END ;
-		prev := x; x := x.next
-	END ;
-	IF prev # NIL THEN prev.next := ident ELSE topScope.first := ident END
-END NewIdent;
+(* Symbols table *)
 
 PROCEDURE OpenScope*;
 	VAR scp: Scope;
@@ -109,6 +113,17 @@ PROCEDURE CloseScope*;
 BEGIN
 	topScope := topScope.dsc
 END CloseScope;
+
+PROCEDURE NewIdent*(VAR ident: Ident; name: S.Ident);
+	VAR prev, x: Ident;
+BEGIN x := topScope.first;
+	NEW(ident); ident.name := name; ident.spos := S.pos;
+	WHILE x # NIL DO
+		IF x # NIL THEN S.Mark('duplicated ident') END ;
+		prev := x; x := x.next
+	END ;
+	IF prev # NIL THEN prev.next := ident ELSE topScope.first := ident END
+END NewIdent;
 
 PROCEDURE IncLev*(x: INTEGER);
 BEGIN

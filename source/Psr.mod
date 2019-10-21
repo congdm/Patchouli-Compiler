@@ -327,9 +327,45 @@ BEGIN
 	RETURN NIL
 END StdFunc;
 
-PROCEDURE set(): B.Object;
+PROCEDURE element(): B.Object;
+	VAR x, y: B.Object; spos: INTEGER;
 BEGIN
-	RETURN NIL
+	spos := S.pos; x := expression0(); CheckInt(x);
+	IF sym = S.upto THEN
+		spos := S.pos; S.Get(sym); y := expression0(); CheckInt(y);
+		IF IsConst(x) & IsConst(y) THEN x := B.ConstRangeSet(x, y)
+		ELSE x := NewNode(S.upto, x, y, B.setType, spos)
+		END ;
+	ELSIF IsConst(x) THEN x := B.ConstSingletonSet(x)
+	ELSE x := NewNode(B.opBitset, x, NIL, B.setType, spos)
+	END ;
+	RETURN x
+END element;
+
+PROCEDURE set(): B.Object;
+	VAR const, x, y: B.Object; node, next: B.Node; spos: INTEGER;
+BEGIN
+	const := B.NewConst(B.setType, 0); S.Get(sym);
+	IF sym # S.rbrace THEN y := element();
+		IF ~IsConst(y) THEN x := y
+		ELSE const := B.FoldConst(S.plus, const, y)
+		END ;
+		WHILE sym = S.comma DO
+			spos := S.pos; S.Get(sym);
+			IF sym # S.rbrace THEN y := element();
+				IF IsConst(y) THEN const := B.FoldConst(S.plus, const, y)
+				ELSIF x # NIL THEN x := NewNode(S.plus, x, y, B.setType, spos)
+				ELSE x := y
+				END
+			ELSE MarkSflous(S.comma)
+			END
+		END ;
+		IF (const(B.Const).value # 0) & (x # NIL) THEN
+			x := NewNode(S.plus, x, const, B.setType, S.pos)
+		END
+	END ;
+	Check(S.rbrace); IF x = NIL THEN x := const END ;
+	RETURN x
 END set;
 
 PROCEDURE factor(): B.Object;
