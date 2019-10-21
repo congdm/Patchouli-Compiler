@@ -160,22 +160,22 @@ PROCEDURE TypeTestable(x: B.Object): BOOLEAN;
 	OR (x.type.form = B.tRec) & IsVarPar(x)
 END TypeTestable;
 
-(*
 PROCEDURE CheckVar(x: B.Object; ronly: BOOLEAN);
+	CONST msgRonly = 'read only';
 	VAR op: INTEGER;
-BEGIN
-	IF x.class = B.cNode THEN op := x(B.Node).op END;
+BEGIN op := S.null;
+	IF x IS B.Node THEN op := x(B.Node).op END ;
 	IF x IS B.Var THEN
-		IF ~ronly & x(B.Var).ronly THEN Mark('read only') END
-	ELSIF (x.class = B.cNode)
-		& ((op = S.arrow) OR (op = S.period)
-		OR (op = S.lparen) OR (op = S.lbrak))
+		IF ~ronly & x(B.Var).ronly THEN S.Mark(msgRonly) END
+	ELSIF (op = S.arrow) OR (op = S.period)
+		OR (op = S.lparen) OR (op = S.lbrak)
 	THEN
-		IF ~ronly & x(B.Node).ronly THEN Mark('read only') END
-	ELSE Mark('not var')
+		IF ~ronly & x(B.Node).ronly THEN S.Mark(msgRonly) END
+	ELSE S.Mark('not var')
 	END
 END CheckVar;
 
+(*
 PROCEDURE CheckStrLen(xtype: B.Type; y: B.Object);
 BEGIN
 	IF (xtype.len >= 0) & (y IS B.Str) & (y(B.Str).len > xtype.len) THEN
@@ -327,7 +327,7 @@ PROCEDURE StdFunc(f: B.SProc): B.Object;
 		spos: INTEGER; ch: CHAR;
 BEGIN spos := S.pos; S.Get(sym);
 	IF f.id = B.opABS THEN
-		y := expression0(); CheckForm(y, {B.tInt, B.tReal});
+		y := expression0(); CheckT(y, {B.tInt, B.tReal});
 		IF ~(y IS B.Const) THEN
 			IF y.type.form = B.tInt THEN t := B.intType ELSE t := y.type END ;
 			x := NewNode(B.opABS, y, NIL, t, spos)
@@ -338,7 +338,7 @@ BEGIN spos := S.pos; S.Get(sym);
 		ELSE x := NewNode(B.opODD, y, NIL, B.boolType, spos)
 		END
 	ELSIF f.id = B.opLEN THEN
-		y := designator(); CheckForm(y, {B.tArray, B.tStr});
+		y := designator(); CheckT(y, {B.tArray, B.tStr});
 		IF (y.type.form = B.tArray) & (y.type.len >= 0) THEN
 			x := B.NewConst(B.intType, y.type.len)
 		ELSIF (y.type.form = B.tStr) & (y(B.Str).len >= 0) THEN
@@ -360,15 +360,15 @@ BEGIN spos := S.pos; S.Get(sym);
 		ELSE x := NewNode(B.opFLT, y, NIL, B.realType, spos)
 		END
 	ELSIF f.id = B.opORD THEN y := expression0();
-		IF y.type # B.strType THEN Check1(y, {B.tSet, B.tBool, B.tChar})
-		ELSIF IsCharStr(y) THEN (*ok*)
+		IF y.type # B.strType THEN CheckT(y, {B.tSet, B.tBool, B.tChar})
+		ELSIF IsCharStr(y) THEN y := StrToChar(y)
 		ELSE Reset(y); S.Mark(msgIvlType)
 		END ;
-		IF IsConst(y) THEN x := B.TypeTransferConst(B.intType, y)
+		IF y IS B.Const THEN x := B.OrdConst(y(B.Const))
 		ELSE x := NewNode(B.opORD, y, NIL, B.intType, spos)
 		END
 	ELSIF f.id = B.opCHR THEN y := expression0(); CheckInt(y);
-		IF y IS B.Const THEN x := B.TypeTransferConst(B.charType, y)
+		IF y IS B.Const THEN x := B.IntToCharConst(y(B.Const))
 		ELSE x := NewNode(B.opCHR, y, NIL, B.charType, spos)
 		END
 	ELSIF f.id = B.opADR THEN
@@ -389,9 +389,7 @@ BEGIN spos := S.pos; S.Get(sym);
 		IF (z.type.form IN B.tScalars) OR IsCharStr(z) THEN (*ok*)
 		ELSE Reset(z); S.Mark('not scalar')
 		END ;
-		IF IsConst(z) THEN x := B.TypeTransferConst(t, z)
-		ELSE x := NewNode(B.opVAL, z, NIL, t, spos)
-		END
+		x := NewNode(B.opVAL, z, NIL, t, spos)
 	ELSE ASSERT(FALSE)
 	END ;
 	Check(S.rparen);
@@ -466,7 +464,7 @@ BEGIN
 	ELSIF sym = S.not THEN
 		spos := S.pos; S.Get(sym); x := factor(); CheckBool(x);
 		IF ~IsConst(x) THEN x := NewNode(S.not, x, NIL, B.boolType, spos)
-		ELSE x := B.FoldConst(S.not, x, NIL)
+		ELSE x := B.NegateConst(x)
 		END
 	ELSE Reset(x); S.Mark('invalid factor')
 	END ;
@@ -524,7 +522,7 @@ BEGIN
 		IF ~IsConst(x) THEN
 			IF x.type.form = B.tInt THEN t := B.intType ELSE t := x.type END ;
 			x := NewNode(S.minus, x, NIL, t, spos)
-		ELSE x := B.FoldConst(S.minus, x, NIL) 
+		ELSE x := B.NegateConst(x)
 		END
 	ELSE x := term()
 	END ;
