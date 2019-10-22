@@ -81,7 +81,8 @@ TYPE
 		id*: S.Ident;
 		init*: Node; universe*: Scope;
 		strbuf*: ARRAY 10000H OF CHAR; strbufSize*: INTEGER;
-		strList*: StrList
+		strList*: StrList;
+		system*: BOOLEAN
 	END ;
 
 VAR

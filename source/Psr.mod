@@ -175,40 +175,36 @@ BEGIN op := S.null;
 	END
 END CheckVar;
 
-(*
-PROCEDURE CheckStrLen(xtype: B.Type; y: B.Object);
+PROCEDURE CheckStrLen(xt: B.Type; y: B.Object);
 BEGIN
-	IF (xtype.len >= 0) & (y IS B.Str) & (y(B.Str).len > xtype.len) THEN
-		Mark('string longer than dest')
+	IF (xt.len >= 0) & (y IS B.Str) & (y(B.Str).len > xt.len) THEN
+		S.Mark('string longer than dest')
 	END
 END CheckStrLen;
 
 PROCEDURE CheckPar(fpar: B.Par; x: B.Object);
 	CONST msgIvlParType = 'invalid par type';
-	VAR xtype, ftype: B.Type; xform, fform: INTEGER;
-BEGIN xtype := x.type; ftype := fpar.type;
+	VAR xt, ftype: B.Type; xform, fform: INTEGER;
+BEGIN xt := x.type; ftype := fpar.type;
 	IF IsOpenArray(ftype) THEN CheckVar(x, fpar.ronly);
-		IF IsOpenArray0(xtype) & ~ftype.notag THEN Mark('untagged open array')
-		ELSIF CompArray(ftype, xtype) OR (ftype.base = B.byteType)
-		OR IsStr(xtype) & IsStr(ftype) THEN (*valid*)
-		ELSE Mark(msgIvlParType)
+		IF CompArray(ftype, xt) OR IsStr(xt) & IsStr(ftype) THEN (*valid*)
+		ELSIF B.mod.system & (ftype.base = B.byteType) THEN (*ok*)
+		ELSE S.Mark(msgIvlParType)
 		END
 	ELSIF ~fpar.varpar THEN
-		IF ~CompTypes(ftype, xtype) THEN
-			IF (ftype = B.charType) & (x IS B.Str) & (x(B.Str).len <= 2)
-			THEN (*valid*) ELSE Mark(msgIvlParType)
-			END
-		ELSIF IsStr(ftype) THEN CheckStrLen(ftype, x)
+		IF CompTypes(ftype, xt) THEN
+			IF IsStr(ftype) THEN CheckStrLen(ftype, x) END
+		ELSIF (ftype = B.charType) & IsCharStr(x) THEN (*valid*)
+		ELSE S.Mark(msgIvlParType)
 		END
 	ELSIF fpar.varpar THEN
-		CheckVar(x, fpar.ronly); xform := xtype.form; fform := ftype.form;
-		IF (xtype = ftype) OR CompArray(xtype, ftype) & (ftype.len = xtype.len)
-		OR (fform = B.tRec) & (xform = B.tRec) & IsExt0(xtype, ftype)
-		THEN (*valid*) ELSE Mark(msgIvlParType)
+		CheckVar(x, fpar.ronly); xform := xt.form; fform := ftype.form;
+		IF (xt = ftype) OR CompArray(xt, ftype) & (ftype.len = xt.len)
+		OR (fform = B.tRec) & (xform = B.tRec) & IsExt0(xt, ftype)
+		THEN (*valid*) ELSE S.Mark(msgIvlParType)
 		END
 	END
 END CheckPar;
-*)
 
 PROCEDURE CheckLeft(x: B.Object; op: INTEGER);
 BEGIN
@@ -275,6 +271,8 @@ BEGIN
 	RETURN z
 END NewNode;
 
+(* qualident & designator *)
+
 PROCEDURE qualident0(): B.Ident;
 	VAR x: B.Ident; id: S.Ident; mod: B.Module;
 BEGIN
@@ -314,8 +312,41 @@ BEGIN id := qualident0();
 END qualident;
 
 PROCEDURE Call(x: B.Object): B.Node;
-BEGIN
-	RETURN NIL
+	VAR call, last: B.Node; proc: B.Type;
+		fpar: B.Ident; nact: INTEGER;
+		
+	PROCEDURE Parameter(VAR last: B.Node; fpar: B.Ident);
+		VAR y: B.Object; par: B.Node; spos: INTEGER;
+	BEGIN
+		spos := S.pos; y := expression0();
+		IF fpar # NIL THEN CheckPar(fpar.obj(B.Par), y) END ;
+		par := NewNode(B.opPar, y, NIL, NIL, spos);
+		last.right := par; last := par
+	END Parameter;
+		
+BEGIN (* Call *)
+	proc := x.type; call := NewNode(B.opCall, x, NIL, proc.base, S.pos);
+	IF sym = S.lparen THEN S.Get(sym);
+		IF sym # S.rparen THEN last := call;
+			fpar := proc.fields; Parameter(last, fpar); nact := 1;
+			WHILE sym = S.comma DO S.Get(sym);
+				IF fpar # NIL THEN fpar := fpar.next END ;
+				IF sym # S.rparen THEN Parameter(last, fpar); INC(nact)
+				ELSE MarkSflous(S.comma)
+				END
+			END ;
+			IF nact = proc.len THEN (*valid*)
+			ELSIF nact > proc.len THEN S.Mark('too many params')
+			ELSE S.Mark('not enough params')
+			END ;
+			Check(S.rparen)
+		ELSIF sym = S.rparen THEN
+			IF proc.len # 0 THEN S.Mark('need params') END ;
+			S.Get(sym)
+		END
+	ELSIF proc.len # 0 THEN S.Mark('need params')
+	END ;
+	RETURN call
 END Call;
 
 PROCEDURE designator(): B.Object;
@@ -354,7 +385,7 @@ BEGIN x := qualident();
 		xt := x.type; S.Get(sym); y := expression0(); CheckInt(y);
 		x := NewNode(S.lbrak, x, y, xt.base, spos); x(B.Node).ronly := ronly;
 		IF (xt.form = B.tArray) & (xt.len >= 0) THEN
-			IF y IS B.Const THEN yval := y(B.Const);
+			IF y IS B.Const THEN yval := y(B.Const).value;
 				IF (yval >= 0) & (yval < xt.len) THEN (*ok*)
 				ELSE S.Mark('index out of range')
 				END
@@ -378,7 +409,7 @@ BEGIN x := qualident();
 	ELSIF (sym = S.lparen) & ~(x IS B.SProc) & TypeTestable(x) DO
 		spos := S.pos; xt := x.type; S.Get(sym);
 		IF sym = S.ident THEN y := qualident()
-		ELSE Reset(y); Missing(S.ident)
+		ELSE Reset(y); MarkMissing(S.ident)
 		END ;
 		CheckTypeObj(y, yt);
 		IF yt.form = xt.form THEN(*ok*)ELSE S.Mark(msgIvlType); yt := xt END ;
@@ -390,6 +421,8 @@ BEGIN x := qualident();
 	END ;
 	RETURN x
 END designator;
+
+(* expressions *)
 
 PROCEDURE StdFunc(f: B.SProc): B.Object;
 	VAR par, par2: B.Node; x, y, z: B.Object; t: B.Type;
@@ -662,9 +695,13 @@ BEGIN x := expression();
 	RETURN c
 END ConstExpression;
 
+(* statements *)
+
 PROCEDURE StatementSequence(): B.Node;
 	RETURN NIL
 END StatementSequence;
+
+(* declarations *)
 
 PROCEDURE CheckExport(VAR expo: BOOLEAN);
 BEGIN
