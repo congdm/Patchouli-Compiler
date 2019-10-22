@@ -10,7 +10,7 @@ TYPE
 	UndefPtrList = POINTER TO RECORD
 		name: S.Ident; tp: B.Type; next: UndefPtrList
 	END;
-	
+
 VAR
 	sym: INTEGER;
 	undefList: UndefPtrList;
@@ -234,7 +234,7 @@ END StrToChar;
 PROCEDURE CheckTypeObj(x: B.Object; VAR t: B.Type);
 BEGIN t := B.intType;
 	IF x IS B.TypeObj THEN
-		IF x.type # NIL THEN t := x.type END 
+		IF x.type # NIL THEN t := x.type END
 	ELSE S.Mark('not a type')
 	END
 END CheckTypeObj;
@@ -289,7 +289,7 @@ BEGIN
 				id := S.id; S.Get(sym);
 				mod := x.obj(B.Module); x := mod.first;
 				WHILE (x # NIL) & (x.name # id) DO x := x.next END ;
-				IF x = NIL THEN x := B.externalIdentNotFound END 
+				IF x = NIL THEN x := B.externalIdentNotFound END
 			ELSE MarkMissing(S.ident)
 			END
 		END
@@ -299,16 +299,17 @@ END qualident0;
 
 PROCEDURE qualident(): B.Object;
 	VAR id: B.Ident; x: B.Object;
-BEGIN id := qualident0(); x := B.guard;
+BEGIN id := qualident0();
 	IF id # NIL THEN
 		IF id # B.externalIdentNotFound THEN
-			IF id.obj # NIL THEN x := id.obj 
+			IF id.obj # NIL THEN x := id.obj
 			ELSE S.Mark('identifier not defined yet')
 			END
 		ELSE S.Mark('external identifier not found')
 		END
 	ELSE S.Mark('identifier not found')
 	END ;
+	IF x # NIL THEN (*ok*) ELSE Reset(x) END ;
 	RETURN x
 END qualident;
 
@@ -318,8 +319,76 @@ BEGIN
 END Call;
 
 PROCEDURE designator(): B.Object;
-BEGIN
-	RETURN NIL
+	VAR x, y: B.Object; fid: S.Ident; f: B.Ident;
+		node, next: B.Node; xt, yt, recType: B.Type;
+		spos, yval: INTEGER; ronly: BOOLEAN;
+BEGIN x := qualident();
+    IF ~(x IS B.Module) & ~(x IS B.TypeObj) THEN (*ok*)
+    ELSE Reset(x); S.Mark('invalid value')
+    END ;
+	IF x IS B.Var THEN ronly := x(B.Var).ronly ELSE ronly := FALSE END ;
+	WHILE sym = S.period DO
+		spos := S.pos; CheckT(x, B.tStructs); S.Get(sym);
+		IF sym # S.ident THEN S.Mark('no field?')
+		ELSE fid := S.id; recType := x.type;
+			IF (recType.form = B.tPtr) & (recType.base # NIL) THEN
+				x := NewNode(S.arrow, x, NIL, recType.base, spos);
+				x(B.Node).ronly := FALSE; recType := recType.base;
+				ronly := FALSE
+			END ;
+			IF recType.form = B.tRec THEN
+				REPEAT f := recType.fields;
+					WHILE (f # NIL) & (f.name # fid) DO f := f.next END ;
+					IF f # NIL THEN y := f.obj;
+						x := NewNode(S.period, x, y, y.type, spos);
+						x(B.Node).ronly := ronly
+					ELSE recType := recType.base
+					END ;
+					IF recType = NIL THEN S.Mark('field not found') END
+				UNTIL (f # NIL) OR (recType = NIL)
+			END ;
+			S.Get(sym)
+		END
+	ELSIF sym = S.lbrak DO
+		spos := S.pos; CheckT(x, {B.tArray});
+		xt := x.type; S.Get(sym); y := expression0(); CheckInt(y);
+		x := NewNode(S.lbrak, x, y, xt.base, spos); x(B.Node).ronly := ronly;
+		IF (xt.form = B.tArray) & (xt.len >= 0) THEN
+			IF y IS B.Const THEN yval := y(B.Const);
+				IF (yval >= 0) & (yval < xt.len) THEN (*ok*)
+				ELSE S.Mark('index out of range')
+				END
+			END
+		END ;
+		IF xt.base # NIL THEN (*ok*) ELSE x.type := xt END ;
+		WHILE sym = S.comma DO
+			xt := x.type; spos := S.pos;
+			IF xt.form # B.tArray THEN S.Mark('not multi-dimension') END ;
+			S.Get(sym); y := expression0(); CheckInt(y);
+			x := NewNode(S.lbrak, x, y, xt.base, spos);
+			IF xt.base # NIL THEN (*ok*) ELSE x.type := xt END;
+			x(B.Node).ronly := ronly
+		END ;
+		Check(S.rbrak)
+	ELSIF sym = S.arrow DO
+		CheckT(x, {B.tPtr}); xt := x.type;
+		x := NewNode(S.arrow, x, NIL, xt.base, S.pos);
+		IF xt.base # NIL THEN (*ok*) ELSE x.type := xt END ;
+		x(B.Node).ronly := FALSE; ronly := FALSE; S.Get(sym)
+	ELSIF (sym = S.lparen) & ~(x IS B.SProc) & TypeTestable(x) DO
+		spos := S.pos; xt := x.type; S.Get(sym);
+		IF sym = S.ident THEN y := qualident()
+		ELSE Reset(y); Missing(S.ident)
+		END ;
+		CheckTypeObj(y, yt);
+		IF yt.form = xt.form THEN(*ok*)ELSE S.Mark(msgIvlType); yt := xt END ;
+		IF yt # xt THEN
+			IF IsExt(yt, xt) THEN (*ok*) ELSE S.Mark('not extension') END ;
+			x := NewNode(S.lparen, x, y, yt, spos); x(B.Node).ronly := ronly
+		END ;
+		Check(S.rparen)
+	END ;
+	RETURN x
 END designator;
 
 PROCEDURE StdFunc(f: B.SProc): B.Object;
@@ -623,9 +692,7 @@ PROCEDURE FormalType(): B.Type;
 	VAR x: B.Object; t: B.Type;
 BEGIN t := B.intType;
 	IF sym = S.ident THEN x := qualident();
-		IF (x # NIL) & (x IS B.TypeObj) THEN t := x.type
-		ELSE S.Mark('not type')
-		END
+		IF x IS B.TypeObj THEN t := x.type ELSE S.Mark('not type') END
 	ELSIF sym = S.array THEN
 		B.NewArray(t, -1); S.Get(sym); Check(S.of);
 		IF sym = S.array THEN S.Mark('multi-dim open array not supported') END ;
@@ -670,9 +737,9 @@ BEGIN S.Get(sym);
 	Check(S.rparen);
 	IF sym = S.colon THEN S.Get(sym);
 		IF sym = S.ident THEN x := qualident() ELSE MarkMissing(S.ident) END ;
-		IF (x # NIL) & (x IS B.TypeObj) THEN
+		IF x IS B.TypeObj THEN
 			IF ~(x.type.form IN B.tStructs) THEN proc.base := x.type
-			ELSE S.Mark(msgIvlType)
+			ELSE S.Mark(msgIvlType); proc.base := B.intType
 			END
 		ELSE S.Mark('not type')
 		END
@@ -705,7 +772,7 @@ END PointerType;
 PROCEDURE length(): INTEGER;
 	VAR x: B.Const;
 BEGIN x := ConstExpression();
-	IF x.value < 0 THEN S.Mark('Invalid array length'); x.value := 0 END ; 
+	IF x.value < 0 THEN S.Mark('Invalid array length'); x.value := 0 END ;
 	RETURN x.value
 END length;
 
@@ -746,7 +813,7 @@ BEGIN t := B.intType;
 		WHILE sym = S.comma DO S.Get(sym);
 			IF sym <= S.ident THEN
 				len := length(); B.NewArray(arr.base, len); arr := arr.base
-			ELSE MarkSflous(S.comma) 
+			ELSE MarkSflous(S.comma)
 			END
 		END ;
 		Check(S.of); arr.base := type()
@@ -787,7 +854,7 @@ BEGIN
 		WHILE sym = S.ident DO
 			B.NewIdent(id, S.id); S.Get(sym);
 			CheckExport(id.expo); Check(S.eql);
-			id.obj := ConstExpression(); Check(S.semicolon) 
+			id.obj := ConstExpression(); Check(S.semicolon)
 		END
 	END ;
 	IF sym = S.type THEN S.Get(sym);
@@ -818,7 +885,7 @@ BEGIN
 		Check(S.semicolon); B.OpenScope; B.IncLev(1); CloneParameters(tp);
 		IF id # NIL THEN id.obj := x END ;
 
-		DeclarationSequence; x(B.Proc).decl := B.topScope.first;		
+		DeclarationSequence; x(B.Proc).decl := B.topScope.first;
 		IF sym = S.begin THEN
 			S.Get(sym); x(B.Proc).statseq := StatementSequence()
 		END ;
@@ -842,7 +909,7 @@ END DeclarationSequence;
 
 PROCEDURE ImportList;
 END ImportList;
-	
+
 PROCEDURE Module*;
 	VAR modid: S.Ident;
 BEGIN S.Get(sym);
