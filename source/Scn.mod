@@ -34,7 +34,7 @@ TYPE
 VAR
 	ch: CHAR; eof, escUpto: BOOLEAN; errcnt*: INTEGER;
 	str*: Str; id*: Ident;
-	ival*, slen*, pos*: INTEGER; rval*: REAL;
+	ival*, slen*, pos*, symPos*: INTEGER; rval*: REAL;
 	
 PROCEDURE Init*(fname: ARRAY OF CHAR; pos: INTEGER);
 END Init;
@@ -282,7 +282,7 @@ END Number;
 PROCEDURE Get*(VAR sym: INTEGER);
 BEGIN
 	REPEAT
-		WHILE ~eof & (ch <= ' ') DO ReadCh END ;
+		WHILE ~eof & (ch <= ' ') DO symPos := pos; ReadCh END ;
 		IF ch < '0' THEN
 			IF ch = 22X (* " *) THEN sym := string; String(22X)
 			ELSIF ch = '#' THEN ReadCh; sym := neq

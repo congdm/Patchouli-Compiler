@@ -109,15 +109,20 @@ BEGIN
 	topScope := topScope.dsc
 END CloseScope;
 
-PROCEDURE NewIdent*(VAR ident: Ident; name: S.Ident);
+PROCEDURE NewIdent0*(VAR ident: Ident; name: S.Ident);
 	VAR prev, x: Ident;
 BEGIN x := topScope.first;
-	NEW(ident); ident.name := name; ident.spos := S.pos;
+	NEW(ident); ident.name := name;
 	WHILE x # NIL DO
 		IF x # NIL THEN S.Mark('duplicated ident') END ;
 		prev := x; x := x.next
 	END ;
 	IF prev # NIL THEN prev.next := ident ELSE topScope.first := ident END
+END NewIdent;
+
+
+PROCEDURE NewIdent*(VAR ident: Ident);
+BEGIN NewIdent0(ident, S.id); ident.spos := S.symPos
 END NewIdent;
 
 PROCEDURE IncLev*(x: INTEGER);
