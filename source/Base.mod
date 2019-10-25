@@ -70,7 +70,7 @@ TYPE
 		expo*: BOOLEAN; spos*: INTEGER;
 		name*: S.Ident; obj*: Object; next*: Ident
 	END ;
-	ScopeDesc = RECORD first*: Ident; dsc: Scope END ;
+	ScopeDesc = RECORD first*: Ident; dsc*: Scope END ;
 
 	TypeDesc = RECORD
 		form*, len*: INTEGER;
@@ -118,7 +118,7 @@ BEGIN x := topScope.first;
 		prev := x; x := x.next
 	END ;
 	IF prev # NIL THEN prev.next := ident ELSE topScope.first := ident END
-END NewIdent;
+END NewIdent0;
 
 
 PROCEDURE NewIdent*(VAR ident: Ident);

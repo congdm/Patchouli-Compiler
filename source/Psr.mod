@@ -16,6 +16,7 @@ VAR
 	undefList: UndefPtrList;
 	type0: PROCEDURE(): B.Type;
 	expression0: PROCEDURE(): B.Object;
+	StatementSequence0: PROCEDURE(): B.Node;
 
 PROCEDURE MarkMissing(sym0: INTEGER);
 BEGIN
@@ -728,10 +729,59 @@ END ConstExpression;
 
 (* statements *)
 
+PROCEDURE StdProc(f: B.SProc): B.Object;
+	VAR x, y, z, t: B.Object; bType: B.Type;
+		spos: INTEGER; hasParen: BOOLEAN;
+BEGIN
+	spos := S.symPos; hasParen := TRUE; Check(S.lparen);
+	IF (f.id = B.opINC) OR (f.id = B.opDEC) THEN
+		x := designator(); CheckInt(x); CheckVar(x, FALSE);
+		IF sym = S.comma THEN
+			S.Get(sym); y := expression(); CheckInt(y);
+			x := NewNode0(f.id, x, y)
+		ELSE x := NewNode0(f.id, x, NIL)
+		END
+	ELSIF (f.id = B.opINCL) OR (f.id = B.opEXCL) THEN
+		x := designator(); CheckSet(x); CheckVar(x, FALSE); Check(S.comma);
+		y := expression(); CheckInt(y); x := NewNode0(f.id, x, y)
+	ELSIF f.id = B.opNEW THEN
+		x := designator(); CheckT(x, {B.tPtr});
+		CheckVar(x, FALSE); bType := x.type.base;
+		x := NewNode2(B.opNEW, x, NIL, spos)
+	ELSIF f.id = B.opASSERT THEN
+		x := expression(); CheckBool(x);
+		x := NewNode2(B.opASSERT, x, NIL, spos)
+	ELSIF f.id = B.opPACK THEN
+		x := designator(); CheckReal(x); CheckVar(x, FALSE); Check(S.comma);
+		y := expression(); CheckInt(y); x := NewNode0(B.opPACK, x, y)
+	ELSIF f.id = B.opUNPK THEN
+		x := designator(); CheckReal(x); CheckVar(x, FALSE); Check(S.comma);
+		y := designator(); CheckInt(y); CheckVar(y, FALSE);
+		x := NewNode0(B.opUNPK, x, y)
+	ELSIF f.id = B.opGET THEN
+		x := expression(); CheckInt(x); Check(S.comma);
+		y := designator(); CheckVar(y, FALSE);
+		x := NewNode2(B.opGET, x, y, spos);
+		IF y.type.form IN {B.tArray, B.tRec} THEN S.Mark('invalid type') END
+	ELSIF f.id = B.opPUT THEN
+		x := expression(); CheckInt(x); Check(S.comma);
+		y := expression(); x := NewNode2(B.opPUT, x, y, spos);
+		IF y.type.form IN {B.tArray, B.tRec} THEN S.Mark('invalid type') END
+	ELSIF f.id = B.opCOPY THEN
+		x := expression(); CheckInt(x); Check(S.comma);
+		y := expression(); CheckInt(y); Check(S.comma);
+		z := expression(); CheckInt(z);
+		x := NewNode2(B.opCOPY, x, NewNode0(S.null, y, z), spos)
+	ELSE S.Mark('unsupported std procedure')
+	END ;
+	IF hasParen THEN Check(S.rparen) END ;
+	RETURN x
+END StdProc;
+
 PROCEDURE If(lev: INTEGER): B.Node;
 	VAR x: B.Object; if, then: B.Node;
 BEGIN
-	S.Get(sym); x := expression(); CheckBool(x); Check0(S.then);
+	S.Get(sym); x := expression(); CheckBool(x); Check(S.then);
 	then := NewNode0(S.then, StatementSequence0(), NIL);
 	if := NewNode0(S.if, x, then);
 	IF sym = S.elsif THEN then.right := If(lev+1)
@@ -758,7 +808,7 @@ END While;
 PROCEDURE Repeat(): B.Node;
 	VAR repeat: B.Node; x: B.Object;
 BEGIN
-	S.Get(sym); repeat := NewNode0(S.repeat, StatementSequence(), NIL);
+	S.Get(sym); repeat := NewNode0(S.repeat, StatementSequence0(), NIL);
 	Check(S.until); x := expression(); CheckBool(x); repeat.right := x;
 	RETURN repeat
 END Repeat;
@@ -778,7 +828,7 @@ PROCEDURE For(): B.Node;
 		END ;
 		S.Get(sym);
 		RETURN x
-	END ;
+	END ident;
 
 BEGIN
 	for := NewNode0(S.for, NIL, NIL); S.Get(sym);
@@ -818,7 +868,7 @@ PROCEDURE Case(): B.Node;
 				END
 			ELSE y := B.NewConst(B.boolType, B.true)
 			END ;
-			spos := S.symPos; Check0(S.colon);
+			spos := S.symPos; Check(S.colon);
 			z := StatementSequence0(); x.type := org;
 			colon := NewNode2(S.colon, y, z, spos);
 			bar := NewNode0(S.bar, colon, NIL);
@@ -879,7 +929,7 @@ PROCEDURE Case(): B.Node;
 			colon := NewNode2(S.colon, y, StatementSequence0(), spos);
 			bar := NewNode0(S.bar, colon, NIL);
 			IF sym = S.bar THEN S.Get(sym); bar.right := NumericCase(x) END
-		ELSIF sym = S.bar THEN GetSym; bar := NumericCase(x)
+		ELSIF sym = S.bar THEN S.Get(sym); bar := NumericCase(x)
 		END
 		RETURN bar
 	END NumericCase;
@@ -1221,5 +1271,6 @@ BEGIN S.Get(sym);
 END Module;
 
 BEGIN
-	type0 := type; expression0 := expression
+	type0 := type; expression0 := expression;
+	StatementSequence0 := StatementSequence
 END Psr.
