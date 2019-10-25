@@ -235,6 +235,14 @@ BEGIN t := B.intType;
 	END
 END CheckTypeObj;
 
+PROCEDURE CheckLev(x: B.Var);
+BEGIN
+	IF x.lev <= 0 THEN (*ok*)
+	ELSIF x(B.Var).lev = B.curLev THEN (*ok*)
+	ELSE S.Mark('access to non-local & non-global vars not allowed')
+	END
+END CheckLev;
+
 PROCEDURE AddUndef(ptr: B.Type; recName: S.Ident);
 	VAR undef: UndefPtrList;
 BEGIN
@@ -267,7 +275,7 @@ PROCEDURE NewNode0(op: INTEGER; x, y: B.Object): B.Node;
 	VAR z: B.Node;
 BEGIN
 	NEW(z); z.op := op; z.ronly := FALSE;
-	z.left := x; z.right := y;
+	z.left := x; z.right := y; z.spos := S.symPos;
 	RETURN z
 END NewNode0;
 
@@ -327,7 +335,10 @@ BEGIN id := qualident0();
 		END
 	ELSE S.Mark('identifier not found')
 	END ;
-	IF x # NIL THEN (*ok*) ELSE Reset(x) END ;
+	IF x # NIL THEN
+		IF x IS B.Var THEN CheckLev(x(B.Var)) END
+	ELSE Reset(x)
+	END ;
 	RETURN x
 END qualident;
 
@@ -720,35 +731,34 @@ END ConstExpression;
 PROCEDURE If(lev: INTEGER): B.Node;
 	VAR x: B.Object; if, then: B.Node;
 BEGIN
-	GetSym; x := expression(); CheckBool(x); Check0(S.then);
-	then := NewNode(S.then, StatementSequence0(), NIL);
-	if := NewNode(S.if, x, then);
+	S.Get(sym); x := expression(); CheckBool(x); Check0(S.then);
+	then := NewNode0(S.then, StatementSequence0(), NIL);
+	if := NewNode0(S.if, x, then);
 	IF sym = S.elsif THEN then.right := If(lev+1)
-	ELSIF sym = S.else THEN GetSym; then.right := StatementSequence0()
+	ELSIF sym = S.else THEN S.Get(sym); then.right := StatementSequence0()
 	ELSE then.right := NIL
-	END;
-	IF lev = 0 THEN Check0(S.end) END;
+	END ;
+	IF lev = 0 THEN Check(S.end) END ;
 	RETURN if
 END If;
 
 PROCEDURE While(lev: INTEGER): B.Node;
 	VAR x: B.Object; while, do: B.Node;
 BEGIN
-	GetSym; x := expression(); CheckBool(x); Check0(S.do);
-	do := NewNode(S.do, StatementSequence0(), NIL);
-	while := NewNode(S.while, x, do);
+	S.Get(sym); x := expression(); CheckBool(x); Check(S.do);
+	do := NewNode0(S.do, StatementSequence0(), NIL);
+	while := NewNode0(S.while, x, do);
 	IF sym = S.elsif THEN do.right := While(lev+1)
 	ELSE do.right := NIL
-	END;
-	IF lev = 0 THEN Check0(S.end) END;
+	END ;
+	IF lev = 0 THEN Check(S.end) END ;
 	RETURN while
 END While;
 
 PROCEDURE Repeat(): B.Node;
-	VAR spos: INTEGER; repeat: B.Node; x: B.Object;
+	VAR repeat: B.Node; x: B.Object;
 BEGIN
-	spos := S.pos; S.Get(sym);
-	repeat := NewNode(S.repeat, StatementSequence(), NIL, NIL, spos);
+	S.Get(sym); repeat := NewNode0(S.repeat, StatementSequence(), NIL);
 	Check(S.until); x := expression(); CheckBool(x); repeat.right := x;
 	RETURN repeat
 END Repeat;
@@ -757,15 +767,25 @@ PROCEDURE For(): B.Node;
 	VAR x: B.Object; for, control, beg, end: B.Node;
 
 	PROCEDURE ident(): B.Object;
-		
+		VAR x: B.Object; ident: B.Ident;
+	BEGIN ident := FindIdent();
+		IF ident # NIL THEN x := ident.obj;
+			IF x # NIL THEN
+				IF x IS B.Var THEN CheckLev(x(B.Var)) END
+			ELSE Reset(x); S.Mark('undefined')
+			END
+		ELSE Reset(x); S.Mark('identifier not found')
+		END ;
+		S.Get(sym);
+		RETURN x
 	END ;
 
 BEGIN
 	for := NewNode0(S.for, NIL, NIL); S.Get(sym);
-	IF sym = S.ident THEN x := FindIdent(); S.Get(sym)
-	ELSE MarkMissing(S.ident)
+	IF sym = S.ident THEN x := ident()
+	ELSE Reset(x); MarkMissing(S.ident)
 	END ;
-	IF (x # NIL) THEN CheckInt2(x); CheckVar(x, FALSE) END ;
+	CheckInt2(x); CheckVar(x, FALSE);
 	control := NewNode0(S.null, x, NIL); for.left := control;
 	Check(S.becomes); x := expression(); CheckInt2(x);
 	beg := NewNode0(S.null, x, NIL); control.right := beg;
