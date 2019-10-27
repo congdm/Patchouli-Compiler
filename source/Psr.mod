@@ -17,6 +17,8 @@ VAR
 	type0: PROCEDURE(): B.Type;
 	expression0: PROCEDURE(): B.Object;
 	StatementSequence0: PROCEDURE(): B.Node;
+	
+(* auxiliary procedures *)
 
 PROCEDURE MarkMissing(sym0: INTEGER);
 BEGIN
@@ -244,6 +246,18 @@ BEGIN
 	END
 END CheckLev;
 
+PROCEDURE CheckSYSTEM;
+BEGIN
+	IF B.mod.system THEN (*ok*) ELSE S.Mark('need to import SYSTEM') END
+END CheckSYSTEM;
+
+PROCEDURE ToggleUntracedFlag(ptr: B.Type);
+BEGIN
+	CheckSYSTEM; INCL(ptr.flags, B.flUntraced); ptr.nTraced := 0
+END ToggleUntracedFlag;
+
+(* undef pointers list *)
+
 PROCEDURE AddUndef(ptr: B.Type; recName: S.Ident);
 	VAR undef: UndefPtrList;
 BEGIN
@@ -259,6 +273,9 @@ BEGIN
 		prev := undef; undef := undef.next
 	END;
 	IF undef # NIL THEN undef.tp.base := rec;
+		IF ~(B.flUntagged IN rec.flags) THEN (*nothing*)
+		ELSE ToggleUntracedFlag(undef.tp)
+		END ;
 		IF prev # NIL THEN prev.next := undef.next
 		ELSE undefList := undef.next
 		END
@@ -271,6 +288,8 @@ BEGIN
 		undefList := NIL; S.Mark('some pointers didnt have base type')
 	END
 END CheckUndef;
+
+(* new parse tree node *)
 
 PROCEDURE NewNode0(op: INTEGER; x, y: B.Object): B.Node;
 	VAR z: B.Node;
@@ -301,7 +320,9 @@ PROCEDURE FindIdent(): B.Ident;
 BEGIN scope := B.topScope;
 	WHILE (scope # NIL) & (x = NIL) DO x := scope.first; 
 		WHILE (x # NIL) & (x.name # S.id) DO x := x.next END ;
-		IF x # NIL THEN (* found *) ELSE scope := scope.dsc END
+		IF x # NIL THEN (*found*) INCL(x.flags, B.flUsed)
+		ELSE scope := scope.dsc
+		END
 	END ;
 	RETURN x
 END FindIdent;
@@ -317,7 +338,9 @@ BEGIN
 			id := S.id; S.Get(sym);
 			mod := x.obj(B.Module); x := mod.first;
 			WHILE (x # NIL) & (x.name # id) DO x := x.next END ;
-			IF x = NIL THEN x := B.externalIdentNotFound END
+			IF x # NIL THEN (*found*) INCL(x.flags, B.flUsed)
+			ELSE x := B.externalIdentNotFound
+			END
 		ELSE MarkMissing(S.ident)
 		END
 	END ;
@@ -429,7 +452,7 @@ BEGIN x := qualident();
 			IF xt.form # B.tArray THEN S.Mark('not multi-dimension') END ;
 			S.Get(sym); y := expression0(); CheckInt(y);
 			x := NewNode(S.lbrak, x, y, xt.base, spos);
-			IF xt.base # NIL THEN (*ok*) ELSE x.type := xt END;
+			IF xt.base # NIL THEN (*ok*) ELSE x.type := xt END ;
 			x(B.Node).ronly := ronly
 		END ;
 		Check(S.rbrak)
@@ -1001,10 +1024,10 @@ END StatementSequence;
 
 (* declarations *)
 
-PROCEDURE CheckExport(VAR expo: BOOLEAN);
+PROCEDURE CheckExport(VAR flags: SET);
 BEGIN
 	IF sym = S.times THEN S.Get(sym);
-		IF B.curLev = 0 THEN expo := TRUE
+		IF B.curLev = 0 THEN INCL(flags, B.flExport)
 		ELSE S.Mark('not exportable')
 		END
 	END
@@ -1013,15 +1036,37 @@ END CheckExport;
 PROCEDURE IdentList(): B.Ident;
 	VAR fst, x: B.Ident;
 BEGIN
-	B.NewIdent(fst); S.Get(sym); CheckExport(fst.expo);
+	B.NewIdent(fst); S.Get(sym); CheckExport(fst.flags);
 	WHILE sym = S.comma DO
 		IF sym = S.ident THEN
-			B.NewIdent(x); S.Get(sym); CheckExport(x.expo)
+			B.NewIdent(x); S.Get(sym); CheckExport(x.flags)
 		ELSE MarkSflous(S.comma)
 		END
 	END ;
 	RETURN fst
 END IdentList;
+
+PROCEDURE ArrayFlags(arr: B.Type);
+	VAR brak: BOOLEAN;
+
+	PROCEDURE flag(arr: B.Type);
+	BEGIN
+		IF S.id = 'untagged' THEN
+			CheckSYSTEM; INCL(arr.flags, B.flUntagged)
+		END ;
+		S.Get(sym)
+	END flag;
+	
+BEGIN (* ArrayFlags *)
+	IF (sym = S.lbrak) OR (sym = S.lbrace) THEN
+		brak := sym = S.lbrak; S.Get(sym);
+		IF sym = S.ident THEN flag(arr) END ;
+		WHILE sym = S.comma DO S.Get(sym);
+			IF sym = S.ident THEN flag(arr) ELSE MarkSflous(S.comma) END
+		END ;
+		IF brak THEN Check(S.rbrak) ELSE Check(S.rbrace) END
+	END
+END ArrayFlags;
 
 PROCEDURE FormalType(): B.Type;
 	VAR x: B.Object; t: B.Type;
@@ -1029,7 +1074,7 @@ BEGIN t := B.intType;
 	IF sym = S.ident THEN x := qualident();
 		IF x IS B.TypeObj THEN t := x.type ELSE S.Mark('not type') END
 	ELSIF sym = S.array THEN
-		B.NewArray(t, -1); S.Get(sym); Check(S.of);
+		B.NewArray(t, -1); S.Get(sym); ArrayFlags(t); Check(S.of);
 		IF sym = S.array THEN S.Mark('multi-dim open array not supported') END ;
 		t.base := FormalType()
 	END ;
@@ -1053,7 +1098,8 @@ BEGIN
 	END ;
 	Check(S.colon); tp := FormalType(); x := first;
 	WHILE x # NIL DO
-		x.obj := B.NewPar(proc, tp, varpar); x := x.next
+		x.obj := B.NewPar(proc, tp, varpar);
+		x.obj.ident := x; x := x.next
 	END
 END FPSection;
 
@@ -1081,10 +1127,34 @@ BEGIN S.Get(sym);
 	END
 END FormalParameters;
 
+PROCEDURE PointerFlags(ptr: B.Type);
+	VAR brak: BOOLEAN;
+	
+	PROCEDURE flag(ptr: B.Type);
+	BEGIN
+		IF (S.id = 'UNSAFE') OR (S.id = 'unsafe') THEN
+			S.Mark('UNSAFE flag is not supported yet')
+		ELSIF (S.id = 'UNTRACED') OR (S.id = 'untraced') THEN
+			ToggleUntracedFlag(ptr)
+		END ;
+		S.Get(sym)
+	END flag;
+	
+BEGIN (* PointerFlags *)
+	IF (sym = S.lbrak) OR (sym = S.lbrace) THEN
+		brak := sym = S.lbrak; S.Get(sym);
+		IF sym = S.ident THEN flag(ptr) END ;
+		WHILE sym = S.comma DO S.Get(sym);
+			IF sym = S.ident THEN flag(ptr) ELSE MarkSflous(S.comma) END
+		END ;
+		IF brak THEN Check(S.rbrak) ELSE Check(S.rbrace) END
+	END
+END PointerFlags;
+
 PROCEDURE PointerType(typeObj: B.TypeObj): B.Type;
 	VAR ptr, b: B.Type; id: S.Ident; x: B.Ident;
 BEGIN
-	B.NewPointer(ptr); S.Get(sym); Check(S.to);
+	B.NewPointer(ptr); S.Get(sym); PointerFlags(ptr); Check(S.to);
 	IF typeObj # NIL THEN typeObj.type := ptr END ;
 	IF sym = S.ident THEN id := S.id; x := qualident0();
 		IF x # NIL THEN
@@ -1101,15 +1171,13 @@ BEGIN
 	ELSIF sym = S.record THEN ptr.base := type0()
 	ELSE S.Mark('base type?')
 	END ;
+	IF ptr.base # NIL THEN
+		IF ~(B.flUntagged IN ptr.base.flags) THEN (*nothing*)
+		ELSE ToggleUntracedFlag(ptr)
+		END
+	END ;
 	RETURN ptr
 END PointerType;
-
-PROCEDURE length(): INTEGER;
-	VAR x: B.Const;
-BEGIN x := ConstExpression();
-	IF x.value < 0 THEN S.Mark('Invalid array length'); x.value := 0 END ;
-	RETURN x.value
-END length;
 
 PROCEDURE BaseType(): B.Type;
 	VAR b: B.Type; x: B.Object;
@@ -1131,12 +1199,45 @@ BEGIN
 	RETURN b
 END BaseType;
 
-PROCEDURE FieldList;
-	VAR f: B.Ident; tp: B.Type;
+PROCEDURE FieldList(rec: B.Type);
+	VAR f: B.Ident; x: B.Field; tp: B.Type;
 BEGIN
 	f := IdentList(); Check(S.colon); tp := type0();
-	WHILE f # NIL DO f.obj := B.NewField(tp); f := f.next END
+	WHILE f # NIL DO
+		x := B.NewField(rec^, tp); f.obj := x; x.ident := f; f := f.next
+	END
 END FieldList;
+
+PROCEDURE RecordFlags(rec: B.Type);
+	VAR brak: BOOLEAN;
+	
+	PROCEDURE flag(rec: B.Type);
+	BEGIN
+		IF S.id = 'union' THEN
+			CheckSYSTEM; rec.flags := rec.flags + {B.flUnion, B.flUntagged}
+		ELSIF S.id = 'untagged' THEN
+			CheckSYSTEM; INCL(rec.flags, B.flUntagged)
+		END ;
+		S.Get(sym)
+	END flag;
+	
+BEGIN (* RecordFlags *)
+	IF (sym = S.lbrak) OR (sym = S.lbrace) THEN
+		brak := sym = S.lbrak; S.Get(sym);
+		IF sym = S.ident THEN flag(rec) END ;
+		WHILE sym = S.comma DO S.Get(sym);
+			IF sym = S.ident THEN flag(rec) ELSE MarkSflous(S.comma) END
+		END ;
+		IF brak THEN Check(S.rbrak) ELSE Check(S.rbrace) END
+	END
+END RecordFlags;
+
+PROCEDURE length(): INTEGER;
+	VAR x: B.Const;
+BEGIN x := ConstExpression();
+	IF x.value < 0 THEN S.Mark('Invalid array length'); x.value := 0 END ;
+	RETURN x.value
+END length;
 
 PROCEDURE type(): B.Type;
 	VAR t, arr: B.Type; x: B.Object; len: INTEGER;
@@ -1151,17 +1252,17 @@ BEGIN t := B.intType;
 			ELSE MarkSflous(S.comma)
 			END
 		END ;
-		Check(S.of); arr.base := type()
+		Check(S.of); arr.base := type(); B.CompleteArray(t^)
 	ELSIF sym = S.record THEN
-		S.Get(sym); B.NewRecord(t);
+		S.Get(sym); B.NewRecord(t); RecordFlags(t);
 		IF sym = S.lparen THEN
 			S.Get(sym); t.base := BaseType(); Check(S.rparen);
-			IF t.base # NIL THEN t.len := t.base.len + 1 END
+			IF t.base # NIL THEN B.ExtendRecord(t^) END
 		END ;
 		B.OpenScope;
-		IF sym = S.ident THEN FieldList;
+		IF sym = S.ident THEN FieldList(t);
 			WHILE sym = S.semicolon DO S.Get(sym);
-				IF sym = S.ident THEN FieldList;
+				IF sym = S.ident THEN FieldList(t);
 				ELSE MarkSflous(S.semicolon)
 				END
 			END
@@ -1169,6 +1270,8 @@ BEGIN t := B.intType;
 		t.fields := B.topScope.first; B.CloseScope; Check(S.end)
 	ELSIF sym = S.pointer THEN t := PointerType(NIL)
 	ELSIF sym = S.procedure THEN
+		S.Get(sym); B.NewProcType(t);
+		IF sym = S.lparen THEN FormalParameters(t) END
 	END ;
 	RETURN t
 END type;
@@ -1178,7 +1281,8 @@ PROCEDURE CloneParameters(VAR proc: B.Type);
 BEGIN p := proc.fields;
 	WHILE p # NIL DO
 		B.NewIdent0(id, p.name); NEW(x); id.spos := p.spos;
-		id.obj := x; x^ := p.obj(B.Par)^; INC(x.lev); p := p.next
+		id.obj := x; x^ := p.obj(B.Par)^; INC(x.lev);
+		x.ident := id; p := p.next
 	END
 END CloneParameters;
 
@@ -1188,18 +1292,22 @@ BEGIN
 	IF sym = S.const THEN S.Get(sym);
 		WHILE sym = S.ident DO
 			B.NewIdent(id); S.Get(sym);
-			CheckExport(id.expo); Check(S.eql);
-			id.obj := ConstExpression(); Check(S.semicolon)
+			CheckExport(id.flags); Check(S.eql);
+			x := ConstExpression(); id.obj := x;
+			IF x.ident = NIL THEN x.ident := id END ;
+			Check(S.semicolon)
 		END
 	END ;
 	IF sym = S.type THEN S.Get(sym);
 		WHILE sym = S.ident DO
 			B.NewIdent(id); S.Get(sym);
-			CheckExport(id.expo); Check(S.eql); x := B.NewTypeObj();
-			IF sym # S.pointer THEN x.type := type();
+			CheckExport(id.flags); Check(S.eql); x := B.NewTypeObj();
+			IF sym # S.pointer THEN
+				x.type := type(); id.obj := x;
 				IF x.type.form = B.tRec THEN FixUndef(x.type, id.name) END
-			ELSE x.type := PointerType(x(B.TypeObj))
+			ELSE id.obj := x; x.type := PointerType(x(B.TypeObj))
 			END ;
+			IF x.ident = NIL THEN x.ident := id END ;
 			Check(S.semicolon)
 		END ;
 		CheckUndef
@@ -1207,18 +1315,21 @@ BEGIN
 	IF sym = S.var THEN S.Get(sym);
 		WHILE sym = S.ident DO
 			id := IdentList(); Check(S.colon); tp := type();
-			WHILE id # NIL DO id.obj := B.NewVar(tp); id := id.next END ;
+			WHILE id # NIL DO
+				x := B.NewVar(tp); id.obj := x;
+				x.ident := id; id := id.next
+			END ;
 			Check(S.semicolon)
 		END
 	END ;
 	WHILE sym = S.procedure DO S.Get(sym);
 		IF sym # S.ident THEN id := NIL; S.Mark('proc name?')
-		ELSE B.NewIdent(id); S.Get(sym); CheckExport(id.expo)
+		ELSE B.NewIdent(id); S.Get(sym); CheckExport(id.flags)
 		END ;
 		x := B.NewProc(); B.NewProcType(tp); x.type := tp;
 		IF sym = S.lparen THEN FormalParameters(tp) END ;
 		Check(S.semicolon); B.OpenScope; B.IncLev(1); CloneParameters(tp);
-		IF id # NIL THEN id.obj := x END ;
+		IF id # NIL THEN id.obj := x; x.ident := id END ;
 
 		DeclarationSequence; x(B.Proc).decl := B.topScope.first;
 		IF sym = S.begin THEN
@@ -1242,15 +1353,49 @@ BEGIN
 	END
 END DeclarationSequence;
 
+PROCEDURE ModuleId(VAR modid: B.ModuleId);
+BEGIN
+	modid.context := 0X; modid.name := S.id; S.Get(sym);
+	IF sym = S.period (* my previous syntax *) THEN S.Get(sym);
+		IF sym = S.ident THEN
+			modid.context := modid.name; modid.name := S.id
+		ELSE MarkMissing(S.ident)
+		END
+	ELSIF sym = S.in (* A2 Oberon syntax *) THEN S.Get(sym);
+		IF sym = S.ident THEN modid.context := S.id
+		ELSE MarkMissing(S.ident)
+		END
+	END
+END ModuleId;
+
+PROCEDURE import;
+	VAR ident: B.Ident; id: B.ModuleId; name: S.Ident;
+BEGIN
+	B.NewIdent(ident); name := S.id; S.Get(sym);
+	IF sym = S.becomes THEN S.Get(sym);
+		IF sym = S.ident THEN ModuleId(id) ELSE MarkMissing(S.ident) END
+	END;
+	IF S.errcnt = 0 THEN
+		IF name = 'SYSTEM' THEN B.NewSystemModule(ident)
+		ELSIF name # 0X THEN B.NewModule(ident, name)
+		ELSE B.NewModule0(ident, id)
+		END
+	END
+END import;
+
 PROCEDURE ImportList;
+BEGIN S.Get(sym);
+	IF sym = S.ident THEN import ELSE MarkMissing(S.ident) END ;
+	WHILE sym = S.comma DO S.Get(sym);
+		IF sym = S.ident THEN import ELSE MarkMissing(S.ident) END
+	END ;
+	Check(S.semicolon)
 END ImportList;
 
 PROCEDURE Module*;
-	VAR modid: S.Ident;
+	VAR modid: B.ModuleId;
 BEGIN S.Get(sym);
-	IF sym = S.ident THEN modid := S.id
-	ELSE modid := 0X; MarkMissing(S.ident)
-	END ;
+	IF sym = S.ident THEN ModuleId(modid) ELSE MarkMissing(S.ident) END ;
 	IF S.errcnt = 0 THEN
 		B.Init(modid); Check(S.semicolon);
 		IF sym = S.import THEN ImportList END
@@ -1262,7 +1407,7 @@ BEGIN S.Get(sym);
 		END ;
 		Check(S.end);
 		IF sym = S.ident THEN
-			IF S.id # modid THEN S.Mark('wrong module name') END ;
+			IF S.id # modid.name THEN S.Mark('wrong module name') END ;
 			S.Get(sym)
 		ELSE MarkMissing(S.ident)
 		END ;

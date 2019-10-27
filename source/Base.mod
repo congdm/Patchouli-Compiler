@@ -31,15 +31,22 @@ CONST
 	opINC* = 130H; opDEC* = 131H; opINCL* = 132H; opEXCL* = 133H;
 	opNEW* = 134H; opASSERT* = 135H; opPACK* = 136H; opUNPK* = 137H;
 	opGET* = 138H; opPUT* = 139H; opCOPY* = 140H;
+	
+	(* Flags *)
+	flExport* = 0; flUsed* = 1; flUntagged* = 2; flUntraced* = 3;
+	flUnion* = 4;
 
 TYPE
+	ModuleKey* = ARRAY 2 OF INTEGER;
+	ModuleId* = RECORD context*, name*: S.Ident END ;
+
 	Type* = POINTER TO TypeDesc;
 	Object* = POINTER TO ObjDesc;
 	Node* = POINTER TO NodeDesc;
 	Ident* = POINTER TO IdentDesc;
 	Scope* = POINTER TO ScopeDesc;
 	
-	ObjDesc = RECORD type*: Type END ;
+	ObjDesc = RECORD flags*: SET; ident*: Ident; type*: Type END ;
 	Const* = POINTER TO RECORD (ObjDesc) value*: INTEGER END ;
 	TypeObj* = POINTER TO RECORD (ObjDesc) END ;
 	Var* = POINTER TO RECORD (ObjDesc) lev*: INTEGER; ronly*: BOOLEAN END ;
@@ -58,7 +65,9 @@ TYPE
 	ProcList* = POINTER TO RECORD obj*: Proc; next*: ProcList END ;
 	StrList* = POINTER TO RECORD obj*: Str; next*: StrList END ;
 	
-	Module* = POINTER TO RECORD (ObjDesc) first*: Ident END ;
+	Module* = POINTER TO RECORD (ObjDesc)
+		id*: ModuleId; first*: Ident
+	END ;
 
 	NodeDesc = RECORD (ObjDesc)
 		ronly*: BOOLEAN;
@@ -67,21 +76,23 @@ TYPE
 	END ;
 
 	IdentDesc = RECORD
-		expo*: BOOLEAN; spos*: INTEGER;
+		flags*: SET; spos*: INTEGER;
 		name*: S.Ident; obj*: Object; next*: Ident
 	END ;
 	ScopeDesc = RECORD first*: Ident; dsc*: Scope END ;
 
 	TypeDesc = RECORD
+		flags*: SET;
 		form*, len*: INTEGER;
+		nPtr*, nProc*, nTraced*: INTEGER;
 		fields*: Ident; base*: Type
 	END ;
 
 	CurrentModule* = POINTER TO RECORD
-		id*: S.Ident;
+		id*: ModuleId;
 		init*: Node; universe*: Scope;
 		strbuf*: ARRAY 10000H OF CHAR; strbufSize*: INTEGER;
-		strList*: StrList;
+		strList*: StrList; recList*: TypeList;
 		system*: BOOLEAN
 	END ;
 
@@ -109,10 +120,15 @@ BEGIN
 	topScope := topScope.dsc
 END CloseScope;
 
+PROCEDURE IncLev*(x: INTEGER);
+BEGIN
+	curLev := curLev + x
+END IncLev;
+
 PROCEDURE NewIdent0*(VAR ident: Ident; name: S.Ident);
 	VAR prev, x: Ident;
 BEGIN x := topScope.first;
-	NEW(ident); ident.name := name;
+	NEW(ident); ident.flags := {}; ident.name := name;
 	WHILE x # NIL DO
 		IF x # NIL THEN S.Mark('duplicated ident') END ;
 		prev := x; x := x.next
@@ -120,57 +136,62 @@ BEGIN x := topScope.first;
 	IF prev # NIL THEN prev.next := ident ELSE topScope.first := ident END
 END NewIdent0;
 
-
 PROCEDURE NewIdent*(VAR ident: Ident);
 BEGIN NewIdent0(ident, S.id); ident.spos := S.symPos
 END NewIdent;
 
-PROCEDURE IncLev*(x: INTEGER);
+PROCEDURE InitNewObject(x: Object);
 BEGIN
-	curLev := curLev + x
-END IncLev;
+	x.flags := {}
+END InitNewObject;
 
 PROCEDURE NewConst*(t: Type; val: INTEGER): Const;
 	VAR c: Const;
 BEGIN
-	NEW(c); c.type := t; c.value := val;
+	NEW(c); InitNewObject(c);
+	c.type := t; c.value := val;
 	RETURN c
 END NewConst;
 
 PROCEDURE NewTypeObj*(): TypeObj;
 	VAR t: TypeObj;
 BEGIN
-	NEW(t);
+	NEW(t); InitNewObject(t);
 	RETURN t
 END NewTypeObj;
 
 PROCEDURE NewVar*(t: Type): Var;
 	VAR v: Var;
 BEGIN
-	NEW(v); v.type := t; v.lev := curLev; v.ronly := FALSE;
+	NEW(v); InitNewObject(v);
+	v.type := t; v.lev := curLev; v.ronly := FALSE;
 	RETURN v
 END NewVar;
 
 PROCEDURE NewPar*(proc: Type; t: Type; varpar: BOOLEAN): Par;
 	VAR p: Par;
 BEGIN
-	NEW(p); p.type := t; p.lev := curLev;
+	NEW(p); InitNewObject(p);
+	p.type := t; p.lev := curLev;
 	p.varpar := varpar; INC(proc.len);
 	p.ronly := ~varpar & (t.form IN tStructs);
 	RETURN p
 END NewPar;
 
-PROCEDURE NewField*(t: Type): Field;
+PROCEDURE NewField*(VAR rec: TypeDesc; t: Type): Field;
 	VAR f: Field;
 BEGIN
-	NEW(f); f.type := t;
+	NEW(f); InitNewObject(f); f.type := t;
+	INC(rec.nPtr, t.nPtr);
+	INC(rec.nProc, t.nProc);
+	INC(rec.nTraced, t.nTraced)
 	RETURN f
 END NewField;
 
 PROCEDURE NewStr*(str: ARRAY OF CHAR; slen: INTEGER): Str;
 	VAR x: Str; i: INTEGER; p: StrList;
 BEGIN
-	NEW(x); x.ronly := TRUE;
+	NEW(x); InitNewObject(x); x.ronly := TRUE;
 	x.type := strType; x.lev := curLev; x.len := slen;
 	IF x.lev >= -1 (* not imported str, need to alloc buffer *) THEN 
 		IF mod.strbufSize + slen >= LEN(mod.strbuf) THEN
@@ -187,21 +208,70 @@ END NewStr;
 PROCEDURE NewProc*(): Proc;
 	VAR x: Proc;
 BEGIN
-	NEW(x); x.lev := curLev;
+	NEW(x); InitNewObject(x); x.lev := curLev;
 	RETURN x
 END NewProc;
 
+(* types *)
+
+PROCEDURE NewType*(VAR t: Type; form: INTEGER);
+BEGIN
+	NEW(t); t.form := form; t.flags := {};
+	t.nPtr := 0; t.nProc := 0; t.nTraced := 0
+END NewType;
+
 PROCEDURE NewArray*(VAR t: Type; len: INTEGER);
+BEGIN
+	NewType(t, tArray); t.len := len;
 END NewArray;
 
+PROCEDURE CompleteArray*(VAR t: TypeDesc);
+BEGIN
+	IF t.base.form = tArray THEN CompleteArray(t.base^) END ;
+	t.nPtr := t.len * t.base.nPtr;
+	t.nTraced := t.len * t.base.nTraced;
+	t.nProc := t.len * t.base.nProc
+END CompleteArray;
+
 PROCEDURE NewRecord*(VAR t: Type);
+	VAR p: TypeList;
+BEGIN
+	NewType(t, tRec); t.len := 0;
+	IF curLev >= 0 THEN
+		NEW(p); p.type := t; p.next := mod.recList; mod.recList := p
+	ELSIF curLev = -1 THEN ASSERT(FALSE)
+	END
 END NewRecord;
 
+PROCEDURE ExtendRecord*(VAR rec: TypeDesc);
+	VAR base: Type;
+BEGIN
+	IF rec.base # NIL THEN base := rec.base;
+		rec.len := base.len + 1; rec.nPtr := base.nPtr;
+		rec.nTraced := base.nTraced; rec.nProc := base.nProc
+	END
+END ExtendRecord;
+
 PROCEDURE NewPointer*(VAR t: Type);
+BEGIN
+	NewType(t, tPtr); t.nPtr := 1; t.nTraced := 1
 END NewPointer;
 
 PROCEDURE NewProcType*(VAR t: Type);
+BEGIN
+	NewType(t, tProc); t.len := 0; t.nProc := 1;
 END NewProcType;
+
+(* Import module *)
+
+PROCEDURE NewSystemModule*(ident: Ident);
+END NewSystemModule;
+
+PROCEDURE NewModule0*(ident: Ident; id: ModuleId);
+END NewModule0;
+
+PROCEDURE NewModule*(ident: Ident; name: S.Ident);
+END NewModule;
 
 (* Constanst folding *)
 
@@ -419,7 +489,7 @@ END FoldConst;
 
 (* Init *)
 
-PROCEDURE Init*(modid: S.Ident);
+PROCEDURE Init*(modid: ModuleId);
 BEGIN
 	NEW(mod); NEW(mod.universe); mod.id := modid;
 	topScope := mod.universe; curLev := 0;
