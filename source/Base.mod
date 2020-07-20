@@ -78,7 +78,7 @@ TYPE
 		(* --- *)
 		form*: INTEGER;
 		recLev*: INTEGER; base*: Type;
-		fields*: Ident; fieldCnt*: INTEGER
+		fields*: Ident; nfpar*: INTEGER
 	END ;
 
 	NodeDesc = RECORD (ObjDesc)
@@ -111,8 +111,6 @@ VAR
 	mod*: Module; iPsr*: IPsr;
 	predefTypes: TypeList;
 
-	curLev*: INTEGER;
-	topScope*: Scope;
 	impMod: Module;
 
 	intType*, boolType*, setType*, realType*, byteType*: Type;

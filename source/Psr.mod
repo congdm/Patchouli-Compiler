@@ -19,7 +19,11 @@ TYPE
 		BoolConst*: PROCEDURE(v: BOOLEAN): B.Const;
 		
 		CheckArrayLen*: PROCEDURE(len: B.Const);
-		ArrayType*: PROCEDURE(len: B.Const; bt: B.Type): B.Type
+		ArrayType*: PROCEDURE(len: B.Const; bt: B.Type): B.Type;
+		RecordType*: PROCEDURE(): B.Type;
+		ParseRecordFlags*: PROCEDURE(t: B.Type; VAR sym: INTEGER);
+		ExtendRecordType*: PROCEDURE(t: B.Type);
+		NewRecordFields*: PROCEDURE(t: B.Type; fst: B.Ident; ft: B.Type)
 	END ;
 
 VAR
@@ -268,40 +272,6 @@ BEGIN
 END ToggleUntracedFlag;
 
 (* -------------------------------------------------------------------------- *)
-(* Symbols table *)
-
-PROCEDURE OpenScope;
-	VAR scp: B.Scope;
-BEGIN NEW(scp); scp.dsc := mod.topScope; mod.topScope := scp
-END OpenScope;
-
-PROCEDURE CloseScope;
-BEGIN mod.topScope := mod.topScope.dsc
-END CloseScope;
-
-PROCEDURE IncLev(x: INTEGER);
-BEGIN INC(mod.curLev, x)
-END IncLev;
-
-PROCEDURE NewIdent(VAR id: B.Ident);
-	VAR prev, x: B.Ident;
-BEGIN
-	x := mod.topScope.first; NEW(id); id.spos := S.symPos;
-	id.export := FALSE; id.name := S.id; id.nUsed := 0;
-	WHILE x # NIL DO
-		IF x # NIL THEN S.Mark('duplicated ident') END ;
-		prev := x; x := x.next
-	END ;
-	IF prev # NIL THEN prev.next := id ELSE mod.topScope.first := id END
-END NewIdent;
-
-PROCEDURE Str(): B.Var;
-	VAR x: B.Var;
-BEGIN
-	x := arch.Str(S.str, S.slen); x.ronly := TRUE; x.curLev := mod.curLev;
-	RETURN x
-END Str;
-
 (* undef pointers list *)
 
 PROCEDURE AddUndef(ptr: B.Type; recName: S.Ident);
@@ -646,7 +616,9 @@ PROCEDURE factor(): B.Object;
 BEGIN
 	IF sym = S.int THEN x := arch.Const(B.intType); S.Get(sym)
 	ELSIF sym = S.real THEN x := arch.Const(B.realType); S.Get(sym)
-	ELSIF sym = S.string THEN x := Str(); S.Get(sym)
+	ELSIF sym = S.string THEN
+		x := arch.Str(S.str, S.slen); x(B.Var).ronly := TRUE;
+		x(B.Var).curLev := mod.curLev; S.Get(sym)
 	ELSIF sym = S.nil THEN x := arch.NilConst(); S.Get(sym)
 	ELSIF sym = S.true THEN x := arch.BoolConst(TRUE); S.Get(sym)
 	ELSIF sym = S.false THEN x := arch.BoolConst(FALSE); S.Get(sym)
@@ -1077,13 +1049,38 @@ BEGIN
 	END
 END CheckExport;
 
+PROCEDURE OpenScope;
+	VAR scp: B.Scope;
+BEGIN NEW(scp); scp.dsc := mod.topScope; mod.topScope := scp
+END OpenScope;
+
+PROCEDURE CloseScope;
+BEGIN mod.topScope := mod.topScope.dsc
+END CloseScope;
+
+PROCEDURE IncLev(x: INTEGER);
+BEGIN INC(mod.curLev, x)
+END IncLev;
+
+PROCEDURE NewIdent(VAR id: B.Ident);
+	VAR prev, x: B.Ident;
+BEGIN
+	x := mod.topScope.first; NEW(id); id.spos := S.symPos;
+	id.export := FALSE; id.name := S.id; id.nUsed := 0;
+	WHILE x # NIL DO
+		IF x # NIL THEN S.Mark('duplicated ident') END ;
+		prev := x; x := x.next
+	END ;
+	IF prev # NIL THEN prev.next := id ELSE mod.topScope.first := id END
+END NewIdent;
+
 PROCEDURE IdentList(): B.Ident;
 	VAR fst, x: B.Ident;
 BEGIN
-	B.NewIdent(fst); S.Get(sym); CheckExport(fst.export);
+	NewIdent(fst); S.Get(sym); CheckExport(fst.export);
 	WHILE sym = S.comma DO
 		IF sym = S.ident THEN
-			B.NewIdent(x); S.Get(sym); CheckExport(x.export)
+			NewIdent(x); S.Get(sym); CheckExport(x.export)
 		ELSE MarkSflous(S.comma)
 		END
 	END ;
@@ -1240,54 +1237,13 @@ BEGIN
 			END
 		ELSE b := NIL; S.Mark('not record type')
 		END ;
-		IF (b # NIL) & (b.len >= B.MaxExt) THEN
+		IF (b # NIL) & (b.recLev >= B.MaxExt) THEN
 			b := NIL; S.Mark('max extension limit reached')
 		END
 	ELSE MarkMissing(S.ident)
 	END ;
 	RETURN b
 END BaseType;
-
-PROCEDURE FieldList(rec: B.Type);
-	VAR f: B.Ident; x: B.Field; tp: B.Type;
-BEGIN
-	f := IdentList(); Check(S.colon); tp := type0();
-	WHILE f # NIL DO
-		x := B.NewField(rec^, tp); f.obj := x; x.ident := f; f := f.next
-	END
-END FieldList;
-
-PROCEDURE RecordFlags(rec: B.Type);
-	VAR brak: BOOLEAN;
-	
-	PROCEDURE flag(rec: B.Type);
-	BEGIN
-		IF S.id = 'union' THEN
-			CheckSYSTEM; rec.union := TRUE; rec.untagged := TRUE
-		ELSIF S.id = 'untagged' THEN
-			CheckSYSTEM; rec.untagged := TRUE
-		ELSE S.Mark('invalid flag')
-		END ;
-		S.Get(sym)
-	END flag;
-	
-BEGIN (* RecordFlags *)
-	IF (sym = S.lbrak) OR (sym = S.lbrace) THEN
-		brak := sym = S.lbrak; S.Get(sym);
-		IF sym = S.ident THEN flag(rec) END ;
-		WHILE sym = S.comma DO S.Get(sym);
-			IF sym = S.ident THEN flag(rec) ELSE MarkSflous(S.comma) END
-		END ;
-		IF brak THEN Check(S.rbrak) ELSE Check(S.rbrace) END
-	END
-END RecordFlags;
-
-PROCEDURE length(): INTEGER;
-	VAR x: B.Const;
-BEGIN x := ConstExpression();
-	IF x.value < 0 THEN S.Mark('Invalid array length'); x.value := 0 END ;
-	RETURN x.value
-END length;
 
 PROCEDURE ArrayType(): B.Type;
 	VAR x, baseType: B.Type; len: B.Const;
@@ -1303,27 +1259,35 @@ BEGIN
 END ArrayType;
 
 PROCEDURE type(): B.Type;
-	VAR t, arr: B.Type; x: B.Object; len: INTEGER;
+	VAR t, ft: B.Type; x: B.Object; f: B.Ident;
 BEGIN t := B.intType;
 	IF sym = S.ident THEN
 		x := qualident(); CheckTypeObj(x, t); S.Get(sym)
 	ELSIF sym = S.array THEN
 		S.Get(sym); t := ArrayType()
 	ELSIF sym = S.record THEN
-		S.Get(sym); B.NewRecord(t); RecordFlags(t);
+		S.Get(sym); t := arch.RecordType();
+		InitNewType(t, B.tRec);
+		arch.ParseRecordFlags(t, sym);
 		IF sym = S.lparen THEN
 			S.Get(sym); t.base := BaseType(); Check(S.rparen);
-			IF t.base # NIL THEN B.ExtendRecord(t^) END
+			IF t.base # NIL THEN
+				t.recLev := t.base.recLev+1; arch.ExtendRecordType(t)
+			END
 		END ;
-		B.OpenScope;
-		IF sym = S.ident THEN FieldList(t);
+		OpenScope;
+		IF sym = S.ident THEN
+			f := IdentList(); Check(S.colon);
+			ft := type(); arch.NewRecordFields(t, f, ft);
 			WHILE sym = S.semicolon DO S.Get(sym);
-				IF sym = S.ident THEN FieldList(t);
+				IF sym = S.ident THEN
+					f := IdentList(); Check(S.colon);
+					ft := type(); arch.NewRecordFields(t, f, tp)
 				ELSE MarkSflous(S.semicolon)
 				END
 			END
 		END ;
-		t.fields := B.topScope.first; B.CloseScope; Check(S.end)
+		t.fields := mod.topScope.first; CloseScope; Check(S.end)
 	ELSIF sym = S.pointer THEN t := PointerType(NIL)
 	ELSIF sym = S.procedure THEN
 		S.Get(sym); B.NewProcType(t);
@@ -1347,7 +1311,7 @@ PROCEDURE DeclarationSequence;
 BEGIN
 	IF sym = S.const THEN S.Get(sym);
 		WHILE sym = S.ident DO
-			B.NewIdent(id); S.Get(sym); CheckExport(id.export);
+			NewIdent(id); S.Get(sym); CheckExport(id.export);
 			Check(S.eql); x := ConstExpression(); id.obj := x;
 			IF x.ident = NIL THEN x.ident := id END ;
 			Check(S.semicolon)
@@ -1355,7 +1319,7 @@ BEGIN
 	END ;
 	IF sym = S.type THEN S.Get(sym);
 		WHILE sym = S.ident DO
-			B.NewIdent(id); S.Get(sym);
+			NewIdent(id); S.Get(sym);
 			CheckExport(id.export); Check(S.eql);
 			IF sym # S.pointer THEN
 				xt := type(); id.obj := xt;
