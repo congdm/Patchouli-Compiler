@@ -72,7 +72,7 @@ TYPE
 	END ;
 	
 	TypeDesc* = RECORD (ObjDesc)
-		predef*: BOOLEAN; (* flags *)	
+		predef*, openArray*: BOOLEAN; (* flags *)	
 		(* mod - module of origin, ref - export id *)
 		mod*: ImportedModule; ref*: INTEGER;
 		(* --- *)
@@ -103,7 +103,7 @@ TYPE
 		
 		strList*: StrList; recList*: TypeList;
 		expList*, lastExp*: ObjList;
-		imodList*: Module;
+		imodList*: Module
 	END ;
 
 VAR

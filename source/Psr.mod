@@ -17,6 +17,12 @@ TYPE
 		Str*: PROCEDURE(str: S.Str; slen: INTEGER): B.Var;
 		NilConst*: PROCEDURE(): B.Const;
 		BoolConst*: PROCEDURE(v: BOOLEAN): B.Const;
+		CharConstFromStr*: PROCEDURE(str: B.Var): B.Const;
+		
+		Par*: PROCEDURE(pt, ft: B.Type; varpar: BOOLEAN): B.Var;
+		Var*: PROCEDURE(t: B.Type; owner: B.Proc): B.Var;
+		Proc*: PROCEDURE(): B.Proc;
+		ClonePar*: PROCEDURE(org: B.Object): B.Var;
 		
 		CheckArrayLen*: PROCEDURE(len: B.Const);
 		ArrayType*: PROCEDURE(len: B.Const; bt: B.Type): B.Type;
@@ -28,6 +34,9 @@ TYPE
 		PointerType*: PROCEDURE(): B.Type;
 		ParsePointerFlags*: PROCEDURE(t: B.Type; VAR sym: INTEGER);
 		SetPointerBaseType*: PROCEDURE(t, bt: B.Type)
+		ProcType*: PROCEDURE(): B.Type;
+		FormalArrayType*: PROCEDURE(): B.Type;
+		ParseFormalArrayFlags*: PROCEDURE(t: B.Type; VAR sym: INTEGER)
 	END ;
 
 VAR
@@ -1086,83 +1095,68 @@ BEGIN
 END IdentList;
 
 PROCEDURE InitNewType(t: B.Type; form: INTEGER);
-BEGIN t.predef := FALSE; t.ref := -1; t.form := form
+BEGIN
+	t.predef := FALSE; t.openArray := FALSE;
+	t.ref := -1; t.form := form;
+	t.recLev := 0; t.nfpar := 0
 END InitNewType;
-
-PROCEDURE ArrayFlags(arr: B.Type);
-	VAR brak: BOOLEAN;
-
-	PROCEDURE flag(arr: B.Type);
-	BEGIN
-		IF S.id = 'untagged' THEN CheckSYSTEM; arr.untagged := TRUE
-		ELSE S.Mark('invalid flag')
-		END ;
-		S.Get(sym)
-	END flag;
-	
-BEGIN (* ArrayFlags *)
-	IF (sym = S.lbrak) OR (sym = S.lbrace) THEN
-		brak := sym = S.lbrak; S.Get(sym);
-		IF sym = S.ident THEN flag(arr) END ;
-		WHILE sym = S.comma DO S.Get(sym);
-			IF sym = S.ident THEN flag(arr) ELSE MarkSflous(S.comma) END
-		END ;
-		IF brak THEN Check(S.rbrak) ELSE Check(S.rbrace) END
-	END
-END ArrayFlags;
 
 PROCEDURE FormalType(): B.Type;
 	VAR x: B.Object; t: B.Type;
 BEGIN t := B.intType;
 	IF sym = S.ident THEN x := qualident();
-		IF x IS B.TypeObj THEN t := x.type ELSE S.Mark('not type') END
+		IF x IS B.Type THEN t := x(B.Type) ELSE S.Mark('not type') END
 	ELSIF sym = S.array THEN
-		B.NewArray(t, -1); S.Get(sym); ArrayFlags(t); Check(S.of);
-		IF sym = S.array THEN S.Mark('multi-dim open array not supported') END ;
+		t := arch.FormalArrayType();
+		InitNewType(t, B.Array); t.openArray := TRUE;
+		S.Get(sym); arch.ParseFormalArrayFlags(t, sym); Check(S.of);
+		IF sym = S.array THEN S.Mark('multidim open array not supported') END ;
 		t.base := FormalType()
 	END ;
 	RETURN t
 END FormalType;
 
 PROCEDURE FPSection(proc: B.Type);
-	VAR first, x: B.Ident; tp: B.Type; varpar: BOOLEAN;
+	VAR first, id: B.Ident; x: B.Var; tp: B.Type; varpar: BOOLEAN;
 BEGIN
 	IF sym = S.var THEN varpar := TRUE; S.Get(sym) ELSE varpar := FALSE END ;
 	IF sym = S.ident THEN
-		B.NewIdent(first); S.Get(sym);
+		NewIdent(first); S.Get(sym);
 		WHILE sym = S.comma DO S.Get(sym);
 			IF sym = S.ident THEN
-				B.NewIdent(x); S.Get(sym);
-				IF first = NIL THEN first := x END
+				NewIdent(id); S.Get(sym);
+				IF first = NIL THEN first := id END
 			ELSE MarkSflous(S.comma)
 			END
 		END
 	ELSE S.Mark('no params?')
 	END ;
-	Check(S.colon); tp := FormalType(); x := first;
-	WHILE x # NIL DO
-		x.obj := B.NewPar(proc, tp, varpar);
-		x.obj.ident := x; x := x.next
+	Check(S.colon); tp := FormalType(); id := first;
+	WHILE id # NIL DO
+		x := arch.Par(proc, tp, varpar);
+		INC(proc.nfpar); x.curLev := mod.curLev;
+		x.ronly := ~varpar & (tp.form IN tStructs);
+		x.ident := id; id.obj := x; id := id.next
 	END
 END FPSection;
 
 PROCEDURE FormalParameters(proc: B.Type);
-	VAR x: B.Object;
+	VAR x: B.Object; t: B.Type;
 BEGIN S.Get(sym);
 	IF (sym = S.ident) OR (sym = S.var) THEN
-		B.OpenScope; FPSection(proc);
+		OpenScope; FPSection(proc);
 		WHILE sym = S.semicolon DO S.Get(sym);
 			IF (sym = S.ident) OR (sym = S.var) THEN FPSection(proc)
 			ELSE S.Mark('param section?')
 			END
 		END ;
-		proc.fields := B.topScope.first; B.CloseScope
+		proc.fields := mod.topScope.first; CloseScope
 	END ;
 	Check(S.rparen);
 	IF sym = S.colon THEN S.Get(sym);
 		IF sym = S.ident THEN x := qualident() ELSE MarkMissing(S.ident) END ;
-		IF x IS B.TypeObj THEN
-			IF ~(x.type.form IN B.tStructs) THEN proc.base := x.type
+		IF x IS B.Type THEN t := x(B.Type);
+			IF ~(t.form IN B.tStructs) THEN proc.base := t
 			ELSE S.Mark(msgIvlType); proc.base := B.intType
 			END
 		ELSE S.Mark('not type')
@@ -1174,7 +1168,7 @@ PROCEDURE PointerType(defId: B.Ident): B.Type;
 	VAR ptr, b: B.Type; name: S.Ident; x: B.Ident;
 BEGIN
 	ptr := arch.PointerType(); InitNewType(ptr, B.tPointer);
-	S.Get(sym); arch.ParsePointerFlags(ptr); Check(S.to);
+	S.Get(sym); arch.ParsePointerFlags(ptr, sym); Check(S.to);
 	IF defId # NIL THEN defId.obj := ptr END ;
 	IF sym = S.ident THEN name := S.id; x := qualident0();
 		IF x # NIL THEN
@@ -1259,7 +1253,7 @@ BEGIN t := B.intType;
 		t.fields := mod.topScope.first; CloseScope; Check(S.end)
 	ELSIF sym = S.pointer THEN t := PointerType(NIL)
 	ELSIF sym = S.procedure THEN
-		S.Get(sym); B.NewProcType(t);
+		S.Get(sym); t := arch.ProcType(); InitNewType(t, B.tProc);
 		IF sym = S.lparen THEN FormalParameters(t) END
 	END ;
 	RETURN t
@@ -1269,14 +1263,14 @@ PROCEDURE CloneParameters(VAR proc: B.Type);
 	VAR p, id: B.Ident; x: B.Par;
 BEGIN p := proc.fields;
 	WHILE p # NIL DO
-		B.NewIdent0(id, p.name); NEW(x); id.spos := p.spos;
-		id.obj := x; x^ := p.obj(B.Par)^; INC(x.lev);
+		NewIdent(id, p.name); x := arch.ClonePar(p.obj);
+		id.spos := p.spos; id.obj := x; INC(x.lev);
 		x.ident := id; p := p.next
 	END
 END CloneParameters;
 
-PROCEDURE DeclarationSequence;
-	VAR id: B.Ident; x, ret: B.Object; xt, tp: B.Type;
+PROCEDURE DeclarationSequence(owner: B.Proc);
+	VAR id: B.Ident; x, y: B.Object; xt, tp, retType: B.Type;
 BEGIN
 	IF sym = S.const THEN S.Get(sym);
 		WHILE sym = S.ident DO
@@ -1304,32 +1298,46 @@ BEGIN
 		WHILE sym = S.ident DO
 			id := IdentList(); Check(S.colon); tp := type();
 			WHILE id # NIL DO
-				x := B.NewVar(tp); id.obj := x;
-				x.ident := id; id := id.next
+				x := arch.Var(tp, owner);
+				x(B.Var).ronly := FALSE;
+				x(B.Var).lev := mod.curLev;
+				id.obj := x; x.ident := id; id := id.next
 			END ;
 			Check(S.semicolon)
 		END
 	END ;
 	WHILE sym = S.procedure DO S.Get(sym);
 		IF sym # S.ident THEN id := NIL; S.Mark('proc name?')
-		ELSE B.NewIdent(id); S.Get(sym); CheckExport(id.export)
+		ELSE NewIdent(id); S.Get(sym); CheckExport(id.export)
 		END ;
-		x := B.NewProc(); B.NewProcType(tp); x.type := tp;
-		IF sym = S.lparen THEN FormalParameters(tp) END ;
-		Check(S.semicolon); B.OpenScope; B.IncLev(1); CloneParameters(tp);
+		x := arch.Proc(); tp := arch.ProcType();
+		InitNewType(tp, B.tProc); x.type := tp;
 		IF id # NIL THEN id.obj := x; x.ident := id END ;
+		
+		IF sym = S.lparen THEN FormalParameters(tp) END ;
+		Check(S.semicolon); OpenScope; IncLev(1); CloneParameters(tp);
 
-		DeclarationSequence; x(B.Proc).decl := B.topScope.first;
+		DeclarationSequence(proc); x(B.Proc).decl := mod.topScope.first;
+		
 		IF sym = S.begin THEN
 			S.Get(sym); x(B.Proc).statseq := StatementSequence()
 		END ;
 		IF sym = S.return THEN
-			IF tp.base = NIL THEN S.Mark('not function proc') END;
-			S.Get(sym); ret := expression(); x(B.Proc).return := ret;
-			IF ret.type.form IN B.tStructs THEN S.Mark(msgIvlType) END
+			IF tp.base # NIL THEN retType := tp.base
+			ELSE retType := B.intType; S.Mark('not function proc')
+			END ;
+			S.Get(sym); y := expression();
+			
+			IF (retType = y.type) OR CompTypes(retType, y.type) THEN (*ok*)
+			ELSIF (retType = B.charType) & IsCharStr(y) THEN
+				y := arch.CharConstFromStr(y)
+			ELSE S.Mark('Invalid assignment')
+			END ;
+			x(B.Proc).return := y
 		ELSIF tp.base # NIL THEN MarkMissing(S.return)
 		END ;
-		B.CloseScope; B.IncLev(-1); Check(S.end);
+		
+		CloseScope; IncLev(-1); Check(S.end);
 		IF sym = S.ident THEN
 			IF (id # NIL) & (id.name # S.id) THEN
 				S.Mark('wrong procedure identifier')

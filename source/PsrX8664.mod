@@ -4,7 +4,7 @@ IMPORT
 	S := Scn, B := Base, B64 := BaseX8664, P := Psr;
 	
 VAR
-	mod*: B64.Module; arch: P.IArch;
+	mod: B64.Module; arch: P.IArch;
 	
 PROCEDURE Align(VAR a: INTEGER; align: INTEGER);
 BEGIN
@@ -12,6 +12,9 @@ BEGIN
 	ELSIF a < 0 THEN a := a DIV align * align
 	END
 END Align;
+
+(* -------------------------------------------------------------------------- *)
+(* Object *)
 
 PROCEDURE ZeroIntConst(): B.Const;
 	VAR x: B64.Const;
@@ -61,6 +64,64 @@ BEGIN
 	IF v THEN x.value := 1 ELSE x.value := 0 END ;
 	RETURN x
 END BoolConst;
+
+PROCEDURE Par(pt, ft: B.Type; varpar: BOOLEAN): B.Var;
+	VAR x: B64.Par;
+		proc, ftype: B64.Type; parSize: INTEGER;
+BEGIN
+	proc := pt(B64.Type); ftype := ft(B64.Type);
+	NEW(x); x.type := ft; x.varpar := varpar;
+	
+	x.adr := proc.parblksize + 16; parSize := 8;
+	IF ftype.openArray OR (varpar & ftype.form = B.tRec) THEN
+		IF ~ftype.untagged THEN parSize := 16 END
+	END ;
+	INC(proc.parblksize, parSize);
+	RETURN x
+END Par;
+
+PROCEDURE Var(t: B.Type; owner: B.Proc): B.Var;
+	VAR x: B64.Var; vt: B64.Type; proc: B64.Proc;
+		blksize: INTEGER;
+BEGIN
+	NEW(x); vt := t(B64.Type); x.type := t;
+	IF owner = NIL THEN
+		blksize := mod.varSize; Align(blksize, vt.align);
+		INC(blksize, vt.size); x.adr := -blksize;
+		IF blksize > B64.MaxSize THEN
+			blksize := 0;
+			S.Mark('global variables size limit reached')
+		END ;
+		mod.varSize := blksize
+	ELSE
+		proc := owner(B64.Proc); blksize := proc.locblksize;
+		Align(blksize, vt.align); INC(blksize, vt.size);
+		x.adr := -blksize;
+		IF blksize > B64.MaxLocBlkSize THEN
+			blksize := 0;
+			S.Mark('global variables size limit reached')
+		END ;
+		proc.locblksize := blksize
+	END ;
+	RETURN x
+END Var;
+
+PROCEDURE Proc(): B.Proc;
+	VAR x: B64.Proc;
+BEGIN
+	NEW(x); x.adr := 0; x.locblksize := 0;
+	RETURN x
+END Proc;
+
+PROCEDURE ClonePar(org: B.Object): B.Var;
+	VAR x: B64.Par;
+BEGIN
+	NEW(x); x^ := org(B64.Par);
+	RETURN x
+END Proc;
+
+(* -------------------------------------------------------------------------- *)
+(* Type *)
 
 PROCEDURE CheckArrayLen(len: B.Const);
 	VAR x: B64.Const;
@@ -217,6 +278,50 @@ BEGIN
 	ptr.base := rec
 END SetPointerBaseType;
 
+PROCEDURE ProcType(): B.Type;
+	VAR x: B64.Type;
+BEGIN
+	NEW(x); x.size := 8; x.align := 8; x.parblksize := 0;
+	x.nPtr := 0; x.nTraced := 0; x.nProc := 1;
+	RETURN x
+END ProcType;
+
+PROCEDURE FormalArrayType(): B.Type;
+	VAR x: B64.Type;
+BEGIN
+	NEW(x); x.len := -1; x.size := 16; x.align := 8;
+	x.nPtr := 0; x.nTraced := 0; x.nProc := 0;
+	RETURN x
+END FormalArrayType;
+
+PROCEDURE ParseFormalArrayFlags(t: B.Type; VAR sym: INTEGER);
+	VAR brak: BOOLEAN;
+	
+	PROCEDURE flag(arr: B64.Type; VAR sym: INTEGER);
+	BEGIN
+		IF S.id = 'untagged' THEN
+			arr.untagged := TRUE; arr.size := 8;
+			IF ~mod.system THEN S.Mark('must import SYSTEM') END
+		ELSE S.Mark('invalid flag')
+		END ;
+		S.Get(sym)
+	END flag;
+	
+BEGIN (* ParseFormalArrayFlags *)
+	IF (sym = S.lbrak) OR (sym = S.lbrace) THEN
+		brak := (sym = S.lbrak); S.Get(sym);
+		IF sym = S.ident THEN flag(t(B64.Type), sym) END ;
+		WHILE sym = S.comma DO S.Get(sym);
+			IF sym = S.ident THEN flag(t(B64.Type), sym)
+			ELSE MarkSflous(S.comma)
+			END
+		END ;
+		IF brak THEN Check(S.rbrak) ELSE Check(S.rbrace) END
+	END
+END ParseFormalArrayFlags;
+
+(* -------------------------------------------------------------------------- *)
+
 PROCEDURE Module*(): B64.Module;
 BEGIN
 	NEW(mod); B.mod := mod;
@@ -234,6 +339,10 @@ BEGIN
 	arch.Str := Str;
 	arch.NilConst := NilConst;
 	arch.BoolConst := BoolConst;
+	arch.Par := Par;
+	arch.Var := Var;
+	arch.Proc := Proc;
+	arch.ClonePar := ClonePar;
 	
 	arch.CheckArrayLen := CheckArrayLen;
 	arch.ArrayType := ArrayType;
@@ -244,5 +353,8 @@ BEGIN
 	arch.AllocRecordDesc := AllocRecordDesc;
 	arch.PointerType := PointerType;
 	arch.ParsePointerFlags := arch.ParsePointerFlags;
-	arch.SetPointerBaseType := SetPointerBaseType
+	arch.SetPointerBaseType := SetPointerBaseType;
+	arch.ProcType := ProcType;
+	arch.FormalArrayType := FormalArrayType;
+	arch.ParseFormalArrayFlags := ParseFormalArrayFlags
 END PsrX8664.
