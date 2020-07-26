@@ -5,7 +5,7 @@ IMPORT
 	
 TYPE
 	Type* = POINTER TO RECORD (B.Type)
-		untagged*, union*: BOOLEAN;
+		untagged*, union*, unsafe*: BOOLEAN;
 		len*, size*, align*, adr*: INTEGER;
 		nPtr*, nProc*, nTraced*: INTEGER
 	END ;
@@ -22,7 +22,7 @@ TYPE
 	END ;
 	
 	Module* = POINTER TO RECORD (B.Module)
-		tdescOff*: INTEGER;
+		tdescTableSize*: INTEGER;
 		strbuf*: B64.StrBuf
 	END ;
 

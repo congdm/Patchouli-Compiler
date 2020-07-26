@@ -23,12 +23,17 @@ TYPE
 		RecordType*: PROCEDURE(): B.Type;
 		ParseRecordFlags*: PROCEDURE(t: B.Type; VAR sym: INTEGER);
 		ExtendRecordType*: PROCEDURE(t: B.Type);
-		NewRecordFields*: PROCEDURE(t: B.Type; fst: B.Ident; ft: B.Type)
+		NewRecordFields*: PROCEDURE(t: B.Type; fst: B.Ident; ft: B.Type);
+		AllocRecordDesc*: PROCEDURE(t: B.Type);
+		PointerType*: PROCEDURE(): B.Type;
+		ParsePointerFlags*: PROCEDURE(t: B.Type; VAR sym: INTEGER);
+		SetPointerBaseType*: PROCEDURE(t, bt: B.Type)
 	END ;
 
 VAR
 	mod: B.Module; sym: INTEGER;
 	undefList: UndefPtrList;
+	externalIdentNotFound: B.Ident;
 	
 	type0: PROCEDURE(): B.Type;
 	expression0: PROCEDURE(): B.Object;
@@ -266,11 +271,6 @@ PROCEDURE StrToChar(x: B.Object): B.Object;
 	RETURN B.NewConst(B.charType, ORD(mod.strbuf[x(B.Str).bufpos]))
 END StrToChar;
 
-PROCEDURE ToggleUntracedFlag(ptr: B.Type);
-BEGIN
-	CheckSYSTEM; ptr.nTraced := 0
-END ToggleUntracedFlag;
-
 (* -------------------------------------------------------------------------- *)
 (* undef pointers list *)
 
@@ -288,10 +288,8 @@ BEGIN
 	WHILE (undef # NIL) & (undef.name # recName) DO
 		prev := undef; undef := undef.next
 	END;
-	IF undef # NIL THEN undef.tp.base := rec;
-		IF ~rec.untagged THEN (*nothing*)
-		ELSE ToggleUntracedFlag(undef.tp)
-		END ;
+	IF undef # NIL THEN
+		arch.SetPointerBaseType(undef.tp, rec);
 		IF prev # NIL THEN prev.next := undef.next
 		ELSE undefList := undef.next
 		END
@@ -355,7 +353,7 @@ BEGIN
 			mod := x.obj(B.Module); x := mod.first;
 			WHILE (x # NIL) & (x.name # id) DO x := x.next END ;
 			IF x # NIL THEN (*found*) INC(x.nUsed)
-			ELSE x := B.externalIdentNotFound
+			ELSE x := externalIdentNotFound
 			END
 		ELSE MarkMissing(S.ident)
 		END
@@ -367,7 +365,7 @@ PROCEDURE qualident(): B.Object;
 	VAR id: B.Ident; x: B.Object;
 BEGIN id := qualident0();
 	IF id # NIL THEN
-		IF id # B.externalIdentNotFound THEN
+		IF id # externalIdentNotFound THEN
 			IF id.obj # NIL THEN x := id.obj
 			ELSE S.Mark('identifier not defined yet')
 			END
@@ -1172,55 +1170,26 @@ BEGIN S.Get(sym);
 	END
 END FormalParameters;
 
-PROCEDURE PointerFlags(ptr: B.Type);
-	VAR brak: BOOLEAN;
-	
-	PROCEDURE flag(ptr: B.Type);
-	BEGIN
-		IF (S.id = 'UNSAFE') OR (S.id = 'unsafe') THEN
-			S.Mark('UNSAFE flag is not supported yet')
-		ELSIF (S.id = 'UNTRACED') OR (S.id = 'untraced') THEN
-			ToggleUntracedFlag(ptr)
-		ELSE S.Mark('invalid flag')
-		END ;
-		S.Get(sym)
-	END flag;
-	
-BEGIN (* PointerFlags *)
-	IF (sym = S.lbrak) OR (sym = S.lbrace) THEN
-		brak := sym = S.lbrak; S.Get(sym);
-		IF sym = S.ident THEN flag(ptr) END ;
-		WHILE sym = S.comma DO S.Get(sym);
-			IF sym = S.ident THEN flag(ptr) ELSE MarkSflous(S.comma) END
-		END ;
-		IF brak THEN Check(S.rbrak) ELSE Check(S.rbrace) END
-	END
-END PointerFlags;
-
-PROCEDURE PointerType(typeObj: B.TypeObj): B.Type;
-	VAR ptr, b: B.Type; id: S.Ident; x: B.Ident;
+PROCEDURE PointerType(defId: B.Ident): B.Type;
+	VAR ptr, b: B.Type; name: S.Ident; x: B.Ident;
 BEGIN
-	B.NewPointer(ptr); S.Get(sym); PointerFlags(ptr); Check(S.to);
-	IF typeObj # NIL THEN typeObj.type := ptr END ;
-	IF sym = S.ident THEN id := S.id; x := qualident0();
+	ptr := arch.PointerType(); InitNewType(ptr, B.tPointer);
+	S.Get(sym); arch.ParsePointerFlags(ptr); Check(S.to);
+	IF defId # NIL THEN defId.obj := ptr END ;
+	IF sym = S.ident THEN name := S.id; x := qualident0();
 		IF x # NIL THEN
 			IF x.obj # NIL THEN CheckTypeObj(x.obj, b);
-				IF b.form = B.tRec THEN ptr.base := b
+				IF b.form = B.tRec THEN arch.SetPointerBaseType(ptr, b)
 				ELSE S.Mark('not a record type')
 				END
-			ELSIF x = B.externalIdentNotFound THEN
-				S.Mark('external identifier not found')
+			ELSIF x = externalIdentNotFound THEN
+				S.Mark('identifier does not exist')
 			ELSE S.Mark('identifier not defined yet')
 			END
-		ELSE (* undefined base type *) AddUndef(ptr, id)
+		ELSE (* undefined base type *) AddUndef(ptr, name)
 		END
-	ELSIF sym = S.record THEN ptr.base := type0()
+	ELSIF sym = S.record THEN b := type0(); arch.SetPointerBaseType(ptr, b)
 	ELSE S.Mark('base type?')
-	END ;
-	IF ptr.base # NIL THEN
-		IF ~ptr.base.untagged THEN (*nothing*)
-		ELSE ToggleUntracedFlag(ptr)
-		END
 	END ;
 	RETURN ptr
 END PointerType;
@@ -1324,7 +1293,7 @@ BEGIN
 			IF sym # S.pointer THEN
 				xt := type(); id.obj := xt;
 				IF xt.form = B.tRec THEN FixUndef(xt, id.name) END
-			ELSE xt := PointerType(id.obj)
+			ELSE xt := PointerType(id)
 			END ;
 			IF xt.ident = NIL THEN xt.ident := id END ;
 			Check(S.semicolon)
@@ -1440,5 +1409,6 @@ END Module;
 
 BEGIN
 	type0 := type; expression0 := expression;
-	StatementSequence0 := StatementSequence
+	StatementSequence0 := StatementSequence;
+	NEW(externalIdentNotFound)
 END Psr.

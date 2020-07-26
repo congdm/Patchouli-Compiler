@@ -85,7 +85,8 @@ END ArrayType;
 PROCEDURE RecordType(): B.Type;
 	VAR x: B64.Type;
 BEGIN
-	NEW(x); x.size := 0; x.align := 0; x.adr := mod.tdescOff;
+	NEW(x); x.union := FALSE; x.untagged := FALSE;
+	x.size := 0; x.align := 0; x.adr := -1;
 	x.nPtr := 0; x.nTraced := 0; x.nProc := 0;
 	RETURN x
 END RecordType;
@@ -97,10 +98,10 @@ PROCEDURE ParseRecordFlags(t: B.Type; VAR sym: INTEGER);
 	BEGIN
 		IF S.id = 'union' THEN
 			IF ~mod.system THEN S.Mark('must import SYSTEM') END ;
-			rec.union := TRUE; rec.untagged := TRUE; rec.adr := -1
+			rec.union := TRUE; rec.untagged := TRUE
 		ELSIF S.id = 'untagged' THEN
 			IF ~mod.system THEN S.Mark('must import SYSTEM') END ;
-			rec.untagged := TRUE; rec.adr := -1
+			rec.untagged := TRUE
 		ELSE S.Mark('invalid flag')
 		END ;
 		S.Get(sym)
@@ -123,12 +124,14 @@ PROCEDURE ExtendRecordType(t: B.Type);
 	VAR bt, rec: B64.Type;
 BEGIN
 	rec := t(B64.Type); bt := t.base(B64.Type);
-	IF ~bt.union & ~bt.untagged THEN
-		rec.align := bt.align; rec.size := bt.size0;
+	IF bt.untagged THEN S.Mark('untagged record cannot be base type')
+	ELSIF rec.untagged THEN S.Mark('untagged record cannot have base type')
+	ELSE
+		rec.align := bt.align;
+		rec.size := bt.size;
 		rec.nPtr := bt.nPtr;
 		rec.nTraced := bt.nTraced;
-		rec.nProc := bt.nProc
-	ELSE S.Mark('not valid base type')
+		rec.nProc := bt.nProc 
 	END
 END ExtendRecordType;
 
@@ -156,11 +159,69 @@ BEGIN
 	END
 END NewRecordFields;
 
+PROCEDURE AllocRecordDesc(t: B.Type);
+	VAR rec: B64.Type; tdSize: INTEGER;
+BEGIN
+	rec := t(B64.Type);
+	IF ~rec.untagged THEN
+		tdSize := (24 + 8*(B.MaxExt + rec.nPtr)) DIV 16 * 16;
+		rec.adr := mod.tdescTableSize; INC(mod.tdescTableSize, tdSize)
+	END
+END AllocRecordDesc;
+
+PROCEDURE PointerType(): B.Type;
+	VAR x: B64.Type;
+BEGIN
+	NEW(x); x.untraced := FALSE; x.unsafe := FALSE;
+	x.size := 8; x.align := 8;
+	x.nPtr := 1; x.nTraced := 1; x.nProc := 0;
+	RETURN x
+END PointerType;
+
+PROCEDURE ParsePointerFlags(t: B.Type; VAR sym: INTEGER);
+	VAR brak: BOOLEAN;
+	
+	PROCEDURE flag(ptr: B64.Type; VAR sym: INTEGER);
+	BEGIN
+		IF (S.id = 'UNSAFE') OR (S.id = 'unsafe') THEN
+			IF ~mod.system THEN S.Mark('must import SYSTEM') END ;
+			ptr.unsafe := TRUE; ptr.nTraced := 0
+		ELSIF (S.id = 'UNTRACED') OR (S.id = 'untraced') THEN
+			IF ~mod.system THEN S.Mark('must import SYSTEM') END ;
+			ptr.nTraced := 0
+		ELSE S.Mark('invalid flag')
+		END ;
+		S.Get(sym)
+	END flag;
+	
+BEGIN (* ParsePointerFlags *)
+	IF (sym = S.lbrak) OR (sym = S.lbrace) THEN
+		brak := (sym = S.lbrak); S.Get(sym);
+		IF sym = S.ident THEN flag(t(B64.Type), sym) END ;
+		WHILE sym = S.comma DO S.Get(sym);
+			IF sym = S.ident THEN flag(t(B64.Type), sym)
+			ELSE MarkSflous(S.comma)
+			END
+		END ;
+		IF brak THEN Check(S.rbrak) ELSE Check(S.rbrace) END
+	END
+END ParsePointerFlags;
+
+PROCEDURE SetPointerBaseType(t, bt: B.Type);
+	VAR ptr, rec: B64.Type;
+BEGIN
+	ptr := t(B64.Type); rec := bt(B64.Type);
+	IF rec.untagged & ~ptr.unsafe THEN
+		S.Mark('pointer must be marked as unsafe to have untagged base type')
+	END ;
+	ptr.base := rec
+END SetPointerBaseType;
+
 PROCEDURE Module*(): B64.Module;
 BEGIN
 	NEW(mod); B.mod := mod;
 	NEW(mod.strbuf); mod.strbuf.size := 0;
-	mod.tdescOff := 0;
+	mod.tdescTableSize := 0;
 	P.Module(arch);
 	RETURN mod
 END Module;
@@ -179,5 +240,9 @@ BEGIN
 	arch.RecordType := RecordType;
 	arch.ParseRecordFlags := ParseRecordFlags;
 	arch.ExtendRecordType := ExtendRecordType;
-	arch.NewRecordFields := NewRecordFields
+	arch.NewRecordFields := NewRecordFields;
+	arch.AllocRecordDesc := AllocRecordDesc;
+	arch.PointerType := PointerType;
+	arch.ParsePointerFlags := arch.ParsePointerFlags;
+	arch.SetPointerBaseType := SetPointerBaseType
 END PsrX8664.
