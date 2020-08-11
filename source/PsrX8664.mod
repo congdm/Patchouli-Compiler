@@ -16,17 +16,19 @@ END Align;
 (* -------------------------------------------------------------------------- *)
 (* Object *)
 
-PROCEDURE ZeroIntConst(): B.Const;
-	VAR x: B64.Const;
+PROCEDURE ZeroIntConst(): B.Object;
+	VAR x: B64.Object;
 BEGIN
-	NEW(x); x.type := B.intType; x.value := 0;
+	NEW(x); P.InitObject(x);
+	x.isConst := TRUE; x.type := B.intType; x.value := 0;
 	RETURN x
 END ZeroIntConst;
 
-PROCEDURE Const(t: B.Type): B.Const;
-	VAR x: B64.Const;
+PROCEDURE Const(t: B.Type): B.Object;
+	VAR x: B64.Object;
 BEGIN
-	NEW(x); x.type := t;
+	NEW(x); P.InitObject(x);
+	x.isConst := TRUE; x.type := t;
 	IF t = B.intType THEN x.value := S.ival
 	ELSIF t = B.realType THEN x.value := S.ival
 	ELSE ASSERT(FALSE)
@@ -34,57 +36,73 @@ BEGIN
 	RETURN x
 END Const;
 
-PROCEDURE Str(str: S.Str; slen: INTEGER): B.Var;
-	VAR x: B64.Str; i, adr: INTEGER;
+PROCEDURE Str(str: S.Str; slen: INTEGER): B.Object;
+	VAR x: B64.Object; i, adr: INTEGER;
 BEGIN
-	NEW(x); x.type := B.strType; x.len := slen;
-	IF mod.curLev >= -1 (* not imported str, need to alloc buffer *) THEN 
-		IF mod.strbuf.size + slen >= LEN(mod.strbuf.buf) THEN
+	NEW(x); P.InitObject(x);
+	x.isConst := TRUE; x.isStr := TRUE;
+	x.type := B.strType; x.strlen := slen;
+	IF mod.curLev >= 0 (* not imported str, need to alloc buffer *) THEN 
+		IF mod.strbufsize + slen >= LEN(mod.strbuf) THEN
 			S.Mark('too many strings'); x.adr := -1
 		ELSE
-			adr := mod.strbuf.size; x.adr := adr; INC(mod.strbuf.size, slen);
-			FOR i := 0 TO slen-1 DO mod.strbuf.buf[adr+i] := str[i] END
+			adr := mod.strbufsize; x.adr := adr; INC(mod.strbufsize, slen);
+			FOR i := 0 TO slen-1 DO mod.strbuf[adr+i] := str[i] END
 		END
-	ELSE x.bufpos := -1
+	ELSE x.adr := -1
 	END ;
 	RETURN x
 END Str;
 
-PROCEDURE NilConst(): B.Const;
-	VAR x: B64.Const;
+PROCEDURE NilConst(): B.Object;
+	VAR x: B64.Object;
 BEGIN
-	NEW(x); x.type := B.nilType; x.value := 0;
+	NEW(x); P.InitObject(x);
+	x.isConst := TRUE; x.type := B.nilType; x.value := 0;
 	RETURN x
 END NilConst;
 
-PROCEDURE BoolConst(v: BOOLEAN): B.Const;
-	VAR x: B64.Const;
+PROCEDURE BoolConst(v: BOOLEAN): B.Object;
+	VAR x: B64.Object;
 BEGIN
-	NEW(x); x.type := B.boolType;
+	NEW(x); P.InitObject(x);
+	x.isConst := TRUE; x.type := B.boolType;
 	IF v THEN x.value := 1 ELSE x.value := 0 END ;
 	RETURN x
 END BoolConst;
 
-PROCEDURE Par(pt, ft: B.Type; varpar: BOOLEAN): B.Var;
-	VAR x: B64.Par;
+PROCEDURE CharConst(ch: CHAR): B.Object;
+	VAR x: B64.Object;
+BEGIN
+	NEW(x); P.InitObject(x);
+	x.isConst := TRUE; x.type := B.charType; x.value := ORD(ch);
+	RETURN x
+END CharConst;
+
+PROCEDURE Par(pt, ft: B.Type; varpar: BOOLEAN): B.Object;
+	VAR x: B64.Object;
 		proc, ftype: B64.Type; parSize: INTEGER;
 BEGIN
 	proc := pt(B64.Type); ftype := ft(B64.Type);
-	NEW(x); x.type := ft; x.varpar := varpar;
+	
+	NEW(x); P.InitObject(x);
+	x.isVar := TRUE; x.isParam := TRUE;
+	x.type := ft; x.varpar := varpar;
 	
 	x.adr := proc.parblksize + 16; parSize := 8;
-	IF ftype.openArray OR (varpar & ftype.form = B.tRec) THEN
+	IF ftype.isOpenArray OR (varpar & ftype.form = B.tRec) THEN
 		IF ~ftype.untagged THEN parSize := 16 END
 	END ;
 	INC(proc.parblksize, parSize);
 	RETURN x
 END Par;
 
-PROCEDURE Var(t: B.Type; owner: B.Proc): B.Var;
-	VAR x: B64.Var; vt: B64.Type; proc: B64.Proc;
+PROCEDURE Var(t: B.Type; owner: B.Object): B.Object;
+	VAR x: B64.Var; vt: B64.Type; proc: B64.Object;
 		blksize: INTEGER;
 BEGIN
-	NEW(x); vt := t(B64.Type); x.type := t;
+	NEW(x); P.InitObject(x);
+	x.isVar := TRUE; vt := t(B64.Type); x.type := t;
 	IF owner = NIL THEN
 		blksize := mod.varSize; Align(blksize, vt.align);
 		INC(blksize, vt.size); x.adr := -blksize;
@@ -94,7 +112,7 @@ BEGIN
 		END ;
 		mod.varSize := blksize
 	ELSE
-		proc := owner(B64.Proc); blksize := proc.locblksize;
+		proc := owner(B64.Object); blksize := proc.locblksize;
 		Align(blksize, vt.align); INC(blksize, vt.size);
 		x.adr := -blksize;
 		IF blksize > B64.MaxLocBlkSize THEN
@@ -106,35 +124,39 @@ BEGIN
 	RETURN x
 END Var;
 
-PROCEDURE Proc(): B.Proc;
+PROCEDURE Proc(): B.Object;
 	VAR x: B64.Proc;
 BEGIN
-	NEW(x); x.adr := 0; x.locblksize := 0;
+	NEW(x); P.InitObject(x); 
+	x.isProc := TRUE; x.adr := 0; x.locblksize := 0;
 	RETURN x
 END Proc;
 
-PROCEDURE ClonePar(org: B.Object): B.Var;
-	VAR x: B64.Par;
+PROCEDURE ClonePar(org: B.Object): B.Object;
+	VAR x: B64.Object;
 BEGIN
-	NEW(x); x^ := org(B64.Par);
+	NEW(x); P.InitObject(x);
+	x^ := org(B64.Object)^;
 	RETURN x
-END Proc;
+END ClonePar;
 
 (* -------------------------------------------------------------------------- *)
 (* Type *)
 
-PROCEDURE CheckArrayLen(len: B.Const);
-	VAR x: B64.Const;
-BEGIN
-	x := len(B64.Const);
-	IF x.value >= 0 THEN (*ok*) ELSE S.Mark('invalid array length') END
-END CheckArrayLen;
-
-PROCEDURE ArrayType(len: B.Const; bt: B.Type): B.Type;
+PROCEDURE ArrayType(len: B.Object; bt: B.Type): B.Type;
 	VAR x, b: B64.Type;
-BEGIN NEW(x);
-	x.len := len(B64.Const).value;
-	b := bt(B64.Type); x.base := bt;
+	
+	PROCEDURE ArrayLength(x: B64.Type; len: B64.Object);
+	BEGIN
+		IF len.value >= 0 THEN x.len := len.value
+		ELSE S.Mark('invalid length'); x.len := 0
+		END
+	END ArrayLength;
+	
+BEGIN (* ArrayType *)
+	NEW(x); P.InitType(x, B.tArray);
+	b := bt(B64.Type); x.base := b;
+	ArrayLength(x, len);
 	x.size := b.size * x.len;
 	x.align := b.align;
 	x.nPtr := b.nPtr * x.len;
@@ -146,7 +168,8 @@ END ArrayType;
 PROCEDURE RecordType(): B.Type;
 	VAR x: B64.Type;
 BEGIN
-	NEW(x); x.union := FALSE; x.untagged := FALSE;
+	NEW(x); P.InitType(x, B.tRec);
+	x.union := FALSE; x.untagged := FALSE;
 	x.size := 0; x.align := 0; x.adr := -1;
 	x.nPtr := 0; x.nTraced := 0; x.nProc := 0;
 	RETURN x
@@ -332,8 +355,6 @@ BEGIN
 END Module;
 
 BEGIN
-	NEW(arch);
-	
 	arch.Const := Const;
 	arch.ZeroIntConst := ZeroIntConst;
 	arch.Str := Str;

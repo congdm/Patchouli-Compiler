@@ -4,11 +4,8 @@ IMPORT
 	SYSTEM, S := Scn;
 
 CONST
-	MaxExt* = 7; MaxRecTypes* = 512;
-	MaxImpMod* = 256; MaxExpTypes* = 1024; MaxModLev* = 255;
-	true* = 1; false* = 0;
-	MaxInt = 9223372036854775807; MinInt = -MaxInt-1;
-
+	MaxExtension* = 7;
+	
 	(* Type forms *)
 	tInt* = 0; tBool* = 1; tSet* = 2; tChar* = 3; tReal* = 4;
 	tPtr* = 5; tProc* = 6; tArray* = 7; tRec* = 8; tStr* = 9; tNil* = 10;
@@ -21,7 +18,7 @@ CONST
 	tAdds* = {tInt, tReal, tSet};
 	tTimes* = {tInt, tReal, tSet};
 	tRdivs* = {tReal, tSet};
-
+	
 	(* Op codes *)
 	opCall* = 100H; opPar* = 101H; opSproc* = 102H; opBitset* = 104H;
 	opABS* = 110H; opODD* = 111H; opLEN* = 112H;
@@ -32,78 +29,55 @@ CONST
 	opINC* = 130H; opDEC* = 131H; opINCL* = 132H; opEXCL* = 133H;
 	opNEW* = 134H; opASSERT* = 135H; opPACK* = 136H; opUNPK* = 137H;
 	opGET* = 138H; opPUT* = 139H; opCOPY* = 140H;
-	
-	(* Object classes for symbol files *)
-	cNull* = -1; cModule* = 0; cType* = 1;
-	cNode* = 2; cVar* = 3; cConst* = 4; cProc* = 5;
-	cField* = 6; cSProc* = 7; cSFunc* = 8;
 
 TYPE
-	ModuleKey* = ARRAY 2 OF INTEGER;
-	ModuleId* = RECORD context*, name*: S.Ident END ;
-
-	Type* = POINTER TO TypeDesc;
 	Object* = POINTER TO ObjDesc;
+	Type* = POINTER TO TypeDesc;
 	Node* = POINTER TO NodeDesc;
 	Ident* = POINTER TO IdentDesc;
 	Scope* = POINTER TO ScopeDesc;
 	
-	ObjDesc* = RECORD ident*: Ident; type*: Type END ;
-	
-	Const* = POINTER TO RECORD (Object) END ;
-	Var* = POINTER TO RECORD (Object) ronly*: BOOLEAN; lev*: INTEGER END ;
-	Field* = POINTER TO RECORD (Object) END ;
-	SProc* = POINTER TO RECORD (Object) id*: INTEGER END ;
-
-	Proc* = POINTER TO RECORD (Object)
-		lev*: INTEGER; decl*: Ident; statseq*: Node; return*: Object
-	END;
-
-	ObjList* = POINTER TO RECORD obj*: Object; next*: ObjList END ;
-	TypeList* = POINTER TO RECORD type*: Type; next*: TypeList END ;
-	ProcList* = POINTER TO RECORD obj*: Proc; next*: ProcList END ;
-	StrList* = POINTER TO RECORD obj*: Str; next*: StrList END ;
-	
-	ImportedModule* = POINTER TO RECORD (ObjDesc)
-		export*: BOOLEAN;
-		id*: ModuleId; key*: ModuleKey;
-		first*: Ident; 
-		next*: Module
+	ObjDesc* = RECORD
+		ident*: Ident;
+		(* flags for identifying object's classes *)
+		isType*, isConst*, isStr*, isVar*: BOOLEAN;
+		isParam*, isProc*, isField*, isSProc*: BOOLEAN;
+		isCharStr*, isExtSProc*: BOOLEAN;
+		(* fields for various classes of objects *)
+		type*: Type;
+		ronly*, varpar*: BOOLEAN;
+		lev*, spos*: INTEGER;
+		dsc*: Ident
 	END ;
 	
-	TypeDesc* = RECORD (ObjDesc)
-		predef*, openArray*: BOOLEAN; (* flags *)	
-		(* mod - module of origin, ref - export id *)
-		mod*: ImportedModule; ref*: INTEGER;
-		(* --- *)
-		form*: INTEGER;
-		recLev*: INTEGER; base*: Type;
-		fields*: Ident; nfpar*: INTEGER
+	TypeDesc* = RECORD
+		predef*, isOpenArray*: BOOLEAN;
+		base*: Type;
+		lev*, form*, nfpar*: INTEGER;
+		fields*: Ident; obj*: Object
 	END ;
-
-	NodeDesc = RECORD (ObjDesc)
-		ronly*: BOOLEAN;
+	
+	NodeDesc* = RECORD
+		var*, ronly*, varpar*: BOOLEAN;
 		op*, spos*: INTEGER;
-		left*, right*: Object
+		left*, right*: Node; obj*: Object; type*: Type
 	END ;
-
+	
 	IdentDesc = RECORD
-		export*: BOOLEAN; spos*, nUsed*: INTEGER;
+		export*, used*: BOOLEAN; spos*: INTEGER;
 		name*: S.Ident; obj*: Object; next*: Ident
 	END ;
+	
 	ScopeDesc = RECORD first*, last: Ident; dsc*: Scope END ;
-
+	
+	ModuleId* = RECORD context*, name*: S.IdStr END ;
+	
 	Module* = POINTER TO RECORD
 		id*: ModuleId; arch*: INTEGER;
 		system*: BOOLEAN; (* flags *)
 		
 		init*: Node; universe*: Scope;
-		curLev*: INTEGER; topScope*: B.Scope;
-		expno*, refno*: INTEGER;
-		
-		strList*: StrList; recList*: TypeList;
-		expList*, lastExp*: ObjList;
-		imodList*: Module
+		curLev*: INTEGER; topScope*: Scope
 	END ;
 
 VAR
@@ -119,163 +93,7 @@ VAR
 	
 	ExportType0: PROCEDURE(typ: Type);
 	ImportType0: PROCEDURE(VAR typ: Type; imod: Module);
-
-(* Symbols table *)
-
-PROCEDURE OpenScope*;
-	VAR scp: Scope;
-BEGIN
-	NEW(scp); scp.dsc := topScope; topScope := scp
-END OpenScope;
-
-PROCEDURE CloseScope*;
-BEGIN
-	topScope := topScope.dsc
-END CloseScope;
-
-PROCEDURE IncLev*(x: INTEGER);
-BEGIN
-	curLev := curLev + x
-END IncLev;
-
-PROCEDURE NewIdent0*(VAR ident: Ident; name: S.Ident);
-	VAR prev, x: Ident;
-BEGIN x := topScope.first;
-	NEW(ident); ident.export := FALSE; ident.name := name; ident.nUsed := 0;
-	WHILE x # NIL DO
-		IF x # NIL THEN S.Mark('duplicated ident') END ;
-		prev := x; x := x.next
-	END ;
-	IF prev # NIL THEN prev.next := ident ELSE topScope.first := ident END
-END NewIdent0;
-
-PROCEDURE NewIdent*(VAR ident: Ident);
-BEGIN NewIdent0(ident, S.id); ident.spos := S.symPos
-END NewIdent;
-
-PROCEDURE InitNewObject(x: Object);
-BEGIN
-	(* placeholder *)
-END InitNewObject;
-
-PROCEDURE NewConst*(t: Type; val: INTEGER): Const;
-	VAR c: Const;
-BEGIN
-	NEW(c); InitNewObject(c);
-	c.type := t; c.value := val;
-	RETURN c
-END NewConst;
-
-PROCEDURE NewTypeObj*(): TypeObj;
-	VAR t: TypeObj;
-BEGIN
-	NEW(t); InitNewObject(t);
-	RETURN t
-END NewTypeObj;
-
-PROCEDURE NewVar*(t: Type): Var;
-	VAR v: Var;
-BEGIN
-	NEW(v); InitNewObject(v);
-	v.type := t; v.lev := curLev; v.ronly := FALSE;
-	RETURN v
-END NewVar;
-
-PROCEDURE NewPar*(proc: Type; t: Type; varpar: BOOLEAN): Par;
-	VAR p: Par;
-BEGIN
-	NEW(p); InitNewObject(p);
-	p.type := t; p.lev := curLev;
-	p.varpar := varpar; INC(proc.len);
-	p.ronly := ~varpar & (t.form IN tStructs);
-	RETURN p
-END NewPar;
-
-PROCEDURE NewField*(VAR rec: TypeDesc; t: Type): Field;
-	VAR f: Field;
-BEGIN
-	NEW(f); InitNewObject(f); f.type := t;
-	INC(rec.nPtr, t.nPtr);
-	INC(rec.nProc, t.nProc);
-	INC(rec.nTraced, t.nTraced)
-	RETURN f
-END NewField;
-
-PROCEDURE NewStr*(str: ARRAY OF CHAR; slen: INTEGER): Str;
-	VAR x: Str; i: INTEGER; p: StrList;
-BEGIN
-	NEW(x); InitNewObject(x); x.ronly := TRUE;
-	x.type := strType; x.lev := curLev; x.len := slen;
-	IF x.lev >= -1 (* not imported str, need to alloc buffer *) THEN 
-		IF curmod.strbufSize + slen >= LEN(curmod.strbuf) THEN
-			S.Mark('too many strings'); x.bufpos := -1
-		ELSE x.bufpos := curmod.strbufSize; INC(curmod.strbufSize, slen);
-			FOR i := 0 TO slen-1 DO curmod.strbuf[x.bufpos+i] := str[i] END ;
-			NEW(p); p.obj := x; p.next := curmod.strList; curmod.strList := p
-		END
-	ELSE x.bufpos := -1
-	END ;
-	RETURN x
-END NewStr;
-
-PROCEDURE NewProc*(): Proc;
-	VAR x: Proc;
-BEGIN
-	NEW(x); InitNewObject(x); x.lev := curLev;
-	RETURN x
-END NewProc;
-
-(* types *)
-
-PROCEDURE NewType*(VAR t: Type; form: INTEGER);
-BEGIN
-	NEW(t); t.form := form; t.predef := FALSE; t.ref := -1;
-	t.union := FALSE; t.untagged := FALSE;
-	t.nPtr := 0; t.nProc := 0; t.nTraced := 0
-END NewType;
-
-PROCEDURE NewArray*(VAR t: Type; len: INTEGER);
-BEGIN
-	NewType(t, tArray); t.len := len;
-END NewArray;
-
-PROCEDURE CompleteArray*(VAR t: TypeDesc);
-BEGIN
-	IF t.base.form = tArray THEN CompleteArray(t.base^) END ;
-	t.nPtr := t.len * t.base.nPtr;
-	t.nTraced := t.len * t.base.nTraced;
-	t.nProc := t.len * t.base.nProc
-END CompleteArray;
-
-PROCEDURE NewRecord*(VAR t: Type);
-	VAR p: TypeList;
-BEGIN
-	NewType(t, tRec); t.len := 0;
-	IF curLev >= 0 THEN
-		NEW(p); p.type := t; p.next := curmod.recList; curmod.recList := p
-	ELSIF curLev = -1 THEN ASSERT(FALSE)
-	END
-END NewRecord;
-
-PROCEDURE ExtendRecord*(VAR rec: TypeDesc);
-	VAR base: Type;
-BEGIN
-	IF rec.base # NIL THEN base := rec.base;
-		rec.len := base.len + 1; rec.nPtr := base.nPtr;
-		rec.nTraced := base.nTraced; rec.nProc := base.nProc
-	END
-END ExtendRecord;
-
-PROCEDURE NewPointer*(VAR t: Type);
-BEGIN
-	NewType(t, tPtr); t.nPtr := 1; t.nTraced := 1
-END NewPointer;
-
-PROCEDURE NewProcType*(VAR t: Type);
-BEGIN
-	NewType(t, tProc); t.len := 0; t.nProc := 1
-END NewProcType;
-
+	
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 (* Utilities *)

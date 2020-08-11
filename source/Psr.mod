@@ -9,23 +9,30 @@ CONST
 TYPE
 	UndefPtrList = POINTER TO RECORD
 		name: S.Ident; tp: B.Type; next: UndefPtrList
-	END;
+	END ;
 	
-	IArch* = POINTER TO RECORD
-		Const*: PROCEDURE(t: B.Type): B.Const;
-		ZeroIntConst*: PROCEDURE(): B.Const;
-		Str*: PROCEDURE(str: S.Str; slen: INTEGER): B.Var;
-		NilConst*: PROCEDURE(): B.Const;
-		BoolConst*: PROCEDURE(v: BOOLEAN): B.Const;
-		CharConstFromStr*: PROCEDURE(str: B.Var): B.Const;
+	TypeCastList = POINTER TO RECORD
+		node: B.Node; type: B.Type; next: TypeCastList
+	END ;
+	
+	IArch* = RECORD
+		(* const creation *)
+		Const*: PROCEDURE(type: B.Type): B.Object;
+		ZeroIntConst*: PROCEDURE(): B.Object;
+		Str*: PROCEDURE(str: S.Str; slen: INTEGER): B.Object;
+		NilConst*: PROCEDURE(): B.Object;
+		BoolConst*: PROCEDURE(v: BOOLEAN): B.Object;
+		CharConst*: PROCEDURE(ch: CHAR): B.Object;
 		
-		Par*: PROCEDURE(pt, ft: B.Type; varpar: BOOLEAN): B.Var;
-		Var*: PROCEDURE(t: B.Type; owner: B.Proc): B.Var;
-		Proc*: PROCEDURE(): B.Proc;
-		ClonePar*: PROCEDURE(org: B.Object): B.Var;
+		(* object creation *)
+		Par*: PROCEDURE(pt, ft: B.Type; varpar: BOOLEAN): B.Object;
+		Var*: PROCEDURE(t: B.Type; owner: B.Proc): B.Object;
+		Proc*: PROCEDURE(): B.Object;
+		ClonePar*: PROCEDURE(org: B.Object): B.Object;
+		Node*: PROCEDURE(op: INTEGER): B.Object;
 		
-		CheckArrayLen*: PROCEDURE(len: B.Const);
-		ArrayType*: PROCEDURE(len: B.Const; bt: B.Type): B.Type;
+		(* type creation *)
+		ArrayType*: PROCEDURE(len: B.Object; bt: B.Type): B.Type;
 		RecordType*: PROCEDURE(): B.Type;
 		ParseRecordFlags*: PROCEDURE(t: B.Type; VAR sym: INTEGER);
 		ExtendRecordType*: PROCEDURE(t: B.Type);
@@ -33,21 +40,57 @@ TYPE
 		AllocRecordDesc*: PROCEDURE(t: B.Type);
 		PointerType*: PROCEDURE(): B.Type;
 		ParsePointerFlags*: PROCEDURE(t: B.Type; VAR sym: INTEGER);
-		SetPointerBaseType*: PROCEDURE(t, bt: B.Type)
+		SetPointerBaseType*: PROCEDURE(t, bt: B.Type);
 		ProcType*: PROCEDURE(): B.Type;
 		FormalArrayType*: PROCEDURE(): B.Type;
-		ParseFormalArrayFlags*: PROCEDURE(t: B.Type; VAR sym: INTEGER)
+		ParseFormalArrayFlags*: PROCEDURE(t: B.Type; VAR sym: INTEGER);
+		
+		(* set/get properties *)
+		SetBaseType*: PROCEDURE(t, bt: B.Type);
+		GetBaseType*: PROCEDURE(t: B.Type): B.Type;
 	END ;
 
 VAR
 	mod: B.Module; sym: INTEGER;
 	undefList: UndefPtrList;
 	externalIdentNotFound: B.Ident;
+	typeCastStack: TypeCastList;
 	
 	type0: PROCEDURE(): B.Type;
 	expression0: PROCEDURE(): B.Object;
 	StatementSequence0: PROCEDURE(): B.Node;	
 	arch: IArch;
+
+(* -------------------------------------------------------------------------- *)
+
+PROCEDURE InitObject*(x: B.Object);
+BEGIN
+	x.isType := FALSE;
+	x.isConst := FALSE;
+	x.isStr := FALSE;
+	x.isVar := FALSE;
+	x.isParam := FALSE;
+	x.isProc := FALSE;
+	x.isField := FALSE;
+	x.isSProc := FALSE;
+	
+	x.isCharStr := FALSE;
+	x.isExtSProc := FALSE;
+	
+	x.ronly := FALSE;
+	x.varpar := FALSE;
+	x.lev := mod.curLev;
+	x.spos := S.symPos
+END InitObject;
+
+PROCEDURE InitType*(x: B.Type; form: INTEGER);
+BEGIN
+	x.predef := FALSE;
+	x.isOpenArray := FALSE;
+	x.form := form;
+	x.lev := 0;
+	x.nfpar := 0
+END InitType;
 
 (* -------------------------------------------------------------------------- *)
 (* Error checking procedures *)
@@ -97,9 +140,9 @@ BEGIN
 	END
 END Check;
 
-PROCEDURE IsStr(t: B.Type): BOOLEAN;
+PROCEDURE IsStrType(t: B.Type): BOOLEAN;
 	RETURN (t = B.strType) OR (t.form = B.tArray) & (t.base.form = B.tChar)
-END IsStr;
+END IsStrType;
 
 PROCEDURE IsExt0(t1, t2: B.Type): BOOLEAN;
 	RETURN (t1 = t2) OR (t1 # NIL) & IsExt0(t1.base, t2)
@@ -151,7 +194,7 @@ END SameProc;
 PROCEDURE CompTypes(t1, t2: B.Type): BOOLEAN;
 	RETURN (t1 = t2)
 	OR (t1.form = B.tInt) & (t2.form = B.tInt)
-	OR IsStr(t1) & IsStr(t2)
+	OR IsStrType(t1) & IsStrType(t2)
 	OR (t1.form IN {B.tProc, B.tPtr}) & (t2 = B.nilType)
 	OR (t1.form IN {B.tRec, B.tPtr}) & (t1.form = t2.form) & IsExt(t2, t1)
 	OR (t1.form = B.tProc) & (t2.form = B.tProc) & SameProc(t1, t2)
@@ -222,13 +265,13 @@ PROCEDURE CheckPar(fpar: B.Par; x: B.Object);
 	VAR xt, ftype: B.Type; xform, fform: INTEGER;
 BEGIN xt := x.type; ftype := fpar.type;
 	IF IsOpenArray(ftype) THEN CheckVar(x, fpar.ronly);
-		IF CompArray(ftype, xt) OR IsStr(xt) & IsStr(ftype) THEN (*valid*)
+		IF CompArray(ftype, xt) OR IsStrType(xt) & IsStrType(ftype) THEN (*ok*)
 		ELSIF B.mod.system & (ftype.base = B.byteType) THEN (*ok*)
 		ELSE S.Mark(msgIvlParType)
 		END
 	ELSIF ~fpar.varpar THEN
 		IF CompTypes(ftype, xt) THEN
-			IF IsStr(ftype) THEN CheckStrLen(ftype, x) END
+			IF IsStrType(ftype) THEN CheckStrLen(ftype, x) END
 		ELSIF (ftype = B.charType) & IsCharStr(x) THEN (*valid*)
 		ELSE S.Mark(msgIvlParType)
 		END
@@ -244,7 +287,7 @@ END CheckPar;
 PROCEDURE CheckLeft(x: B.Object; op: INTEGER);
 BEGIN
 	IF (op >= S.eql) & (op <= S.geq) THEN
-		IF (x.type.form IN B.tCmps) OR IsStr(x.type)
+		IF (x.type.form IN B.tCmps) OR IsStrType(x.type)
 		OR (op <= S.neq) & (x.type.form IN B.tEqls) THEN (*valid*)
 		ELSE S.Mark(msgIvlType)
 		END
@@ -258,27 +301,28 @@ BEGIN
 	IF x.type.form IN forms THEN (*ok*) ELSE S.Mark(msgIvlType) END
 END CheckT;
 
-PROCEDURE CheckTypeObj(x: B.Object; VAR t: B.Type);
-BEGIN t := B.intType;
-	IF x IS B.Type THEN t := x(B.Type) ELSE S.Mark('not a type') END
-END CheckTypeObj;
+PROCEDURE CheckType(x: B.Object);
+BEGIN
+	IF x.isType THEN (*ok*) ELSE S.Mark('not a type'); x := B.intType END
+END CheckType;
 
-PROCEDURE CheckLev(x: B.Var);
+PROCEDURE CheckLev(x: B.Object);
 BEGIN
 	IF x.lev <= 0 THEN (*ok*)
-	ELSIF x(B.Var).lev = B.curLev THEN (*ok*)
+	ELSIF x.lev = mod.curLev THEN (*ok*)
 	ELSE S.Mark('access to non-local & non-global vars not allowed')
 	END
 END CheckLev;
 
-PROCEDURE CheckSYSTEM;
+PROCEDURE CheckAssignment(xtype: B.Type; y: B.Node);
 BEGIN
-	IF mod.system THEN (*ok*) ELSE S.Mark('need to import SYSTEM') END
-END CheckSYSTEM;
-
-PROCEDURE StrToChar(x: B.Object): B.Object;
-	RETURN B.NewConst(B.charType, ORD(mod.strbuf[x(B.Str).bufpos]))
-END StrToChar;
+	IF xtype = y.type THEN (*ok*)
+	ELSIF CompTypes(xtype, y.type) THEN
+		IF IsStrType(xtype) THEN arch.CheckStrLen(xtype, y.type) END
+	ELSIF CompArray(xtype, y.type) & y.type.isOpenArray THEN (*ok*)
+	ELSE arch.CheckAssignment(xtype, y)
+	END ;
+END CheckAssignment;
 
 (* -------------------------------------------------------------------------- *)
 (* undef pointers list *)
@@ -313,6 +357,24 @@ BEGIN
 END CheckUndef;
 
 (* new parse tree node *)
+
+PROCEDURE NewNode*(VAR x: B.Node; op: INTEGER);
+BEGIN
+	NEW(x); x.op := op; x.ronly := FALSE; x.spos := S.symPos
+END NewNode;
+
+PROCEDURE Node*(op: INTEGER): B.Node;
+	VAR x: B.Node;
+BEGIN
+	NEW(x); x.op := op; x.ronly := FALSE; x.spos := S.symPos
+	RETURN x
+END Node;
+
+PROCEDURE NewNode2*(VAR x: B.Node; op: INTEGER; t: B.Type)
+BEGIN
+	NEW(x); x.op := op; x.ronly := FALSE; x.spos := S.symPos;
+	x.type := t
+END NewNode2;
 
 PROCEDURE NewNode0(op: INTEGER; x, y: B.Object): B.Node;
 	VAR z: B.Node;
@@ -370,6 +432,18 @@ BEGIN
 	RETURN x
 END qualident0;
 
+PROCEDURE ObjToNode(x: B.Object): B.Node;
+	VAR node: B.Node;
+BEGIN
+	node := arch.Node(S.null); node.obj := x;
+	IF x.isVar THEN
+		node.var := TRUE;
+		node.ronly := x.ronly;
+		node.varpar := x.varpar
+	END ;
+	RETURN node
+END ObjToNode;
+
 PROCEDURE qualident(): B.Object;
 	VAR id: B.Ident; x: B.Object;
 BEGIN id := qualident0();
@@ -383,7 +457,7 @@ BEGIN id := qualident0();
 	ELSE S.Mark('identifier not found')
 	END ;
 	IF x # NIL THEN
-		IF x IS B.Var THEN CheckLev(x(B.Var)) END
+		IF x.isVar THEN CheckLev(x) END
 	ELSE Reset(x)
 	END ;
 	RETURN x
@@ -624,8 +698,7 @@ BEGIN
 	IF sym = S.int THEN x := arch.Const(B.intType); S.Get(sym)
 	ELSIF sym = S.real THEN x := arch.Const(B.realType); S.Get(sym)
 	ELSIF sym = S.string THEN
-		x := arch.Str(S.str, S.slen); x(B.Var).ronly := TRUE;
-		x(B.Var).curLev := mod.curLev; S.Get(sym)
+		x := arch.Str(S.str, S.slen); x.ronly := TRUE; S.Get(sym)
 	ELSIF sym = S.nil THEN x := arch.NilConst(); S.Get(sym)
 	ELSIF sym = S.true THEN x := arch.BoolConst(TRUE); S.Get(sym)
 	ELSIF sym = S.false THEN x := arch.BoolConst(FALSE); S.Get(sym)
@@ -767,71 +840,68 @@ BEGIN x := SimpleExpression();
 END expression;
 
 PROCEDURE ConstExpression(): B.Const;
-	VAR x: B.Object; c: B.Const;
+	VAR x: B.Object;
 BEGIN x := expression();
-	IF x IS B.Const THEN c := x(B.Const)
-	ELSE S.Mark('not a const'); c := arch.ZeroIntConst()
-	END ;
-	RETURN c
+	IF x.const THEN (*ok*) ELSE S.Mark('not a const'); Reset(x) END ;
+	RETURN x
 END ConstExpression;
 
 (* statements *)
 
-PROCEDURE StdProc(f: B.SProc): B.Object;
-	VAR x, y, z, t: B.Object; bType: B.Type;
-		spos: INTEGER; hasParen: BOOLEAN;
+PROCEDURE StdProc(f: B.Object): B.Node;
+	VAR x, y, z, std, t: B.Node;
 BEGIN
-	spos := S.symPos; hasParen := TRUE; Check(S.lparen);
-	IF (f.id = B.opINC) OR (f.id = B.opDEC) THEN
-		x := designator(); CheckInt(x); CheckVar(x, FALSE);
-		IF sym = S.comma THEN
-			S.Get(sym); y := expression(); CheckInt(y);
-			x := NewNode0(f.id, x, y)
-		ELSE x := NewNode0(f.id, x, NIL)
-		END
-	ELSIF (f.id = B.opINCL) OR (f.id = B.opEXCL) THEN
-		x := designator(); CheckSet(x); CheckVar(x, FALSE); Check(S.comma);
-		y := expression(); CheckInt(y); x := NewNode0(f.id, x, y)
-	ELSIF f.id = B.opNEW THEN
-		x := designator(); CheckT(x, {B.tPtr});
-		CheckVar(x, FALSE); bType := x.type.base;
-		x := NewNode2(B.opNEW, x, NIL, spos)
-	ELSIF f.id = B.opASSERT THEN
-		x := expression(); CheckBool(x);
-		x := NewNode2(B.opASSERT, x, NIL, spos)
-	ELSIF f.id = B.opPACK THEN
-		x := designator(); CheckReal(x); CheckVar(x, FALSE); Check(S.comma);
-		y := expression(); CheckInt(y); x := NewNode0(B.opPACK, x, y)
-	ELSIF f.id = B.opUNPK THEN
-		x := designator(); CheckReal(x); CheckVar(x, FALSE); Check(S.comma);
-		y := designator(); CheckInt(y); CheckVar(y, FALSE);
-		x := NewNode0(B.opUNPK, x, y)
-	ELSIF f.id = B.opGET THEN
-		x := expression(); CheckInt(x); Check(S.comma);
-		y := designator(); CheckVar(y, FALSE);
-		x := NewNode2(B.opGET, x, y, spos);
-		IF y.type.form IN {B.tArray, B.tRec} THEN S.Mark('invalid type') END
-	ELSIF f.id = B.opPUT THEN
-		x := expression(); CheckInt(x); Check(S.comma);
-		y := expression(); x := NewNode2(B.opPUT, x, y, spos);
-		IF y.type.form IN {B.tArray, B.tRec} THEN S.Mark('invalid type') END
-	ELSIF f.id = B.opCOPY THEN
-		x := expression(); CheckInt(x); Check(S.comma);
-		y := expression(); CheckInt(y); Check(S.comma);
-		z := expression(); CheckInt(z);
-		x := NewNode2(B.opCOPY, x, NewNode0(S.null, y, z), spos)
-	ELSE S.Mark('unsupported std procedure')
+	IF ~f.isExtSProc THEN
+		std := Node(f.value); Check(S.lparen);
+		IF (f.id = B.opINC) OR (f.id = B.opDEC) THEN
+			x := designator(); CheckInt(x); CheckVar(x, FALSE);
+			IF sym = S.comma THEN
+				S.Get(sym); y := expression(); CheckInt(y)
+			END
+		ELSIF (f.id = B.opINCL) OR (f.id = B.opEXCL) THEN
+			x := designator(); CheckSet(x);
+			CheckVar(x, FALSE); Check(S.comma);
+			y := expression(); CheckInt(y)
+		ELSIF f.id = B.opNEW THEN
+			x := designator(); CheckPtr(x); CheckVar(x, FALSE)
+		ELSIF f.id = B.opASSERT THEN
+			x := expression(); CheckBool(x)
+		ELSIF f.id = B.opPACK THEN
+			x := designator(); CheckReal(x);
+			CheckVar(x, FALSE); Check(S.comma);
+			y := expression(); CheckInt(y)
+		ELSIF f.id = B.opUNPK THEN
+			x := designator(); CheckReal(x);
+			CheckVar(x, FALSE); Check(S.comma);
+			y := designator(); CheckInt(y); CheckVar(y, FALSE)
+		ELSIF f.id = B.opGET THEN
+			x := expression(); CheckInt(x); Check(S.comma);
+			y := designator(); CheckVar(y, FALSE); CheckNonStruct(y)
+		ELSIF f.id = B.opPUT THEN
+			x := expression(); CheckInt(x); Check(S.comma);
+			y := expression(); CheckNonStruct(y)
+		ELSIF f.id = B.opCOPY THEN
+			x := expression(); CheckInt(x); Check(S.comma);
+			t := Node(S.comma);
+			y := expression(); CheckInt(y); Check(S.comma);
+			z := expression(); CheckInt(z);
+			t.right := y; t.left := x; y := t
+		ELSE S.Mark('unsupported std procedure')
+		END ;
+		std.left := x; std.right := y; Check(S.rparen)
+	ELSE std := arch.StdProc(f, sym)
 	END ;
-	IF hasParen THEN Check(S.rparen) END ;
-	RETURN x
+	RETURN std
 END StdProc;
 
 PROCEDURE If(lev: INTEGER): B.Node;
-	VAR x: B.Object; if, then: B.Node;
+	VAR if, then, x: B.Node;
 BEGIN
-	S.Get(sym); x := expression(); CheckBool(x); Check(S.then);
-	then := NewNode0(S.then, StatementSequence0(), NIL);
-	if := NewNode0(S.if, x, then);
+	if := Node(S.if); S.Get(sym);
+	x := expression(); CheckBool(x);
+	then := Node(S.then); Check(S.then);
+	then.left := StatementSequence0();	
+	if.left := x; if.right := then;
 	IF sym = S.elsif THEN then.right := If(lev+1)
 	ELSIF sym = S.else THEN S.Get(sym); then.right := StatementSequence0()
 	ELSE then.right := NIL
@@ -841,36 +911,38 @@ BEGIN
 END If;
 
 PROCEDURE While(lev: INTEGER): B.Node;
-	VAR x: B.Object; while, do: B.Node;
+	VAR while, do, x: B.Node;
 BEGIN
-	S.Get(sym); x := expression(); CheckBool(x); Check(S.do);
-	do := NewNode0(S.do, StatementSequence0(), NIL);
-	while := NewNode0(S.while, x, do);
-	IF sym = S.elsif THEN do.right := While(lev+1)
-	ELSE do.right := NIL
-	END ;
+	while := Node(S.while); S.Get(sym);
+	x := expression(); CheckBool(x);
+	do := Node(S.do); Check(S.do);
+	do.left := StatementSequence0();
+	while.left := x; while.right := do;
+	IF sym = S.elsif THEN do.right := While(lev+1) ELSE do.right := NIL END ;
 	IF lev = 0 THEN Check(S.end) END ;
 	RETURN while
 END While;
 
 PROCEDURE Repeat(): B.Node;
-	VAR repeat: B.Node; x: B.Object;
+	VAR repeat, x: B.Node;
 BEGIN
-	S.Get(sym); repeat := NewNode0(S.repeat, StatementSequence0(), NIL);
-	Check(S.until); x := expression(); CheckBool(x); repeat.right := x;
+	repeat := Node(S.repeat); S.Get(sym);
+	repeat.left := StatementSequence0(); Check(S.until);
+	x := expression(); CheckBool(x); repeat.right := x;
 	RETURN repeat
 END Repeat;
 
 PROCEDURE For(): B.Node;
-	VAR x: B.Object; for, control, beg, end: B.Node;
+	VAR for, control, becomes, to, by, x: B.Node;
 
-	PROCEDURE ident(): B.Object;
-		VAR x: B.Object; ident: B.Ident;
+	PROCEDURE ident(): B.Node;
+		VAR obj: B.Object; ident: B.Ident; x: B.Node;
 	BEGIN ident := FindIdent();
-		IF ident # NIL THEN x := ident.obj;
-			IF x # NIL THEN
-				IF x IS B.Var THEN CheckLev(x(B.Var)) END
-			ELSE Reset(x); S.Mark('undefined')
+		IF ident # NIL THEN obj := ident.obj;
+			IF obj # NIL THEN
+				IF obj.isVar THEN CheckLev(obj) END ;
+				x := ObjToNode(obj)
+			ELSE Reset(x); S.Mark('undefined identifier')
 			END
 		ELSE Reset(x); S.Mark('identifier not found')
 		END ;
@@ -879,103 +951,97 @@ PROCEDURE For(): B.Node;
 	END ident;
 
 BEGIN
-	for := NewNode0(S.for, NIL, NIL); S.Get(sym);
-	IF sym = S.ident THEN x := ident()
-	ELSE Reset(x); MarkMissing(S.ident)
+	for := Node(S.for); control := Node(S.null); S.Get(sym);
+	IF sym = S.ident THEN
+		x := ident(); CheckInt2(x); CheckVar(x, FALSE); control.left := x
+	ELSE MarkMissing(S.ident)
 	END ;
-	CheckInt2(x); CheckVar(x, FALSE);
-	control := NewNode0(S.null, x, NIL); for.left := control;
-	Check(S.becomes); x := expression(); CheckInt2(x);
-	beg := NewNode0(S.null, x, NIL); control.right := beg;
-	Check(S.to); x := expression(); CheckInt2(x);
-	end := NewNode0(S.null, x, NIL); beg.right := end;
+	Check(S.becomes); becomes := Node(S.becomes);
+	x := expression(); CheckInt2(x); becomes.left := x;
+	Check(S.to); to := Node(S.to);
+	x := expression(); CheckInt2(x); to.left := x;
 	IF sym = S.by THEN
-		S.Get(sym); x := ConstExpression(); CheckInt(x);
-		end.right := NewNode0(S.by, x, NIL)
+		by := Node(S.by); S.Get(sym);
+		x := ConstExpression(); CheckInt(x);
+		by.left := x; to.right := by
 	END ;
+	for.left := control; control.right := becomes; becomes.right := to;
 	Check(S.do); for.right := StatementSequence0(); Check(S.end);
 	RETURN for
 END For;
 
 PROCEDURE Case(): B.Node;
-	VAR x, y: B.Object; xform: INTEGER;
-		case: B.Node; isTypeCase: BOOLEAN;
+	VAR x, y, case: B.Node;
+		xform: INTEGER; isTypeCase: BOOLEAN;
 		
-	PROCEDURE TypeCase(x: B.Object): B.Node;
-		VAR bar, colon: B.Node; y, z: B.Object;
-			org, yt: B.Type; spos: INTEGER;
+	PROCEDURE TypeCase(x: B.Node): B.Node;
+		VAR bar, colon, is, y: B.Node; obj: B.Object;
+			org, yt: B.Type; tc: TypeCastList; spos: INTEGER;
 	BEGIN
 		IF sym = S.ident THEN
-			org := x.type; y := qualident(); CheckTypeObj(y, yt);
-			IF org.form = yt.form THEN (*valid*)
+			bar := Node(S.bar); org := x.type;
+			obj := qualident(); CheckTypeObj(obj, yt);
+			IF org.form = yt.form THEN
+				IF IsExt(yt, org) THEN (*ok*)
+				ELSE S.Mark('not extension'); yt := org
+				END
 			ELSE S.Mark(msgIvlType); yt := org
 			END ;
-			IF yt # org THEN y := NewNode0(S.is, x, y);
-				IF IsExt(yt, org) THEN x.type := yt
-				ELSE S.Mark('not extension')
-				END
-			ELSE y := B.NewConst(B.boolType, B.true)
+			y := TypeToNode(yt); is := Op(S.is, x, y, S.symPos);
+			
+			IF yt # org THEN
+				NEW(tc); tc.node := x; tc.type := yt;
+				tc.next := typeCastStack; typeCastStack := tc
 			END ;
-			spos := S.symPos; Check(S.colon);
-			z := StatementSequence0(); x.type := org;
-			colon := NewNode2(S.colon, y, z, spos);
-			bar := NewNode0(S.bar, colon, NIL);
+			colon := Node(S.colon); Check(S.colon);
+			y := StatementSequence0(); typeCastStack := typeCastStack.next;
+			colon.left := is; colon.right := y; bar.left := colon;
 			IF sym = S.bar THEN S.Get(sym); bar.right := TypeCase(x) END
 		ELSIF sym = S.bar THEN S.Get(sym); bar := TypeCase(x)
 		END ;
 		RETURN bar
 	END TypeCase;
 	
-	PROCEDURE label(x: B.Object; VAR y: B.Object);
+	PROCEDURE label(x: B.Node; VAR y: B.Node);
 		CONST errMsg = 'invalid value';
 		VAR xform: INTEGER;
 	BEGIN xform := x.type.form;
 		IF sym = S.int THEN y := factor();
 			IF xform # B.tInt THEN S.Mark(errMsg) END
 		ELSIF sym = S.string THEN
-			IF xform # B.tChar THEN S.Mark(errMsg) END ;
-			IF S.slen > 2 THEN S.Mark('not char') END ;
-			y := B.NewConst(B.charType, ORD(S.str[0])); S.Get(sym)
-		ELSIF sym = S.ident THEN y := qualident();
-			IF y = NIL THEN S.Mark(errMsg)
-			ELSIF y IS B.Const THEN
-				IF xform = B.tInt THEN CheckInt(y)
-				ELSIF xform = B.tChar THEN
-					IF y.type.form # B.tChar THEN S.Mark('not char') END
-				END
-			ELSIF y IS B.Str THEN
-				IF xform # B.tChar THEN S.Mark(errMsg) END ;
-				IF y(B.Str).len > 2 THEN S.Mark('not char') END ;
-				y := B.NewConst(B.charType, ORD(S.str[0])) ; S.Get(sym)
-			ELSE S.Mark(errMsg); y := NIL
-			END
+			y := factor(); CheckChar(y);
+			IF xform = B.tInt THEN S.Mark(errMsg) END
+		ELSIF sym = S.ident THEN y := ObjToNode(qualident());
+			IF xform = B.tInt THEN CheckInt(y) ELSE CheckChar(y) END
 		ELSE S.Mark('need integer or char value')
 		END
 	END label;
 	
-	PROCEDURE LabelRange(x: B.Object): B.Node;
-		VAR y: B.Object; cond: B.Node; spos: INTEGER;
+	PROCEDURE LabelRange(x: B.Node): B.Node;
+		VAR y, z, cond: B.Node; spos: INTEGER;
 	BEGIN label(x, y);
-		IF sym # S.upto THEN cond := NewNode0(S.eql, x, y)
+		IF sym # S.upto THEN cond := Op(S.eql, x, y, S.symPos)
 		ELSE spos := S.symPos;
-			cond := NewNode0(S.geq, x, y); S.Get(sym); label(x, y);
-			cond := NewNode2(S.and, cond, NewNode0(S.leq, x, y), spos)
+			y := Op(S.geq, x, y, S.symPos);
+			S.Get(sym); label(x, z);
+			z := Op(S.leq, x, y, S.symPos);
+			cond := Op(S.and, x, y, spos)
 		END ;
 		RETURN cond
 	END LabelRange;
 	
-	PROCEDURE NumericCase(x: B.Object): B.Node;
-		VAR bar, colon: B.Node; y: B.Node; spos: INTEGER;
+	PROCEDURE NumericCase(x: B.Node): B.Node;
+		VAR bar, colon, label, y, z: B.Node; spos: INTEGER;
 	BEGIN
 		IF (sym = S.int) OR (sym = S.string) OR (sym = S.ident) THEN
-			y := LabelRange(x);
+			label := LabelRange(x);
 			WHILE sym = S.comma DO
-				spos := S.symPos; S.Get(sym);
-				y := NewNode2(S.or, y, LabelRange(x), spos)
+				spos := S.symPos; y := label; S.Get(sym); z := LabelRange(x);
+				label := Op(S.or, x, y, spos)
 			END ;
-			spos := S.symPos; Check(S.colon);
-			colon := NewNode2(S.colon, y, StatementSequence0(), spos);
-			bar := NewNode0(S.bar, colon, NIL);
+			colon := arch.Node(S.colon); Check(S.colon);
+			colon.left := label; colon.right := StatementSequence0();
+			bar := arch.Node(S.bar); bar.left := colon;
 			IF sym = S.bar THEN S.Get(sym); bar.right := NumericCase(x) END
 		ELSIF sym = S.bar THEN S.Get(sym); bar := NumericCase(x)
 		END
@@ -983,11 +1049,11 @@ PROCEDURE Case(): B.Node;
 	END NumericCase;
 		
 BEGIN (* Case *)
-	case := NewNode2(S.case, NIL, NIL, S.symPos); S.Get(sym);
+	case := arch.Node(S.case); S.Get(sym);
 	x := expression(); xform := x.type.form; isTypeCase := FALSE;
-	IF (xform IN {B.tInt, B.tChar}) OR IsCharStr(x) THEN (*ok*)
-	ELSIF (x IS B.Var) & TypeTestable(x) THEN isTypeCase := TRUE
-	ELSE S.Mark('invalid case expression')
+	IF (xform IN {B.tInt, B.tChar}) OR IsCharStr(x.type) THEN (*ok*)
+	ELSIF TypeTestable(x) THEN isTypeCase := TRUE
+	ELSE Reset(x); S.Mark('invalid case expression')
 	END ;
 	Check(S.of); case.left := x;
 	IF isTypeCase THEN case.right := TypeCase(x)
@@ -998,10 +1064,8 @@ BEGIN (* Case *)
 END Case;
 
 PROCEDURE StatementSequence(): B.Node;
-	VAR x, y: B.Object; spos: INTEGER;
-		statseq, stat, nextstat: B.Node;
+	VAR seq, st, prev, becomes, x, y: B.Node;
 BEGIN
-	statseq := NewNode0(S.semicolon, NIL, NIL); stat := statseq;
 	REPEAT (*sync*)
 		IF (sym = S.ident) OR (sym >= S.semicolon)
 		OR (sym >= S.if) & (sym <= S.for) THEN (*valid*)
@@ -1009,42 +1073,34 @@ BEGIN
 			S.Mark('statement?');
 			REPEAT S.Get(sym) UNTIL (sym = S.ident) OR (sym >= S.semicolon)
 		END ;
-		stat.spos := S.symPos;
+		
+		st := arch.Node(S.semicolon);
+		IF prev = NIL THEN seq := st ELSE prev.right := st END ;
 		IF sym = S.ident THEN x := designator();
-			IF sym = S.becomes THEN spos := S.symPos;
-				CheckVar(x, FALSE); S.Get(sym); y := expression();
-				IF x.type = y.type THEN (*ok*)
-				ELSIF CompTypes(x.type, y.type) THEN
-					IF IsStr(x.type) THEN CheckStrLen(x.type, y) END
-				ELSIF (x.type = B.charType) & IsCharStr(y) THEN
-					y := StrToChar(y)
-				ELSIF CompArray(x.type, y.type) & IsOpenArray(y.type) THEN
-					(*ok*)
-				ELSE S.Mark('invalid assignment')
-				END ;
-				stat.left := NewNode2(S.becomes, x, y, spos)
+			IF sym = S.becomes THEN
+				becomes := arch.Node(S.becomes);
+				CheckVar(x, FALSE); becomes.left := x; S.Get(sym);
+				y := expression(); CheckAssignment(x.type, y);
+				becomes.right := y; st.left := becomes
 			ELSIF sym = S.eql THEN
 				S.Mark('should be :='); S.Get(sym); y := expression()
 			ELSIF (x.type # NIL) & (x.type.form = B.tProc) THEN
 				IF x.type.base = NIL THEN (*ok*)
 				ELSE S.Mark('not proper procedure')
 				END ;
-				stat.left := Call(x)
-			ELSIF x IS B.SProc THEN stat.left := StdProc(x(B.SProc))
+				st.left := Call(x)
+			ELSIF (x.obj # NIL) & x.obj.isSProc THEN st.left := StdProc(x.obj)
 			ELSE S.Mark('invalid statement')
 			END
-		ELSIF sym = S.if THEN stat.left := If(0)
-		ELSIF sym = S.while THEN stat.left := While(0)
-		ELSIF sym = S.repeat THEN stat.left := Repeat()
-		ELSIF sym = S.for THEN stat.left := For()
-		ELSIF sym = S.case THEN stat.left := Case()
+		ELSIF sym = S.if THEN st.left := If(0)
+		ELSIF sym = S.while THEN st.left := While(0)
+		ELSIF sym = S.repeat THEN st.left := Repeat()
+		ELSIF sym = S.for THEN st.left := For()
+		ELSIF sym = S.case THEN st.left := Case()
 		END ;
-		IF sym <= S.semicolon THEN Check(S.semicolon);
-			nextstat := NewNode0(S.semicolon, NIL, NIL);
-			stat.right := nextstat; stat := nextstat
-		END
+		IF sym <= S.semicolon THEN Check(S.semicolon); prev := st END
 	UNTIL sym > S.semicolon;
-	RETURN statseq
+	RETURN seq
 END StatementSequence;
 
 (* declarations *)
@@ -1073,7 +1129,7 @@ PROCEDURE NewIdent(VAR id: B.Ident);
 	VAR prev, x: B.Ident;
 BEGIN
 	x := mod.topScope.first; NEW(id); id.spos := S.symPos;
-	id.export := FALSE; id.name := S.id; id.nUsed := 0;
+	id.export := FALSE; id.name := S.id; id.used := FALSE;
 	WHILE x # NIL DO
 		IF x # NIL THEN S.Mark('duplicated ident') END ;
 		prev := x; x := x.next
@@ -1094,32 +1150,25 @@ BEGIN
 	RETURN fst
 END IdentList;
 
-PROCEDURE InitNewType(t: B.Type; form: INTEGER);
-BEGIN
-	t.predef := FALSE; t.openArray := FALSE;
-	t.ref := -1; t.form := form;
-	t.recLev := 0; t.nfpar := 0
-END InitNewType;
-
 PROCEDURE FormalType(): B.Type;
-	VAR x: B.Object; t: B.Type;
-BEGIN t := B.intType;
+	VAR x: B.Object; tp: B.Type;
+BEGIN tp := B.intType;
 	IF sym = S.ident THEN x := qualident();
-		IF x IS B.Type THEN t := x(B.Type) ELSE S.Mark('not type') END
+		IF x.isType THEN tp := x.type ELSE S.Mark('not type') END
 	ELSIF sym = S.array THEN
-		t := arch.FormalArrayType();
-		InitNewType(t, B.Array); t.openArray := TRUE;
-		S.Get(sym); arch.ParseFormalArrayFlags(t, sym); Check(S.of);
+		tp := arch.FormalArrayType(); S.Get(sym);
+		arch.ParseFormalArrayFlags(tp, sym); Check(S.of);
 		IF sym = S.array THEN S.Mark('multidim open array not supported') END ;
-		t.base := FormalType()
+		tp.base := FormalType()
 	END ;
-	RETURN t
+	RETURN tp
 END FormalType;
 
 PROCEDURE FPSection(proc: B.Type);
-	VAR first, id: B.Ident; x: B.Var; tp: B.Type; varpar: BOOLEAN;
+	VAR first, id: B.Ident; x: B.Object;
+		tp: B.Type; var: BOOLEAN;
 BEGIN
-	IF sym = S.var THEN varpar := TRUE; S.Get(sym) ELSE varpar := FALSE END ;
+	IF sym # S.var THEN var := FALSE ELSE var := TRUE; S.Get(sym) END ;
 	IF sym = S.ident THEN
 		NewIdent(first); S.Get(sym);
 		WHILE sym = S.comma DO S.Get(sym);
@@ -1133,15 +1182,14 @@ BEGIN
 	END ;
 	Check(S.colon); tp := FormalType(); id := first;
 	WHILE id # NIL DO
-		x := arch.Par(proc, tp, varpar);
-		INC(proc.nfpar); x.curLev := mod.curLev;
-		x.ronly := ~varpar & (tp.form IN tStructs);
+		x := arch.Par(proc, tp, var); INC(proc.nfpar);
+		x.ronly := ~var & (tp.form IN tStructs);
 		x.ident := id; id.obj := x; id := id.next
 	END
 END FPSection;
 
 PROCEDURE FormalParameters(proc: B.Type);
-	VAR x: B.Object; t: B.Type;
+	VAR tp: B.Type; x: B.Object;
 BEGIN S.Get(sym);
 	IF (sym = S.ident) OR (sym = S.var) THEN
 		OpenScope; FPSection(proc);
@@ -1154,26 +1202,26 @@ BEGIN S.Get(sym);
 	END ;
 	Check(S.rparen);
 	IF sym = S.colon THEN S.Get(sym);
-		IF sym = S.ident THEN x := qualident() ELSE MarkMissing(S.ident) END ;
-		IF x IS B.Type THEN t := x(B.Type);
-			IF ~(t.form IN B.tStructs) THEN proc.base := t
+		IF sym = S.ident THEN
+			x := qualident(); CheckTypeObj(x, tp);
+			IF ~(tp.form IN B.tStructs) THEN proc.base := tp
 			ELSE S.Mark(msgIvlType); proc.base := B.intType
 			END
-		ELSE S.Mark('not type')
+		ELSE MarkMissing(S.ident)
 		END
 	END
 END FormalParameters;
 
-PROCEDURE PointerType(defId: B.Ident): B.Type;
-	VAR ptr, b: B.Type; name: S.Ident; x: B.Ident;
+PROCEDURE PointerType(defobj: B.Object): B.Type;
+	VAR ptr, bt: B.Type; name: S.Ident; x: B.Ident;
 BEGIN
-	ptr := arch.PointerType(); InitNewType(ptr, B.tPointer);
-	S.Get(sym); arch.ParsePointerFlags(ptr, sym); Check(S.to);
-	IF defId # NIL THEN defId.obj := ptr END ;
+	ptr := arch.PointerType(); S.Get(sym);
+	arch.ParsePointerFlags(ptr, sym); Check(S.to);
+	IF defobj # NIL THEN defobj.type := ptr END ;
 	IF sym = S.ident THEN name := S.id; x := qualident0();
 		IF x # NIL THEN
-			IF x.obj # NIL THEN CheckTypeObj(x.obj, b);
-				IF b.form = B.tRec THEN arch.SetPointerBaseType(ptr, b)
+			IF x.obj # NIL THEN CheckTypeObj(x.obj, bt);
+				IF bt.form = B.tRec THEN arch.SetPointerBaseType(ptr, bt)
 				ELSE S.Mark('not a record type')
 				END
 			ELSIF x = externalIdentNotFound THEN
@@ -1182,85 +1230,84 @@ BEGIN
 			END
 		ELSE (* undefined base type *) AddUndef(ptr, name)
 		END
-	ELSIF sym = S.record THEN b := type0(); arch.SetPointerBaseType(ptr, b)
+	ELSIF sym = S.record THEN bt := type0(); arch.SetPointerBaseType(ptr, bt)
 	ELSE S.Mark('base type?')
 	END ;
 	RETURN ptr
 END PointerType;
 
 PROCEDURE BaseType(): B.Type;
-	VAR b: B.Type; x: B.Object;
+	VAR tp, rec: B.Type; x: B.Object;
 BEGIN
 	IF sym = S.ident THEN
-		x := qualident(); CheckTypeObj(x, b);
-		IF b.form = B.tRec THEN (* ok *)
-		ELSIF b.form = B.tPtr THEN
-			IF b.base # NIL THEN b := b.base
-			ELSE S.Mark('this type is not defined yet')
+		x := qualident(); CheckTypeObj(x, tp);
+		IF tp.form = B.tRec THEN (*ok*)
+		ELSIF tp.form = B.tPtr THEN tp := tp.base;
+			IF tp # NIL THEN (*ok*)
+			ELSE S.Mark('the record of this pointer type is not defined yet')
 			END
-		ELSE b := NIL; S.Mark('not record type')
+		ELSE tp := NIL; S.Mark('not record type')
 		END ;
-		IF (b # NIL) & (b.recLev >= B.MaxExt) THEN
-			b := NIL; S.Mark('max extension limit reached')
+		IF (tp # NIL) & (tp.lev >= B.MaxExtension) THEN
+			tp := NIL; S.Mark('max extension limit reached')
 		END
 	ELSE MarkMissing(S.ident)
 	END ;
-	RETURN b
+	RETURN tp
 END BaseType;
 
 PROCEDURE ArrayType(): B.Type;
-	VAR x, baseType: B.Type; len: B.Const;
+	VAR bt: B.Type; len: B.Const;
 BEGIN
-	len := ConstExpression(); arch.CheckArrayLen(len);
+	len := ConstExpression();
 	IF sym = S.comma THEN S.Get(sym);
 		WHILE sym = S.comma DO MarkSflous(S.comma); S.Get(sym) END ;
-		baseType := ArrayType()	
-	ELSE Check(S.of); baseType := type()
+		bt := ArrayType()	
+	ELSE Check(S.of); bt := type()
 	END ;
-	x := arch.ArrayType(len, baseType); InitNewType(x, B.tArray);
-	RETURN x
+	RETURN arch.ArrayType(len, bt)
 END ArrayType;
 
 PROCEDURE type(): B.Type;
-	VAR t, ft: B.Type; x: B.Object; f: B.Ident;
-BEGIN t := B.intType;
+	VAR tp, ft, bt: B.Type; flds: B.Ident; x: B.Object;
+BEGIN tp := B.intType;
 	IF sym = S.ident THEN
-		x := qualident(); CheckTypeObj(x, t); S.Get(sym)
+		x := qualident(); CheckTypeObj(x, tp); S.Get(sym)
 	ELSIF sym = S.array THEN
-		S.Get(sym); t := ArrayType()
+		S.Get(sym); tp := ArrayType()
 	ELSIF sym = S.record THEN
-		S.Get(sym); t := arch.RecordType();
-		InitNewType(t, B.tRec);
-		arch.ParseRecordFlags(t, sym);
+		S.Get(sym); tp := arch.RecordType();
+		arch.ParseRecordFlags(tp, sym);
 		IF sym = S.lparen THEN
-			S.Get(sym); t.base := BaseType(); Check(S.rparen);
-			IF t.base # NIL THEN
-				t.recLev := t.base.recLev+1; arch.ExtendRecordType(t)
-			END
+			S.Get(sym); bt := BaseType(); tp.base := bt;
+			IF bt # NIL THEN
+				tp.lev := bt.lev+1; arch.ExtendRecordType(tp)
+			END ;
+			Check(S.rparen)
 		END ;
 		OpenScope;
 		IF sym = S.ident THEN
-			f := IdentList(); Check(S.colon);
-			ft := type(); arch.NewRecordFields(t, f, ft);
+			flds := IdentList(); Check(S.colon);
+			ft := type(); arch.NewRecordFields(tp, flds, ft);
 			WHILE sym = S.semicolon DO S.Get(sym);
 				IF sym = S.ident THEN
-					f := IdentList(); Check(S.colon);
-					ft := type(); arch.NewRecordFields(t, f, tp)
+					flds := IdentList(); Check(S.colon);
+					ft := type(); arch.NewRecordFields(tp, flds, ft)
 				ELSE MarkSflous(S.semicolon)
 				END
 			END
 		END ;
-		t.fields := mod.topScope.first; CloseScope; Check(S.end)
-	ELSIF sym = S.pointer THEN t := PointerType(NIL)
+		tp.fields := mod.topScope.first; CloseScope; Check(S.end)
+	ELSIF sym = S.pointer THEN tp := PointerType(NIL)
 	ELSIF sym = S.procedure THEN
-		S.Get(sym); t := arch.ProcType(); InitNewType(t, B.tProc);
-		IF sym = S.lparen THEN FormalParameters(t) END
+		S.Get(sym); tp := arch.ProcType();
+		IF sym = S.lparen THEN FormalParameters(tp) END
 	END ;
-	RETURN t
+	RETURN tp
 END type;
 
 PROCEDURE CloneParameters(VAR proc: B.Type);
-	VAR p, id: B.Ident; x: B.Par;
+	VAR p, id: B.Ident; x: B.Object;
 BEGIN p := proc.fields;
 	WHILE p # NIL DO
 		NewIdent(id, p.name); x := arch.ClonePar(p.obj);
@@ -1269,8 +1316,8 @@ BEGIN p := proc.fields;
 	END
 END CloneParameters;
 
-PROCEDURE DeclarationSequence(owner: B.Proc);
-	VAR id: B.Ident; x, y: B.Object; xt, tp, retType: B.Type;
+PROCEDURE DeclarationSequence(owner: B.Object);
+	VAR id: B.Ident; x: B.Object; tp, rtype: B.Type;
 BEGIN
 	IF sym = S.const THEN S.Get(sym);
 		WHILE sym = S.ident DO
@@ -1285,11 +1332,15 @@ BEGIN
 			NewIdent(id); S.Get(sym);
 			CheckExport(id.export); Check(S.eql);
 			IF sym # S.pointer THEN
-				xt := type(); id.obj := xt;
-				IF xt.form = B.tRec THEN FixUndef(xt, id.name) END
-			ELSE xt := PointerType(id)
+				tp := type();
+				x := arch.TypeObj(tp);
+				id.obj := x; x.ident := id;
+				IF x.form = B.tRec THEN FixUndef(x, id.name) END
+			ELSE
+				x := arch.TypeObj(B.intType);
+				id.obj := x; x.ident := id; tp := PointerType(x);
+				IF tp.obj = NIL THEN tp.obj := x END
 			END ;
-			IF xt.ident = NIL THEN xt.ident := id END ;
 			Check(S.semicolon)
 		END ;
 		CheckUndef
@@ -1299,8 +1350,6 @@ BEGIN
 			id := IdentList(); Check(S.colon); tp := type();
 			WHILE id # NIL DO
 				x := arch.Var(tp, owner);
-				x(B.Var).ronly := FALSE;
-				x(B.Var).lev := mod.curLev;
 				id.obj := x; x.ident := id; id := id.next
 			END ;
 			Check(S.semicolon)
@@ -1310,31 +1359,26 @@ BEGIN
 		IF sym # S.ident THEN id := NIL; S.Mark('proc name?')
 		ELSE NewIdent(id); S.Get(sym); CheckExport(id.export)
 		END ;
-		x := arch.Proc(); tp := arch.ProcType();
-		InitNewType(tp, B.tProc); x.type := tp;
+		x := arch.Proc(); tp := arch.ProcType(); x.type := tp;
 		IF id # NIL THEN id.obj := x; x.ident := id END ;
 		
 		IF sym = S.lparen THEN FormalParameters(tp) END ;
 		Check(S.semicolon); OpenScope; IncLev(1); CloneParameters(tp);
 
-		DeclarationSequence(proc); x(B.Proc).decl := mod.topScope.first;
+		DeclarationSequence(x); x.dsc := mod.topScope.first;
 		
 		IF sym = S.begin THEN
-			S.Get(sym); x(B.Proc).statseq := StatementSequence()
+			S.Get(sym); x.statseq := StatementSequence()
 		END ;
+		
+		rtype := tp.base;
 		IF sym = S.return THEN
-			IF tp.base # NIL THEN retType := tp.base
-			ELSE retType := B.intType; S.Mark('not function proc')
+			IF rtype # NIL THEN (*ok*)
+			ELSE rtype := B.intType; S.Mark('not function proc')
 			END ;
-			S.Get(sym); y := expression();
-			
-			IF (retType = y.type) OR CompTypes(retType, y.type) THEN (*ok*)
-			ELSIF (retType = B.charType) & IsCharStr(y) THEN
-				y := arch.CharConstFromStr(y)
-			ELSE S.Mark('Invalid assignment')
-			END ;
-			x(B.Proc).return := y
-		ELSIF tp.base # NIL THEN MarkMissing(S.return)
+			S.Get(sym); x.return := expression();
+			CheckAssignment(rtype, x.return)
+		ELSIF rtype # NIL THEN MarkMissing(S.return)
 		END ;
 		
 		CloseScope; IncLev(-1); Check(S.end);

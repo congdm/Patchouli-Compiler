@@ -8,31 +8,32 @@ CONST
 	MaxLocBlkSize = 100000H; (* 1 MB limit *)
 	
 TYPE
-	Type* = POINTER TO RECORD (B.Type)
+	Item* = RECORD
+	END ;
+
+	Object* = POINTER TO ObjDesc;
+	Type* = POINTER TO TypeDesc;
+	Node* = POINTER TO NodeDesc;
+		
+	ObjDesc* = RECORD (B.ObjDesc)
+		val*, adr*, locblksize*: INTEGER
+	END ;
+
+	TypeDesc* = RECORD (B.TypeDesc)
 		untagged*, union*, unsafe*: BOOLEAN;
 		len*, size*, align*, adr*, parblksize*: INTEGER;
 		nPtr*, nProc*, nTraced*: INTEGER
 	END ;
-
-	Const* = POINTER TO RECORD (B.Const) value*: INTEGER END ;
-	Var* = POINTER TO RECORD (B.Var) adr*: INTEGER END ;
-	Par* = POINTER TO RECORD (Var) varpar*: BOOLEAN END ;
-	Str* = POINTER TO RECORD (Var) len*: INTEGER END ;
-	Field* = POINTER TO RECORD (B.Field) off*: INTEGER END ;
 	
-	Proc* = POINTER TO RECORD (B.Proc)
-		adr*, locblksize*: INTEGER
-	END;
-
-	StrBuf* = POINTER TO RECORD (B.StrBuf)
-		size*: INTEGER;
-		buf*: ARRAY 10000H OF CHAR
+	NodeDesc* = RECORD (B.NodeDesc)
+		item*: Item
 	END ;
 	
 	Module* = POINTER TO RECORD (B.Module)
 		varSize*: INTEGER;
 		tdescTableSize*: INTEGER;
-		strbuf*: B64.StrBuf
+		strbufsize*: INTEGER;
+		strbuf*: ARRAY 10000H OF CHAR
 	END ;
 
 END BaseX8664.
