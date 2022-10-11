@@ -1,14 +1,10 @@
 MODULE Scn;
 
 IMPORT
-	SYSTEM,
-	(* This module isn't platform independent
-	   it needs INTEGER = int64 and REAL = double *)
-	BigNums;
-
+	Sys;
+	
 CONST
 	StrLen* = 255; IdLen* = 63;
-	MaxInt = 7FFFFFFFFFFFFFFFH; MinInt = 8000000000000000H; maxExp = 308;
 	
 	(* Symbols *)
     null* = 0; times* = 1; rdiv* = 2; div* = 3; mod* = 4;
@@ -31,307 +27,265 @@ TYPE
 	Str* = ARRAY StrLen+1 OF CHAR;
 	Ident* = ARRAY IdLen+1 OF CHAR;
 
-VAR
-	ch: CHAR; eof, escUpto: BOOLEAN; errcnt*: INTEGER;
-	str*: Str; id*: Ident;
-	ival*, slen*, pos*, symPos*: INTEGER; rval*: REAL;
+	Scanner* = POINTER TO RECORD
+		ch: CHAR; eof, escUpto: BOOLEAN;
+		pos*, symPos*, errcnt*: INTEGER;
+		sym*: INTEGER; id*: Ident;
+		str*: Str; slen*: INTEGER;
+		ival*: Sys.Int; rval*: Sys.Double
+	END ;
 	
-PROCEDURE Init*(fname: ARRAY OF CHAR; pos: INTEGER);
-END Init;
+PROCEDURE SetInput*(scn: Scanner; fname: ARRAY OF CHAR; pos: INTEGER);
+END SetInput;
 
-PROCEDURE ReadCh;
+PROCEDURE ReadCh(scn: Scanner);
 END ReadCh;
 
-PROCEDURE Mark*(msg: ARRAY OF CHAR);
-BEGIN
+PROCEDURE Mark*(scn: Scanner; msg: ARRAY OF CHAR);
 END Mark;
 
-PROCEDURE String(quote: CHAR);
+PROCEDURE String(scn: Scanner; quote: CHAR);
 	VAR i: INTEGER;
-BEGIN ReadCh; i := 0;
-	WHILE (i < StrLen) & (ch # quote) DO
-		str[i] := ch; INC(i); ReadCh
+BEGIN ReadCh(scn); i := 0;
+	WHILE (i < StrLen) & (scn.ch # quote) DO
+		str[i] := scn.ch; INC(i); ReadCh(scn)
 	END ;
-	IF ch # quote THEN Mark('string too long') END ;
-	str[i] := 0X; slen := i; ReadCh
+	IF scn.ch # quote THEN Mark(scn, 'string too long') END ;
+	str[i] := 0X; slen := i; ReadCh(scn)
 END String;
 
-PROCEDURE Comment(lev: INTEGER);
-BEGIN ReadCh;
+PROCEDURE Comment(scn: Scanner; lev: INTEGER);
+BEGIN ReadCh(scn);
 	REPEAT
-		WHILE (ch # '*') & ~eof DO
-			IF ch # '(' THEN ReadCh
-			ELSE ReadCh;
-				IF ch = '*' THEN Comment(lev+1) END
+		WHILE (scn.ch # '*') & ~scn.eof DO
+			IF scn.ch # '(' THEN ReadCh(scn)
+			ELSE ReadCh(scn);
+				IF scn.ch = '*' THEN Comment(scn, lev+1) END
 			END
 		END ;
-		ReadCh
-	UNTIL eof OR (ch = ')');
-	IF ~eof THEN ReadCh ELSE Mark('comment without closure') END
+		ReadCh(scn)
+	UNTIL scn.eof OR (scn.ch = ')');
+	IF ~scn.eof THEN ReadCh(scn) ELSE Mark(scn, 'comment without closure')
+	END
 END Comment;
 
-PROCEDURE KeyWordOrIdent(VAR sym: INTEGER);
-	VAR i: INTEGER; hasNonCap, notValidChar: BOOLEAN;
+PROCEDURE KeywordOrIdent(scn: Scanner);
+	VAR i: INTEGER; hasNonCap, validChar: BOOLEAN;
 BEGIN
-	hasNonCap := FALSE; notValidChar := FALSE; i := 0; sym := ident;
-	WHILE ~notValidChar & (i < IdLen) DO
-		id[i] := ch; INC(i); ReadCh;
-		IF (ch >= 'A') & (ch <= 'Z') THEN (* cap char *)
-		ELSIF (ch >= '0') & (ch <= '9')
-		OR (ch >= 'a') & (ch <= 'z')
-		OR (ch = '_') THEN hasNonCap := TRUE
-		ELSE notValidChar := TRUE
+	scn.sym := ident;
+	hasNonCap := FALSE; validChar := TRUE; i := 0;
+	WHILE validChar & (i < IdLen) DO
+		scn.id[i] := scn.ch; INC(i); ReadCh(scn);
+		IF (scn.ch >= 'A') & (scn.ch <= 'Z') THEN (* cap char *)
+		ELSIF (scn.ch >= '0') & (scn.ch <= '9')
+		OR (scn.ch >= 'a') & (scn.ch <= 'z')
+		OR (scn.ch = '_') THEN hasNonCap := TRUE
+		ELSE validChar := FALSE
 		END
 	END ;
-	id[i] := 0X; IF ~notValidChar THEN Mark('identifier too long') END ;
+	scn.id[i] := 0X; IF validChar THEN Mark(scn, 'identifier too long') END ;
 
 	IF hasNonCap OR (i < 2) THEN (* ident *)
 	ELSIF i = 3 THEN
-		IF id = 'END' THEN sym := end
-		ELSIF id = 'VAR' THEN sym := var
-		ELSIF id = 'NIL' THEN sym := nil
-		ELSIF id = 'FOR' THEN sym := for
-		ELSIF id = 'MOD' THEN sym := mod
-		ELSIF id = 'DIV' THEN sym := div
+		IF scn.id = 'END' THEN scn.sym := end
+		ELSIF scn.id = 'VAR' THEN scn.sym := var
+		ELSIF scn.id = 'NIL' THEN scn.sym := nil
+		ELSIF scn.id = 'FOR' THEN scn.sym := for
+		ELSIF scn.id = 'MOD' THEN scn.sym := mod
+		ELSIF scn.id = 'DIV' THEN scn.sym := div
 		END
 	ELSIF i = 4 THEN
-		IF id = 'THEN' THEN sym := then
-		ELSIF id = 'ELSE' THEN sym := else
-		ELSIF id = 'TRUE' THEN sym := true
-		ELSIF id = 'TYPE' THEN sym := type
-		ELSIF id = 'CASE' THEN sym := case
+		IF scn.id = 'THEN' THEN scn.sym := then
+		ELSIF scn.id = 'ELSE' THEN scn.sym := else
+		ELSIF scn.id = 'TRUE' THEN scn.sym := true
+		ELSIF scn.id = 'TYPE' THEN scn.sym := type
+		ELSIF scn.id = 'CASE' THEN scn.sym := case
 		END
 	ELSIF i = 2 THEN
-		IF id = 'IF' THEN sym := if
-		ELSIF id = 'OR' THEN sym := or
-		ELSIF id = 'OF' THEN sym := of
-		ELSIF id = 'DO' THEN sym := do
-		ELSIF id = 'IN' THEN sym := in
-		ELSIF id = 'IS' THEN sym := is
-		ELSIF id = 'BY' THEN sym := by
+		IF scn.id = 'IF' THEN scn.sym := if
+		ELSIF scn.id = 'OR' THEN scn.sym := or
+		ELSIF scn.id = 'OF' THEN scn.sym := of
+		ELSIF scn.id = 'DO' THEN scn.sym := do
+		ELSIF scn.id = 'IN' THEN scn.sym := in
+		ELSIF scn.id = 'IS' THEN scn.sym := is
+		ELSIF scn.id = 'BY' THEN scn.sym := by
 		END
 	ELSIF i = 5 THEN
-		IF id = 'ELSIF' THEN sym := elsif
-		ELSIF id = 'WHILE' THEN sym := while
-		ELSIF id = 'UNTIL' THEN sym := until
-		ELSIF id = 'BEGIN' THEN sym := begin
-		ELSIF id = 'CONST' THEN sym := const
-		ELSIF id = 'FALSE' THEN sym := false
-		ELSIF id = 'ARRAY' THEN sym := array
+		IF scn.id = 'ELSIF' THEN scn.sym := elsif
+		ELSIF scn.id = 'WHILE' THEN scn.sym := while
+		ELSIF scn.id = 'UNTIL' THEN scn.sym := until
+		ELSIF scn.id = 'BEGIN' THEN scn.sym := begin
+		ELSIF scn.id = 'CONST' THEN scn.sym := const
+		ELSIF scn.id = 'FALSE' THEN scn.sym := false
+		ELSIF scn.id = 'ARRAY' THEN scn.sym := array
 		END
 	ELSIF i = 6 THEN
-		IF id = 'RECORD' THEN sym := record
-		ELSIF id = 'REPEAT' THEN sym := repeat
-		ELSIF id = 'RETURN' THEN sym := return
-		ELSIF id = 'IMPORT' THEN sym := import
-		ELSIF id = 'MODULE' THEN sym := module
+		IF scn.id = 'RECORD' THEN scn.sym := record
+		ELSIF scn.id = 'REPEAT' THEN scn.sym := repeat
+		ELSIF scn.id = 'RETURN' THEN scn.sym := return
+		ELSIF scn.id = 'IMPORT' THEN scn.sym := import
+		ELSIF scn.id = 'MODULE' THEN scn.sym := module
 		END
 	ELSIF i = 7 THEN
-		IF id = 'POINTER' THEN sym := pointer END
+		IF scn.id = 'POINTER' THEN scn.sym := pointer END
 	ELSIF i = 9 THEN
-		IF id = 'PROCEDURE' THEN sym := procedure END
+		IF scn.id = 'PROCEDURE' THEN scn.sym := procedure END
 	ELSE (* ident *)
 	END
-END KeyWordOrIdent;
+END KeywordOrIdent;
 
-PROCEDURE Identifier;
+PROCEDURE Identifier(scn: Scanner);
 	VAR i: INTEGER; validChar: BOOLEAN;
 BEGIN i := 0; validChar := TRUE;
 	WHILE (i < IdLen) & validChar DO
-		id[i] := ch; INC(i); ReadCh;
-		validChar := (ch >= 'a') & (ch <= 'z') OR (ch >= 'A') & (ch <= 'Z')
-			OR (ch >= '0') & (ch <= '9') OR (ch = '_')
+		scn.id[i] := scn.ch; INC(i); ReadCh(scn);
+		validChar := (scn.ch >= 'a') & (scn.ch <= 'z')
+			OR (scn.ch >= 'A') & (scn.ch <= 'Z')
+			OR (scn.ch >= '0') & (scn.ch <= '9') OR (scn.ch = '_')
 	END ;
-	id[i] := 0X; IF validChar THEN Mark('identifier too long') END 
+	scn.id[i] := 0X; IF validChar THEN Mark(scn, 'identifier too long') END 
 END Identifier;
 
-PROCEDURE Real(VAR sym: INTEGER; d: ARRAY OF INTEGER; n: INTEGER);
-	VAR x, f, max, min, half: BigNums.BigNum;
-		i, k, e, float, last: INTEGER; negE: BOOLEAN;
+PROCEDURE Real(scn: Scanner; d: Sys.Decimal; intLen: INTEGER);
+	VAR f: Sys.Decimal; e: Sys.Int;
+		fracLen, k, float, last: INTEGER; negE, expTooBig: BOOLEAN;
 BEGIN
-	i := n-1; k := 0; x := BigNums.Zero; f := BigNums.Zero;
-	REPEAT
-		IF d[i] > 10 THEN Mark('Bad number')
-		ELSE BigNums.SetDecimalDigit(x, k, d[i])
-		END;
-		DEC(i); INC(k)
-	UNTIL i < 0;
-	i := BigNums.MaxDecimalDigits-1;
-	WHILE (ch >= '0') & (ch <= '9') DO (* fraction *)
-		IF i > BigNums.MaxDecimalDigits-19 THEN
-			BigNums.SetDecimalDigit(f, i, ORD(ch)-30H)
-		ELSIF i = BigNums.MaxDecimalDigits-19 THEN Mark('Fraction too long')
+	fracLen := 0;
+	WHILE (scn.ch >= '0') & (scn.ch <= '9') DO (* fraction *)
+		IF fracLen < Sys.MaxFracLen THEN
+			f[fracLen] := ORD(scn.scn.ch) - 30H; INC(fracLen)
+		ELSE Mark(scn, 'Fraction part is too long'); fracLen := 0
 		END ;
-		DEC(i); ReadCh
+		ReadCh(scn)
 	END ;
-	IF (ch = 'E') OR (ch = 'D') THEN (* scale factor *)
-		ReadCh; e := 0; 
-		IF ch = '-' THEN negE := TRUE; ReadCh
-		ELSE negE := FALSE; IF ch = '+' THEN ReadCh END
+	IF (scn.ch = 'E') OR (scn.ch = 'D') THEN (* scale factor *)
+		ReadCh(scn); e := Sys.ZeroInt; 
+		IF scn.ch = '-' THEN negE := TRUE; ReadCh(scn)
+		ELSE negE := FALSE; IF scn.ch = '+' THEN ReadCh(scn) END
 		END ;
-		IF (ch >= '0') & (ch <= '9') THEN
-			REPEAT e := e*10 + ORD(ch)-30H; ReadCh
-			UNTIL (ch < '0') OR (ch > '9') OR (e > maxExp);
-			IF e > maxExp THEN Mark('Exponent too large');
-				WHILE (ch < '0') OR (ch > '9') DO ReadCh END
+		IF (scn.ch >= '0') & (scn.ch <= '9') THEN
+			REPEAT
+				Sys.MulIntByte(e, 10);
+				Sys.AddIntByte(ORD(scn.ch)-30H); ReadCh(scn);
+				expTooBig := Sys.CmpInt(e, Sys.MaxRealExp);
+			UNTIL (scn.ch < '0') OR (scn.ch > '9') OR expTooBig;
+			IF expTooBig THEN Mark(scn, 'Exponent part is too large');
+				WHILE (scn.ch < '0') OR (scn.ch > '9') DO ReadCh(scn) END
 			END ;
-			IF negE THEN e := -e END
-		ELSE Mark('Digit?')
-		END ;
-		i := BigNums.MaxDecimalDigits-1;
-		WHILE e > 0 DO BigNums.MultiplyByTen(x, x);
-			BigNums.SetDecimalDigit(x, 0, BigNums.DecimalDigit(f, i));
-			BigNums.SetDecimalDigit(f, i, 0); BigNums.MultiplyByTen(f, f);
-			DEC(e)
-		END ;
-		WHILE e < 0 DO
-			last := BigNums.DecimalDigit(f, 0); BigNums.DivideByTen(f, f);
-			BigNums.SetDecimalDigit(f, i, BigNums.DecimalDigit(x, 0));
-			BigNums.DivideByTen(x, x);
-			IF (last > 5) OR (last = 5) & ODD(BigNums.DecimalDigit(f, 0)) THEN
-				IF BigNums.Compare(f, BigNums.MaxNum) = 0 THEN
-					f := BigNums.Zero; BigNums.Add(x, x, BigNums.One)
-				ELSE BigNums.Add(f, f, BigNums.One)
-				END
-			END ;
-			INC(e)
+			IF negE THEN Sys.NegInt(e) END
+		ELSE Mark(scn, 'Digit?')
 		END
 	END ;
-	e := 52; half := BigNums.Zero;
-	i := BigNums.MaxDecimalDigits-1; BigNums.SetDecimalDigit(half, i, 5);
-	BigNums.Set0(max, 1FFFFFFFFFFFFFH); BigNums.Set0(min, 10000000000000H);
-	IF (BigNums.Compare(x, BigNums.Zero) # 0)
-	OR (BigNums.Compare(x, BigNums.Zero) # 0) THEN
-		WHILE BigNums.Compare(x, min) < 0 DO BigNums.Add(x, x, x);
-			IF BigNums.Compare(f, half) >= 0 THEN
-				BigNums.Subtract(f, f, half); BigNums.Add(x, x, BigNums.One)
-			END ;
-			BigNums.Add(f, f, f); DEC(e)
-		END ;
-		WHILE BigNums.Compare(x, max) > 0 DO BigNums.DivideByTwo(f, f);
-			IF BigNums.ModuloTwo(x) = 1 THEN BigNums.Add(f, f, half) END;
-			BigNums.DivideByTwo(x, x); INC(e)
-		END ;
-		float := BigNums.Get0(x); i := BigNums.Compare(f, half);
-		IF (i > 0) OR (i = 0) & ODD(float) THEN INC(float);
-			IF float > 1FFFFFFFFFFFFFH THEN float := float DIV 2; INC(e) END
-		END ;
-		float := float - 10000000000000H + (e+1023)*10000000000000H;
-	ELSE float := 0
-	END ;
-	sym := real; rval := SYSTEM.VAL(REAL, float); ival := float
+	scn.sym := real; Sys.DecToReal(d, intLen, f, fracLen, e, scn.rval);
 END Real;
 
-PROCEDURE Number(VAR sym: INTEGER);
-    CONST max = MaxInt;
-	VAR i, k2, e, n, s, h: INTEGER; x: REAL;
-		d: ARRAY 21 OF INTEGER; negE: BOOLEAN;
+PROCEDURE Number(scn: Scanner);
+	VAR i, n: INTEGER;
+		x: Sys.Real; k2: Sys.Int; h: BYTE;
+		d: Sys.Decimal; errormsg: Str;
 BEGIN
-	ival := 0; i := 0; n := 0; k2 := 0;
+	scn.ival := Sys.ZeroInt; i := 0; n := 0; k2 := Sys.ZeroInt;
     REPEAT
-		IF n < LEN(d) THEN d[n] := ORD(ch) - 30H; INC(n)
-		ELSE Mark('Too many digits'); n := 0
+		IF n < LEN(d) THEN d[n] := ORD(scn.ch) - 30H; INC(n)
+		ELSE Mark(scn, 'Too many digits'); n := 0
 		END ;
-		ReadCh
-    UNTIL (ch < '0') OR (ch > '9') & (ch < 'A') OR (ch > 'F');
-    IF (ch = 'H') OR (ch = 'R') OR (ch = 'X') THEN  (* hex *)
+		ReadCh(scn)
+    UNTIL (scn.ch < '0') OR (scn.ch > '9') & (scn.ch < 'A') OR (scn.ch > 'F');
+    IF (scn.ch = 'H') OR (scn.ch = 'R') OR (scn.ch = 'X') THEN  (* hex *)
 		REPEAT h := d[i];
 			IF h >= 10 THEN h := h-7 END ;
-			k2 := k2*10H + h; INC(i) (* no overflow check *)
-		UNTIL i = n;
-		ival := k2;
-		IF ch = 'X' THEN sym := string;
-			IF ival >= 10000H THEN Mark('Illegal value'); ival := 0 END ;
-			IF ival = 0 THEN str[0] := 0X; slen := 1
-			ELSE str[0] := CHR(ival); str[1] := 0X; slen := 2
-			END
-		ELSIF ch = 'R' THEN sym := real; rval := SYSTEM.VAL(REAL, ival)
-		ELSE sym := int
-		END ;
-		ReadCh
-    ELSIF ch = '.' THEN ReadCh;
-		IF ch = '.' THEN (* double dot *) ch := 7FX; escUpto := TRUE;
-			(* decimal integer *)
-			REPEAT
-				IF d[i] < 10 THEN
-					IF k2 <= (max-d[i]) DIV 10 THEN k2 := k2 * 10 + d[i]
-					ELSE Mark('Too large'); k2 := 0
-					END
-				ELSE Mark('Bad integer')
-				END ;
-				INC(i)
-			UNTIL i = n;
-			sym := int; ival := k2
-		ELSE (* real number *)
-			Real(sym, d, n)
-		END
-    ELSE (* decimal integer *)
-		REPEAT
-			IF d[i] < 10 THEN
-				IF k2 <= (max-d[i]) DIV 10 THEN k2 := k2*10 + d[i]
-				ELSE Mark ('Too large'); k2 := 0
-				END
-			ELSE Mark('Bad integer')
-			END ;
+			Sys.MulIntByte(k2, 10H);
+			Sys.AddIntByte(k2, h); (* no overflow check *)
 			INC(i)
 		UNTIL i = n;
-		sym := int; ival := k2
+		IF scn.ch = 'X' THEN scn.sym := string;
+			IF Sys.CmpInt(k2, Sys.MaxUnicode) > 0 THEN
+				Mark(scn, 'Not a valid Unicode codepoint'); k2 := Sys.ZeroInt
+			END ;
+			Sys.CodepointToStr(k2, str)
+		ELSIF scn.ch = 'R' THEN scn.sym := real; rval := Sys.HexToReal(k2)
+		ELSE scn.sym := int; ival := k2
+		END ;
+		ReadCh(scn)
+    ELSIF scn.ch = '.' THEN ReadCh(scn);
+		IF scn.ch = '.' THEN (* double dot *)
+			scn.ch := 7FX; scn.escUpto := TRUE; 
+			(* decimal integer *)
+			scn.sym := int; Sys.DecToInt(d, n, scn.ival, errormsg);
+			IF errormsg = 0X THEN Mark(scn, errormsg) END
+		ELSE (* real number *)
+			Real(scn, d, n)
+		END
+    ELSE (* decimal integer *)
+		scn.sym := int; Sys.DecToInt(d, n, scn.ival, errormsg);
+		IF errormsg = 0X THEN Mark(scn, errormsg) END
     END
 END Number;
 
-PROCEDURE Get*(VAR sym: INTEGER);
+PROCEDURE Get*(scn: Scanner);
 BEGIN
 	REPEAT
-		WHILE ~eof & (ch <= ' ') DO symPos := pos; ReadCh END ;
-		IF ch < '0' THEN
-			IF ch = 22X (* " *) THEN sym := string; String(22X)
-			ELSIF ch = '#' THEN ReadCh; sym := neq
-			ELSIF ch = '&' THEN ReadCh; sym := and
-			ELSIF ch = 27X (* ' *)THEN sym := string; String(27X)
-			ELSIF ch = '(' THEN ReadCh;
-				IF ch # '*' THEN sym := lparen ELSE Comment(0); sym := null END
-			ELSIF ch = ')' THEN ReadCh; sym := rparen
-			ELSIF ch = '*' THEN ReadCh; sym := times
-			ELSIF ch = '+' THEN ReadCh; sym := plus
-			ELSIF ch = ',' THEN ReadCh; sym := comma
-			ELSIF ch = '-' THEN ReadCh; sym := minus
-			ELSIF ch = '.' THEN ReadCh;
-				IF ch # '.' THEN sym := period ELSE ReadCh; sym := upto END
-			ELSIF ch = '/' THEN ReadCh; sym := rdiv
-			ELSE (* ! % *) ReadCh; sym := null
-			END
-		ELSIF ch <= '9' THEN Number(sym)
-		ELSIF ch < 'A' THEN
-			IF ch = ':' THEN ReadCh; sym := colon
-			ELSIF ch = ';' THEN ReadCh; sym := semicolon
-			ELSIF ch = '<' THEN ReadCh;
-				IF ch # '=' THEN sym := lss ELSE ReadCh; sym := leq END
-			ELSIF ch = '=' THEN sym := eql
-			ELSIF ch = '>' THEN ReadCh;
-				IF ch # '=' THEN sym := gtr ELSE ReadCh; sym := geq END
-			ELSE (* ? @ *) ReadCh; sym := null
-			END
-		ELSIF ch <= 'Z' THEN KeyWordOrIdent(sym)
-		ELSIF ch < 'a' THEN
-			IF ch = ']' THEN sym := rbrak
-			ELSIF ch = '[' THEN sym := lbrak
-			ELSIF ch = '^' THEN sym := arrow
-			ELSIF ch = '_' THEN Identifier; sym := ident 
-			ELSE (* ` *) sym := null
-			END ;
-			ReadCh
-		ELSIF ch <= 'z' THEN Identifier; sym := ident ELSE
-			IF ch = '{' THEN sym := rbrace
-			ELSIF ch = '|' THEN sym := bar
-			ELSIF ch = 7FX (* escape *) THEN
-				IF escUpto THEN sym := upto; ReadCh; escUpto := FALSE
-				ELSE sym := null
+		WHILE ~scn.eof & (scn.ch <= ' ') DO
+			scn.symPos := scn.pos; ReadCh(scn)
+		END ;
+		IF scn.ch < '0' THEN
+			IF scn.ch = 22X (* " *) THEN scn.sym := string; String(scn, 22X)
+			ELSIF scn.ch = '#' THEN ReadCh(scn); scn.sym := neq
+			ELSIF scn.ch = '&' THEN ReadCh(scn); scn.sym := and
+			ELSIF scn.ch = 27X (* ' *)THEN scn.sym := string; String(scn, 27X)
+			ELSIF scn.ch = '(' THEN ReadCh(scn);
+				IF scn.ch # '*' THEN scn.sym := lparen
+				ELSE Comment(scn, 0); scn.sym := null
 				END
-			ELSE (* others *) sym := null 
+			ELSIF scn.ch = ')' THEN ReadCh(scn); scn.sym := rparen
+			ELSIF scn.ch = '*' THEN ReadCh(scn); scn.sym := times
+			ELSIF scn.ch = '+' THEN ReadCh(scn); scn.sym := plus
+			ELSIF scn.ch = ',' THEN ReadCh(scn); scn.sym := comma
+			ELSIF scn.ch = '-' THEN ReadCh(scn); scn.sym := minus
+			ELSIF scn.ch = '.' THEN ReadCh(scn);
+				IF scn.ch # '.' THEN scn.sym := period
+				ELSE ReadCh(scn); scn.sym := upto
+				END
+			ELSIF scn.ch = '/' THEN ReadCh(scn); scn.sym := rdiv
+			ELSE (* ! % *) ReadCh(scn); scn.sym := null
+			END
+		ELSIF scn.ch <= '9' THEN Number(scn)
+		ELSIF scn.ch < 'A' THEN
+			IF scn.ch = ':' THEN ReadCh(scn); scn.sym := colon
+			ELSIF scn.ch = ';' THEN ReadCh(scn); scn.sym := semicolon
+			ELSIF scn.ch = '<' THEN ReadCh(scn);
+				IF scn.ch # '=' THEN scn.sym := lss
+				ELSE ReadCh(scn); scn.sym := leq
+				END
+			ELSIF scn.ch = '=' THEN scn.sym := eql
+			ELSIF scn.ch = '>' THEN ReadCh(scn);
+				IF scn.ch # '=' THEN scn.sym := gtr
+				ELSE ReadCh(scn); scn.sym := geq
+				END
+			ELSE (* ? @ *) ReadCh(scn); scn.sym := null
+			END
+		ELSIF scn.ch <= 'Z' THEN KeywordOrIdent(scn)
+		ELSIF scn.ch < 'a' THEN
+			IF scn.ch = ']' THEN scn.sym := rbrak
+			ELSIF scn.ch = '[' THEN scn.sym := lbrak
+			ELSIF scn.ch = '^' THEN scn.sym := arrow
+			ELSIF scn.ch = '_' THEN Identifier(scn); scn.sym := ident 
+			ELSE (* ` *) scn.sym := null
 			END ;
-			ReadCh
+			ReadCh(scn)
+		ELSIF scn.ch <= 'z' THEN Identifier(scn); scn.sym := ident ELSE
+			IF scn.ch = '{' THEN scn.sym := rbrace
+			ELSIF scn.ch = '|' THEN scn.sym := bar
+			ELSIF scn.ch = 7FX (* escape *) THEN
+				IF scn.escUpto THEN
+					scn.sym := upto; ReadCh(scn); scn.escUpto := FALSE
+				ELSE scn.sym := null
+				END
+			ELSE (* others *) scn.sym := null 
+			END ;
+			ReadCh(scn)
 		END 
-	UNTIL (sym # null) OR eof
+	UNTIL (scn.sym # null) OR scn.eof
 END Get;
 
 END Scn.
