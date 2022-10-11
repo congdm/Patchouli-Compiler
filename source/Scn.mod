@@ -32,7 +32,7 @@ TYPE
 		pos*, symPos*, errcnt*: INTEGER;
 		sym*: INTEGER; id*: Ident;
 		str*: Str; slen*: INTEGER;
-		ival*: Sys.Int; rval*: Sys.Double
+		ival*: Sys.Int; rval*: Sys.Real
 	END ;
 	
 PROCEDURE SetInput*(scn: Scanner; fname: ARRAY OF CHAR; pos: INTEGER);
@@ -48,10 +48,10 @@ PROCEDURE String(scn: Scanner; quote: CHAR);
 	VAR i: INTEGER;
 BEGIN ReadCh(scn); i := 0;
 	WHILE (i < StrLen) & (scn.ch # quote) DO
-		str[i] := scn.ch; INC(i); ReadCh(scn)
+		scn.str[i] := scn.ch; INC(i); ReadCh(scn)
 	END ;
 	IF scn.ch # quote THEN Mark(scn, 'string too long') END ;
-	str[i] := 0X; slen := i; ReadCh(scn)
+	scn.str[i] := 0X; scn.slen := i; ReadCh(scn)
 END String;
 
 PROCEDURE Comment(scn: Scanner; lev: INTEGER);
@@ -153,7 +153,7 @@ BEGIN
 	fracLen := 0;
 	WHILE (scn.ch >= '0') & (scn.ch <= '9') DO (* fraction *)
 		IF fracLen < Sys.MaxFracLen THEN
-			f[fracLen] := ORD(scn.scn.ch) - 30H; INC(fracLen)
+			f[fracLen] := ORD(scn.ch) - 30H; INC(fracLen)
 		ELSE Mark(scn, 'Fraction part is too long'); fracLen := 0
 		END ;
 		ReadCh(scn)
@@ -166,8 +166,8 @@ BEGIN
 		IF (scn.ch >= '0') & (scn.ch <= '9') THEN
 			REPEAT
 				Sys.MulIntByte(e, 10);
-				Sys.AddIntByte(ORD(scn.ch)-30H); ReadCh(scn);
-				expTooBig := Sys.CmpInt(e, Sys.MaxRealExp);
+				Sys.AddIntByte(e, ORD(scn.ch)-30H); ReadCh(scn);
+				expTooBig := Sys.CmpInt(e, Sys.MaxRealExp) > 0;
 			UNTIL (scn.ch < '0') OR (scn.ch > '9') OR expTooBig;
 			IF expTooBig THEN Mark(scn, 'Exponent part is too large');
 				WHILE (scn.ch < '0') OR (scn.ch > '9') DO ReadCh(scn) END
@@ -202,9 +202,9 @@ BEGIN
 			IF Sys.CmpInt(k2, Sys.MaxUnicode) > 0 THEN
 				Mark(scn, 'Not a valid Unicode codepoint'); k2 := Sys.ZeroInt
 			END ;
-			Sys.CodepointToStr(k2, str)
-		ELSIF scn.ch = 'R' THEN scn.sym := real; rval := Sys.HexToReal(k2)
-		ELSE scn.sym := int; ival := k2
+			Sys.CodepointToStr(k2, scn.str)
+		ELSIF scn.ch = 'R' THEN scn.sym := real; Sys.HexToReal(k2, scn.rval)
+		ELSE scn.sym := int; scn.ival := k2
 		END ;
 		ReadCh(scn)
     ELSIF scn.ch = '.' THEN ReadCh(scn);

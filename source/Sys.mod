@@ -1,5 +1,8 @@
 MODULE Sys;
 
+CONST
+	MaxFracLen* = 19;
+
 TYPE
 	Int* = ARRAY 8 OF BYTE;
 	Real* = ARRAY 8 OF BYTE;
@@ -9,6 +12,7 @@ VAR
 	MaxInt*, MinInt*: Int;
 	ZeroInt*: Int;
 	MaxUnicode*: Int;
+	MaxRealExp*: Int;
 	
 PROCEDURE SignInt*(x: Int): BOOLEAN;
 BEGIN
@@ -35,9 +39,9 @@ PROCEDURE AddInt*(VAR x: Int; y: Int);
 	VAR i, carry, t: INTEGER;
 BEGIN carry := 0; i := 0;
 	WHILE i < LEN(x) DO
-		t = x[i] + y[i] + carry;
+		t := x[i] + y[i] + carry;
 		IF t <= 255 THEN carry := 0; x[i] := t
-		ELSE carry = 1; x[i] := t - 256
+		ELSE carry := 1; x[i] := t - 256
 		END ;
 		INC(i)
 	END
@@ -95,5 +99,29 @@ PROCEDURE MulInt*(VAR x: Int; y: Int);
 	VAR z: Int;
 BEGIN
 END MulInt;
+
+PROCEDURE AddIntByte*(VAR x: Int; y: BYTE);
+END AddIntByte;
+
+PROCEDURE MulIntByte*(VAR x: Int; y: BYTE);
+END MulIntByte;
+
+PROCEDURE CodepointToStr*(x: Int; VAR res: ARRAY OF CHAR);
+END CodepointToStr;
+
+PROCEDURE DecToInt*(
+	x: Decimal; len: INTEGER; VAR res: Int; VAR errmsg: ARRAY OF CHAR
+);
+END DecToInt;
+
+PROCEDURE DecToReal*(
+	x: Decimal; intLen: INTEGER;
+	f: Decimal; fracLen: INTEGER;
+	e: Int; VAR res: Real
+);
+END DecToReal;
+
+PROCEDURE HexToReal*(x: Int; VAR res: Real);
+END HexToReal;
 
 END Sys.
