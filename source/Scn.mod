@@ -29,7 +29,7 @@ TYPE
 
 	Scanner* = POINTER TO RECORD
 		ch: CHAR; eof, escUpto: BOOLEAN;
-		pos*, symPos*, errcnt*: INTEGER;
+		pos*, symPos*, errcnt*: Sys.Int;
 		sym*: INTEGER; id*: Ident;
 		str*: Str; slen*: INTEGER;
 		ival*: Sys.Int; rval*: Sys.Real

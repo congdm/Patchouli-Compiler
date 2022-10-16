@@ -34,6 +34,12 @@ BEGIN
 	END ;
 	RETURN res
 END CmpInt;
+
+PROCEDURE CmpIntByte*(x: Int; y: BYTE): INTEGER;
+	VAR res, i: INTEGER;
+BEGIN
+	RETURN res
+END CmpIntByte;
 	
 PROCEDURE AddInt*(VAR x: Int; y: Int);
 	VAR i, carry, t: INTEGER;
