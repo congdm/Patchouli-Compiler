@@ -10,9 +10,17 @@ TYPE
 
 VAR
 	MaxInt*, MinInt*: Int;
-	ZeroInt*: Int;
+	ZeroInt*, OneInt*: Int;
 	MaxUnicode*: Int;
 	MaxRealExp*: Int;
+	
+PROCEDURE INTEGERToInt*(x: INTEGER; VAR res: Int);
+	VAR i: INTEGER;
+BEGIN i := 0; res := ZeroInt;
+	WHILE (x # 0) & (i < LEN(res)) DO
+		res[i] := x MOD 256; x := x DIV 256; INC(i)
+	END
+END INTEGERToInt;
 	
 PROCEDURE SignInt*(x: Int): BOOLEAN;
 BEGIN

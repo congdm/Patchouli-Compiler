@@ -31,7 +31,7 @@ TYPE
 		ch: CHAR; eof, escUpto: BOOLEAN;
 		pos*, symPos*, errcnt*: Sys.Int;
 		sym*: INTEGER; id*: Ident;
-		str*: Str; slen*: INTEGER;
+		str*: Str; slen*: INTEGER; strlen*: Sys.Int;
 		ival*: Sys.Int; rval*: Sys.Real
 	END ;
 	
@@ -51,7 +51,8 @@ BEGIN ReadCh(scn); i := 0;
 		scn.str[i] := scn.ch; INC(i); ReadCh(scn)
 	END ;
 	IF scn.ch # quote THEN Mark(scn, 'string too long') END ;
-	scn.str[i] := 0X; scn.slen := i; ReadCh(scn)
+	scn.str[i] := 0X; scn.slen := i; Sys.INTEGERToInt(i, scn.strlen);
+	ReadCh(scn)
 END String;
 
 PROCEDURE Comment(scn: Scanner; lev: INTEGER);

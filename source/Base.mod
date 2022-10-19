@@ -23,6 +23,15 @@ CONST
 	tAdds* = {tInt, tReal, tSet};
 	tTimes* = {tInt, tReal, tSet};
 	tRdivs* = {tReal, tSet};
+	
+	(* Node op *)
+	opPar* = 100H; opCall* = 101H;
+	opABS* = 102H; opODD* = 103H; opLEN* = 104H;
+	opLSL* = 105H; opASR* = 106H; opROR* = 107H;
+	opFLOOR* = 108H; opFLT* = 109H; opORD* = 10AH; opCHR* = 10BH;
+	opADR* = 10CH; opSIZE* = 10DH; opBIT* = 10EH; opVAL* = 10FH;
+	
+	opBitset* = 110H;
 
 TYPE
 	Object* = POINTER TO ObjDesc;
@@ -42,6 +51,10 @@ TYPE
 	TempVar* = POINTER TO RECORD (Var) inited*: BOOLEAN END ;
 	SProc* = POINTER TO RECORD (ObjDesc) id*: INTEGER END ;
 	SFunc* = POINTER TO RECORD (ObjDesc) id*: INTEGER END ;
+	
+	ExtModule* = POINTER TO RECORD (ObjDesc)
+		first*: Ident
+	END ;
 	
 	TypeDesc* = RECORD
 		predef*, isOpenArray*: BOOLEAN;
@@ -94,7 +107,9 @@ TYPE
 		mod*: Module;
 		undefList*: UndefPtrList;
 		externalIdentNotFound*: Ident;
-		typeCastStack*: TypeCastList
+		typeCastStack*: TypeCastList;
+		
+		SystemStdFunc*: PROCEDURE (psr: Parser; f: SFunc): Object
 	END ;
 
 END Base.
