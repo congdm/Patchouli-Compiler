@@ -28,8 +28,8 @@ TYPE
 	Ident* = ARRAY IdLen+1 OF CHAR;
 
 	Scanner* = POINTER TO RECORD
-		ch: CHAR; eof, escUpto: BOOLEAN;
-		pos*, symPos*, errcnt*: Sys.Int;
+		ch: CHAR; eof, escUpto, hasError*: BOOLEAN;
+		pos*, spos*, errcnt*: Sys.Int;
 		sym*: INTEGER; id*: Ident;
 		str*: Str; slen*: INTEGER; strlen*: Sys.Int;
 		ival*: Sys.Int; rval*: Sys.Real
@@ -227,7 +227,7 @@ PROCEDURE Get*(scn: Scanner);
 BEGIN
 	REPEAT
 		WHILE ~scn.eof & (scn.ch <= ' ') DO
-			scn.symPos := scn.pos; ReadCh(scn)
+			scn.spos := scn.pos; ReadCh(scn)
 		END ;
 		IF scn.ch < '0' THEN
 			IF scn.ch = 22X (* " *) THEN scn.sym := string; String(scn, 22X)

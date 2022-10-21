@@ -29,9 +29,13 @@ CONST
 	opABS* = 102H; opODD* = 103H; opLEN* = 104H;
 	opLSL* = 105H; opASR* = 106H; opROR* = 107H;
 	opFLOOR* = 108H; opFLT* = 109H; opORD* = 10AH; opCHR* = 10BH;
-	opADR* = 10CH; opSIZE* = 10DH; opBIT* = 10EH; opVAL* = 10FH;
-	
+	opADR* = 10CH; opSIZE* = 10DH; opBIT* = 10EH; opVAL* = 10FH;	
 	opBitset* = 110H;
+	
+	opINC* = 111H; opDEC* = opINC + 1; opINCL* = opINC + 2;
+	opEXCL* = opINC + 3; opNEW* = opINC + 4; opASSERT* = opINC + 5;
+	opPACK* = opINC + 6; opUNPK* = opINC + 7;
+	opEndOfStdProc* = opUNPK;
 
 TYPE
 	Object* = POINTER TO ObjDesc;
@@ -51,6 +55,10 @@ TYPE
 	TempVar* = POINTER TO RECORD (Var) inited*: BOOLEAN END ;
 	SProc* = POINTER TO RECORD (ObjDesc) id*: INTEGER END ;
 	SFunc* = POINTER TO RECORD (ObjDesc) id*: INTEGER END ;
+	
+	Proc* = POINTER TO RECORD (ObjDesc)
+		decl*: Ident; statseq*: Node; return*: Object
+	END;
 	
 	ExtModule* = POINTER TO RECORD (ObjDesc)
 		first*: Ident
@@ -98,18 +106,14 @@ TYPE
 		name*: S.Ident; tp*: Type; next*: UndefPtrList
 	END ;
 	
-	TypeCastList* = POINTER TO RECORD
-		node*: Node; type*: Type; next*: TypeCastList
-	END ;
-	
 	Parser* = POINTER TO RECORD
 		scn*: S.Scanner; sym*: INTEGER;
 		mod*: Module;
 		undefList*: UndefPtrList;
 		externalIdentNotFound*: Ident;
-		typeCastStack*: TypeCastList;
 		
-		SystemStdFunc*: PROCEDURE (psr: Parser; f: SFunc): Object
+		SystemStdFunc*: PROCEDURE (psr: Parser; f: SFunc): Object;
+		SystemStdProc*: PROCEDURE (psr: Parser; f: SProc): Node
 	END ;
 
 END Base.

@@ -35,6 +35,36 @@ BEGIN
 	RETURN NIL
 END NewStr;
 
+PROCEDURE NewType(psr: Parser; form: INTEGER): B.Type;
+BEGIN
+	RETURN NIL
+END NewType;
+
+PROCEDURE NewPar(psr: Parser; proc, type: B.Type; varpar: BOOLEAN): B.Par;
+BEGIN
+	RETURN NIL
+END NewPar;
+
+PROCEDURE NewField(psr: Parser; rec, ftype: B.Type): B.Field;
+BEGIN
+	RETURN NIL
+END NewField;
+
+PROCEDURE NewTypeObj(psr: Parser; tp: B.Type): B.Object;
+BEGIN
+	RETURN NIL
+END NewTypeObj;
+
+PROCEDURE NewVar(psr: Parser; tp: B.Type): B.Var;
+BEGIN
+	RETURN NIL
+END NewVar;
+
+PROCEDURE NewProc(psr: Parser): B.Proc;
+BEGIN
+	RETURN NIL
+END NewProc;
+
 PROCEDURE Reset(psr: Parser; VAR x: B.Object);
 BEGIN x := NewConst(psr, psr.mod.intType, Sys.ZeroInt)
 END Reset;
@@ -92,8 +122,7 @@ BEGIN
 END Check;
 
 PROCEDURE IsStrType(psr: Parser; t: B.Type): BOOLEAN;
-	RETURN (t = psr.mod.strType)
-	OR (t.form = B.tArray) & (t.base.form = B.tChar)
+	RETURN (t.form = B.tStr) OR (t.form = B.tArray) & (t.base.form = B.tChar)
 END IsStrType;
 
 PROCEDURE IsExt0(psr: Parser; t1, t2: B.Type): BOOLEAN;
@@ -234,17 +263,17 @@ BEGIN xt := x.type; ftype := fpar.type;
 	END
 END CheckPar;
 
-PROCEDURE CheckLeft(psr: Parser; x: B.Object; op: INTEGER);
+PROCEDURE CheckLeftCmp(psr: Parser; x: B.Object; op: INTEGER);
 BEGIN
-	IF (op >= S.eql) & (op <= S.geq) THEN
-		IF (x.type.form IN B.tCmps) OR IsStrType(psr, x.type)
-		OR (op <= S.neq) & (x.type.form IN B.tEqls) THEN (*valid*)
-		ELSE Mark(psr, msgIvlType)
-		END
-	ELSIF op = S.is THEN
-		IF TypeTestable(psr, x) THEN (*valid*) ELSE Mark(psr, msgIvlType) END
+	IF (x.type.form IN B.tCmps) OR IsStrType(psr, x.type)
+	OR (op <= S.neq) & (x.type.form IN B.tEqls) THEN (*valid*)
+	ELSE Mark(psr, msgIvlType)
 	END
-END CheckLeft;
+END CheckLeftCmp;
+
+PROCEDURE CheckLeftIs(psr: Parser; x: B.Object);
+BEGIN IF TypeTestable(psr, x) THEN (*valid*) ELSE Mark(psr, msgIvlType) END
+END CheckLeftIs;
 
 PROCEDURE CheckT(psr: Parser; x: B.Object; forms: SET);
 BEGIN
@@ -268,7 +297,7 @@ BEGIN
 	END
 END CheckLev;
 
-PROCEDURE CheckAssignment(psr: Parser; xtype: B.Type; y: B.Node);
+PROCEDURE CheckAssignment(psr: Parser; xtype: B.Type; y: B.Object);
 BEGIN
 	IF xtype = y.type THEN (*ok*)
 	ELSIF CompTypes(psr, xtype, y.type) THEN
@@ -321,7 +350,7 @@ PROCEDURE NewNode(psr: Parser; op: INTEGER; x, y: B.Object): B.Node;
 	VAR z: B.Node;
 BEGIN
 	NEW(z); z.op := op; z.ronly := FALSE;
-	z.left := x; z.right := y; z.spos := psr.scn.symPos;
+	z.left := x; z.right := y; z.spos := psr.scn.spos;
 	RETURN z
 END NewNode;
 
@@ -389,12 +418,12 @@ END qualident;
 
 PROCEDURE Call(psr: Parser; x: B.Object): B.Node;
 	VAR call, last: B.Node; proc: B.Type;
-		fpar: B.Ident; nact: INTEGER;
+		fpar: B.Ident; nacts: INTEGER;
 		
 	PROCEDURE Parameter(psr: Parser; VAR last: B.Node; fpar: B.Ident);
 		VAR y: B.Object; par: B.Node; spos: Sys.Int;
 	BEGIN
-		spos := psr.scn.pos; y := expression0(psr);
+		spos := psr.scn.spos; y := expression0(psr);
 		IF fpar # NIL THEN CheckPar(psr, fpar.obj(B.Par), y) END ;
 		par := NewNode2(psr, B.opPar, y, NIL, NIL, spos);
 		last.right := par; last := par
@@ -402,19 +431,19 @@ PROCEDURE Call(psr: Parser; x: B.Object): B.Node;
 		
 BEGIN (* Call *)
 	proc := x.type;
-	call := NewNode2(psr, B.opCall, x, NIL, proc.base, psr.scn.pos);
+	call := NewNode2(psr, B.opCall, x, NIL, proc.base, psr.scn.spos);
 	IF psr.sym = S.lparen THEN GetSym(psr);
 		IF psr.sym # S.rparen THEN last := call;
-			fpar := proc.fields; Parameter(psr, last, fpar); nact := 1;
+			fpar := proc.fields; Parameter(psr, last, fpar); nacts := 1;
 			WHILE psr.sym = S.comma DO GetSym(psr);
 				IF fpar # NIL THEN fpar := fpar.next END ;
 				IF psr.sym # S.rparen THEN
-					Parameter(psr, last, fpar); INC(nact)
+					Parameter(psr, last, fpar); INC(nacts)
 				ELSE MarkSflous(psr, S.comma)
 				END
 			END ;
-			IF nact = proc.nfpars THEN (*valid*)
-			ELSIF nact > proc.nfpars THEN Mark(psr, 'too many params')
+			IF nacts = proc.nfpars THEN (*valid*)
+			ELSIF nacts > proc.nfpars THEN Mark(psr, 'too many params')
 			ELSE Mark(psr, 'not enough params')
 			END ;
 			Check(psr, S.rparen)
@@ -437,7 +466,7 @@ BEGIN x := qualident(psr);
     END ;
 	IF x IS B.Var THEN ronly := x(B.Var).ronly ELSE ronly := FALSE END ;
 	WHILE psr.sym = S.period DO
-		spos := psr.scn.pos; CheckT(psr, x, B.tStructs); GetSym(psr);
+		spos := psr.scn.spos; CheckT(psr, x, B.tStructs); GetSym(psr);
 		IF psr.sym # S.ident THEN Mark(psr, 'no field?')
 		ELSE fid := psr.scn.id; recType := x.type;
 			IF (recType.form = B.tPtr) & (recType.base # NIL) THEN
@@ -459,13 +488,13 @@ BEGIN x := qualident(psr);
 			GetSym(psr)
 		END
 	ELSIF psr.sym = S.lbrak DO
-		spos := psr.scn.pos; CheckT(psr, x, {B.tArray});
+		spos := psr.scn.spos; CheckT(psr, x, {B.tArray});
 		xt := x.type; GetSym(psr); y := expression0(psr);
 		CheckInt(psr, y); CheckArrayIndex(psr, x, y);
 		x := NewNode2(psr, S.lbrak, x, y, xt.base, spos);
 		IF xt.base # NIL THEN (*ok*) ELSE x.type := xt END ;
 		x(B.Node).ronly := ronly;
-		WHILE psr.sym = S.comma DO spos := psr.scn.pos;
+		WHILE psr.sym = S.comma DO spos := psr.scn.spos;
 			IF xt.form # B.tArray THEN Mark(psr, 'not multi-dimension') END ;
 			xt := x.type; GetSym(psr); y := expression0(psr);
 			CheckInt(psr, y); CheckArrayIndex(psr, x, y);
@@ -476,11 +505,11 @@ BEGIN x := qualident(psr);
 		Check(psr, S.rbrak)
 	ELSIF psr.sym = S.arrow DO
 		CheckT(psr, x, {B.tPtr}); xt := x.type;
-		x := NewNode2(psr, S.arrow, x, NIL, xt.base, psr.scn.pos);
+		x := NewNode2(psr, S.arrow, x, NIL, xt.base, psr.scn.spos);
 		IF xt.base # NIL THEN (*ok*) ELSE x.type := xt END ;
 		x(B.Node).ronly := FALSE; ronly := FALSE; GetSym(psr)
 	ELSIF (psr.sym = S.lparen) & ~(x IS B.SFunc) & TypeTestable(psr, x) DO
-		spos := psr.scn.pos; xt := x.type; GetSym(psr);
+		spos := psr.scn.spos; xt := x.type; GetSym(psr);
 		IF psr.sym = S.ident THEN y := qualident(psr)
 		ELSE Reset(psr, y); MarkMissing(psr, S.ident)
 		END ;
@@ -502,54 +531,86 @@ END designator;
 
 (* expressions *)
 
-PROCEDURE OpAbs(psr: Parser; x: B.Const): B.Object;
+PROCEDURE OpAbs(psr: Parser; x: B.Const): B.Const;
 	RETURN NIL
 END OpAbs;
 
-PROCEDURE OpOdd(psr: Parser; x: B.Const): B.Object;
+PROCEDURE OpOdd(psr: Parser; x: B.Const): B.Const;
 	RETURN NIL
 END OpOdd;
 
-PROCEDURE OpShift(psr: Parser; op: INTEGER; x, y: B.Const): B.Object;
+PROCEDURE OpShift(psr: Parser; op: INTEGER; x, y: B.Const): B.Const;
 	RETURN NIL
 END OpShift;
 
-PROCEDURE OpFloor(psr: Parser; x: B.Const): B.Object;
+PROCEDURE OpFloor(psr: Parser; x: B.Const): B.Const;
 	RETURN NIL
 END OpFloor;
 
-PROCEDURE OpFlt(psr: Parser; x: B.Const): B.Object;
+PROCEDURE OpFlt(psr: Parser; x: B.Const): B.Const;
 	RETURN NIL
 END OpFlt;
 
-PROCEDURE OpChr(psr: Parser; x: B.Const): B.Object;
+PROCEDURE OpChr(psr: Parser; x: B.Const): B.Const;
 	RETURN NIL
 END OpChr;
 
-PROCEDURE OpOrdChar(psr: Parser; x: B.Str): B.Object;
+PROCEDURE OpOrdChar(psr: Parser; x: B.Str): B.Const;
 	RETURN NIL
 END OpOrdChar;
 
-PROCEDURE OpRangeSet(psr: Parser; x, y: B.Const): B.Object;
+PROCEDURE OpRangeSet(psr: Parser; x, y: B.Const): B.Const;
 	RETURN NIL
 END OpRangeSet;
 
-PROCEDURE OpSingletonSet(psr: Parser; x: B.Const): B.Object;
+PROCEDURE OpSingletonSet(psr: Parser; x: B.Const): B.Const;
 	RETURN NIL
 END OpSingletonSet;
 
-PROCEDURE OpAdd(psr: Parser; op: INTEGER; x, y: B.Object): B.Object;
+PROCEDURE OpAdd(psr: Parser; op: INTEGER; x, y: B.Const): B.Const;
 	RETURN NIL
 END OpAdd;
 
-PROCEDURE OpNegateBool(psr: Parser; x: B.Const): B.Object;
+PROCEDURE OpNegateBool(psr: Parser; x: B.Const): B.Const;
 	RETURN NIL
 END OpNegateBool;
+
+PROCEDURE OpMultiply(psr: Parser; x, y: B.Const): B.Const;
+	RETURN NIL
+END OpMultiply;
+
+PROCEDURE OpRDivide(psr: Parser; x, y: B.Const): B.Const;
+	RETURN NIL
+END OpRDivide;
+
+PROCEDURE OpIntDiv(psr: Parser; op: INTEGER; x, y: B.Const): B.Const;
+	RETURN NIL
+END OpIntDiv;
+
+PROCEDURE OpAnd(psr: Parser; x, y: B.Const): B.Const;
+	RETURN NIL
+END OpAnd;
+
+PROCEDURE OpNegate(psr: Parser; x: B.Const): B.Const;
+	RETURN NIL
+END OpNegate;
+
+PROCEDURE OpOr(psr: Parser; x, y: B.Const): B.Const;
+	RETURN NIL
+END OpOr;
+
+PROCEDURE OpCompare(psr: Parser; op: INTEGER; x, y: B.Object): B.Const;
+	RETURN NIL
+END OpCompare;
+
+PROCEDURE OpIn(psr: Parser; x, y: B.Const): B.Const;
+	RETURN NIL
+END OpIn;
 
 PROCEDURE StdFunc(psr: Parser; f: B.SFunc): B.Object;
 	VAR par, par2: B.Node; x, y, z: B.Object; t: B.Type;
 		spos: Sys.Int; ch: CHAR;
-BEGIN spos := psr.scn.pos; GetSym(psr);
+BEGIN spos := psr.scn.spos; GetSym(psr);
 	IF f.id = B.opABS THEN
 		y := expression0(psr); CheckT(psr, y, {B.tInt, B.tReal});
 		IF ~(y IS B.Const) THEN
@@ -611,8 +672,8 @@ END StdFunc;
 PROCEDURE element(psr: Parser): B.Object;
 	VAR x, y: B.Object; spos: Sys.Int;
 BEGIN
-	spos := psr.scn.pos; x := expression0(psr); CheckInt(psr, x);
-	IF psr.sym = S.upto THEN spos := psr.scn.pos;
+	spos := psr.scn.spos; x := expression0(psr); CheckInt(psr, x);
+	IF psr.sym = S.upto THEN spos := psr.scn.spos;
 		GetSym(psr); y := expression0(psr); CheckInt(psr, y);
 		IF (x IS B.Const) & (y IS B.Const) THEN
 			x := OpRangeSet(psr, x(B.Const), y(B.Const))
@@ -625,17 +686,18 @@ BEGIN
 END element;
 
 PROCEDURE set(psr: Parser): B.Object;
-	VAR const, x, y: B.Object; node, next: B.Node; spos: Sys.Int;
+	VAR const: B.Const; x, y: B.Object; node, next: B.Node; spos: Sys.Int;
 BEGIN
 	const := NewConst(psr, psr.mod.setType, Sys.ZeroInt); GetSym(psr);
 	IF psr.sym # S.rbrace THEN y := element(psr);
-		IF ~IsConst(psr, y) THEN x := y
-		ELSE const := OpAdd(psr, S.plus, const, y)
+		IF ~(y IS B.Const) THEN x := y
+		ELSE const := OpAdd(psr, S.plus, const, y(B.Const))
 		END ;
 		WHILE psr.sym = S.comma DO
-			spos := psr.scn.pos; GetSym(psr);
+			spos := psr.scn.spos; GetSym(psr);
 			IF psr.sym # S.rbrace THEN y := element(psr);
-				IF IsConst(psr, y) THEN const := OpAdd(psr, S.plus, const, y)
+				IF y IS B.Const THEN
+					const := OpAdd(psr, S.plus, const, y(B.Const))
 				ELSIF x # NIL THEN
 					x := NewNode2(psr, S.plus, x, y, psr.mod.setType, spos)
 				ELSE x := y
@@ -644,7 +706,7 @@ BEGIN
 			END
 		END ;
 		IF (Sys.CmpInt(const(B.Const).ival, Sys.ZeroInt) # 0) & (x # NIL) THEN
-			x := NewNode2(psr, S.plus, x, const, psr.mod.setType, psr.scn.pos)
+			x := NewNode2(psr, S.plus, x, const, psr.mod.setType, psr.scn.spos)
 		END
 	END ;
 	Check(psr, S.rbrace); IF x = NIL THEN x := const END ;
@@ -684,7 +746,7 @@ BEGIN
 	ELSIF psr.sym = S.lparen THEN
 		GetSym(psr); x := expression0(psr); Check(psr, S.rparen)
 	ELSIF psr.sym = S.not THEN
-		spos := psr.scn.pos; GetSym(psr); x := factor(psr); CheckBool(psr, x);
+		spos := psr.scn.spos; GetSym(psr); x := factor(psr); CheckBool(psr, x);
 		IF ~(x IS B.Const) THEN
 			x := NewNode2(psr, S.not, x, NIL, psr.mod.boolType, spos)
 		ELSE x := OpNegateBool(psr, x(B.Const))
@@ -695,90 +757,90 @@ BEGIN
 END factor;
 
 PROCEDURE term(psr: Parser): B.Object;
-	VAR x, y: B.Object; t: B.Type; op, spos: Sys.Int;
+	VAR x, y: B.Object; t: B.Type; op: INTEGER; spos: Sys.Int;
 BEGIN x := factor(psr);
-	WHILE psr.sym = S.times DO spos := psr.scn.pos;
+	WHILE psr.sym = S.times DO spos := psr.scn.spos;
 		CheckT(psr, x, B.tTimes); GetSym(psr); y := factor(psr);
 		IF CompTypes(psr, x.type, y.type) THEN (*ok*)
 		ELSE Reset(psr, x); Reset(psr, y); Mark(psr, msgIvlType)
 		END ;
-		IF ~IsConst(psr, x) OR ~IsConst(psr, y) THEN
+		IF ~(x IS B.Const) OR ~(y IS B.Const) THEN
 			IF x.type.form = B.tInt THEN t := psr.mod.intType ELSE t := x.type
 			END ;
 			x := NewNode2(psr, S.times, x, y, t, spos)
-		ELSE x := OpMuliply(psr, x, y)
+		ELSE x := OpMultiply(psr, x(B.Const), y(B.Const))
 		END
-	ELSIF psr.sym = S.rdiv DO spos := psr.scn.pos;
+	ELSIF psr.sym = S.rdiv DO spos := psr.scn.spos;
 		CheckT(psr, x, B.tRdivs); GetSym(psr); y := factor(psr);
 		IF CompTypes(psr, x.type, y.type) THEN (*ok*)
 		ELSE Reset(psr, x); Reset(psr, y); Mark(psr, msgIvlType)
 		END ;
-		IF ~IsConst(psr, x) OR ~IsConst(psr, y) THEN
+		IF ~(x IS B.Const) OR ~(y IS B.Const) THEN
 			x := NewNode2(psr, S.rdiv, x, y, x.type, spos)
-		ELSE x := OpRDivide(psr, x, y)
+		ELSE x := OpRDivide(psr, x(B.Const), y(B.Const))
 		END
 	ELSIF (psr.sym = S.div) OR (psr.sym = S.mod) DO
-		spos := psr.scn.pos; op := psr.sym; CheckInt(psr, x);
+		spos := psr.scn.spos; op := psr.sym; CheckInt(psr, x);
 		GetSym(psr); y := factor(psr); CheckInt(psr, y);
-		IF ~IsConst(psr, x) OR ~IsConst(psr, y) THEN
+		IF ~(x IS B.Const) OR ~(y IS B.Const) THEN
 			x := NewNode2(psr, op, x, y, psr.mod.intType, spos)
-		ELSE x := OpIntDiv(psr, op, x, y)
+		ELSE x := OpIntDiv(psr, op, x(B.Const), y(B.Const))
 		END
-	ELSIF psr.sym = S.and DO spos := psr.scn.pos;
+	ELSIF psr.sym = S.and DO spos := psr.scn.spos;
 		CheckBool(psr, x); GetSym(psr); y := factor(psr); CheckBool(psr, y);
-		IF ~IsConst(psr, x) OR ~IsConst(psr, y) THEN
+		IF ~(x IS B.Const) OR ~(y IS B.Const) THEN
 			x := NewNode2(psr, S.and, x, y, psr.mod.boolType, spos)
-		ELSE x := OpAnd(psr, x, y)
+		ELSE x := OpAnd(psr, x(B.Const), y(B.Const))
 		END
 	END ;
 	RETURN x
 END term;
 
 PROCEDURE SimpleExpression(psr: Parser): B.Object;
-	VAR x, y: B.Object; op, spos: Sys.Int; t: B.Type;
+	VAR x, y: B.Object; op: INTEGER; spos: Sys.Int; t: B.Type;
 BEGIN
 	IF psr.sym = S.plus THEN GetSym(psr); x := term(psr)
 	ELSIF psr.sym = S.minus THEN
-		spos := psr.scn.pos; GetSym(psr); x := term(psr);
+		spos := psr.scn.spos; GetSym(psr); x := term(psr);
 		IF x.type.form IN B.tAdds THEN (*ok*)
 		ELSE Reset(psr, x); Mark(psr, msgIvlType)
 		END ;
-		IF ~IsConst(psr, x) THEN
+		IF ~(x IS B.Const) THEN
 			IF x.type.form = B.tInt THEN t := psr.mod.intType
 			ELSE t := x.type
 			END ;
 			x := NewNode2(psr, S.minus, x, NIL, t, spos)
-		ELSE x := OpNegate(psr, x)
+		ELSE x := OpNegate(psr, x(B.Const))
 		END
 	ELSE x := term(psr)
 	END ;
 	WHILE (psr.sym = S.plus) OR (psr.sym = S.minus) DO
-		spos := psr.scn.pos; op := psr.sym;
+		spos := psr.scn.spos; op := psr.sym;
 		CheckT(psr, x, B.tAdds); GetSym(psr); y := term(psr);
 		IF CompTypes(psr, x.type, y.type) THEN (*ok*)
 		ELSE Reset(psr, x); Reset(psr, y); Mark(psr, msgIvlType)
 		END ;
-		IF ~IsConst(psr, x) OR ~IsConst(psr, y) THEN
+		IF ~(x IS B.Const) OR ~(y IS B.Const) THEN
 			IF x.type.form = B.tInt THEN t := psr.mod.intType ELSE t := x.type
 			END ;
 			x := NewNode2(psr, op, x, y, t, spos)
-		ELSE x := OpAdd(psr, op, x, y)
+		ELSE x := OpAdd(psr, op, x(B.Const), y(B.Const))
 		END
-	ELSIF psr.sym = S.or DO spos := psr.scn.pos;
+	ELSIF psr.sym = S.or DO spos := psr.scn.spos;
 		CheckBool(psr, x); GetSym(psr); y := term(psr); CheckBool(psr, y);
-		IF ~IsConst(psr, x) OR ~IsConst(psr, y) THEN
-			x := NewNode2(psr, op, x, y, mod.psr.boolType, spos)
-		ELSE x := OpOr(psr, x, y)
+		IF ~(x IS B.Const) OR ~(y IS B.Const) THEN
+			x := NewNode2(psr, op, x, y, psr.mod.boolType, spos)
+		ELSE x := OpOr(psr, x(B.Const), y(B.Const))
 		END
 	END ;
 	RETURN x
 END SimpleExpression;
 
 PROCEDURE expression(psr: Parser): B.Object;
-	VAR x, y: B.Object; yt: B.Type; op, spos: Sys.Int;
+	VAR x, y: B.Object; yt: B.Type; op: INTEGER; spos: Sys.Int;
 BEGIN x := SimpleExpression(psr);
 	IF (psr.sym >= S.eql) & (psr.sym <= S.geq) THEN
-		spos := psr.scn.pos; op := psr.sym;
+		spos := psr.scn.spos; op := psr.sym;
 		CheckLeftCmp(psr, x, op); GetSym(psr); y := SimpleExpression(psr);
 		IF (x.type = y.type) OR CompTypes2(psr, x.type, y.type) THEN (* ok *)
 		ELSE Reset(psr, x); Reset(psr, y); Mark(psr, msgIvlType)
@@ -788,13 +850,13 @@ BEGIN x := SimpleExpression(psr);
 		ELSE x := OpCompare(psr, op, x, y)
 		END
 	ELSIF psr.sym = S.in THEN
-		spos := psr.scn.pos; CheckInt(psr, x);
+		spos := psr.scn.spos; CheckInt(psr, x);
 		GetSym(psr); y := SimpleExpression(psr); CheckSet(psr, y);
-		IF ~IsConst(x) OR ~IsConst(y) THEN
-			x := NewNode2(psr, S.in, x, y, B.boolType, spos)
-		ELSE x := OpInSet(psr, x, y)
+		IF ~(x IS B.Const) OR ~(y IS B.Const) THEN
+			x := NewNode2(psr, S.in, x, y, psr.mod.boolType, spos)
+		ELSE x := OpIn(psr, x(B.Const), y(B.Const))
 		END
-	ELSIF psr.sym = S.is THEN spos := psr.scn.pos;
+	ELSIF psr.sym = S.is THEN spos := psr.scn.spos;
 		CheckLeftIs(psr, x); GetSym(psr);
 		IF psr.sym = S.ident THEN y := qualident(psr); yt := GetType(psr, y);
 		ELSE yt := psr.mod.intType; MarkMissing(psr, S.ident)
@@ -805,8 +867,9 @@ BEGIN x := SimpleExpression(psr);
 			END
 		ELSE Mark(psr, msgIvlType)
 		END ;
-		IF x.type # yt THEN x := NewNode2(psr, S.is, x, y, B.boolType, spos)
-		ELSE x := NewConstBool(psr, TRUE)
+		IF x.type # yt THEN
+			x := NewNode2(psr, S.is, x, y, psr.mod.boolType, spos)
+		ELSE x := NewConst(psr, psr.mod.boolType, Sys.OneInt)
 		END
 	END ;
 	RETURN x
@@ -815,19 +878,54 @@ END expression;
 PROCEDURE ConstExpression(psr: Parser): B.Const;
 	VAR x: B.Object;
 BEGIN x := expression(psr);
-	IF IsConst(x) THEN (*ok*)
+	IF IsConst(psr, x) THEN (*ok*)
 	ELSE Mark(psr, 'not a const'); Reset(psr, x) END ;
 	RETURN x
 END ConstExpression;
 
 (* statements *)
 
-PROCEDURE StdProc(psr : Parser; f: B.Object): B.Node;
+PROCEDURE StdProc(psr : Parser; f: B.SProc): B.Node;
+	VAR x, y: B.Object; node: B.Node;
 BEGIN
+	IF (f.id >= B.opINC) & (f.id <= B.opEndOfStdProc) THEN
+		IF (f.id = B.opINC) OR (f.id = B.opDEC) THEN
+			x := designator(psr); CheckInt(psr, x); CheckVar(psr, x, FALSE);
+			IF psr.sym = S.comma THEN GetSym(psr);
+				y := expression(psr); CheckInt(psr, y);
+				node := NewNode(psr, f.id, x, y)
+			ELSE node := NewNode(psr, f.id, x, NIL)
+			END
+		ELSIF (f.id = B.opINCL) OR (f.id = B.opEXCL) THEN
+			x := designator(psr); CheckSet(psr, x); CheckVar(psr, x, FALSE);
+			Check(psr, S.comma); y := expression(psr); CheckInt(psr, y);
+			node := NewNode(psr, f.id, x, y)
+		ELSIF f.id = B.opNEW THEN
+			x := designator(psr); CheckT(psr, x, {B.tPtr});
+			CheckVar(psr, x, FALSE);
+			node := NewNode(psr, B.opNEW, x, NIL)
+		ELSIF f.id = B.opASSERT THEN
+			x := expression(psr); CheckBool(psr, x);
+			node := NewNode(psr, B.opASSERT, x, NIL)
+		ELSIF f.id = B.opPACK THEN
+			x := designator(psr); CheckReal(psr, x);
+			CheckVar(psr, x, FALSE); Check(psr, S.comma);
+			y := expression(psr); CheckInt(psr, y);
+			node := NewNode(psr, B.opPACK, x, y)
+		ELSIF f.id = B.opUNPK THEN
+			x := designator(psr); CheckReal(psr, x);
+			CheckVar(psr, x, FALSE); Check(psr, S.comma);
+			y := designator(psr); CheckInt(psr, y); CheckVar(psr, y, FALSE);
+			node := NewNode(psr, B.opUNPK, x, y)
+		ELSE ASSERT(FALSE)
+		END
+	ELSE node := psr.SystemStdProc(psr, f)
+	END ;
+	RETURN node
 END StdProc;
 
 PROCEDURE If(psr: Parser; lev: INTEGER): B.Node;
-	VAR if, then, x: B.Node;
+	VAR if, then: B.Node; x: B.Object;
 BEGIN
 	GetSym(psr); x := expression(psr); CheckBool(psr, x); Check(psr, S.then);
 	then := NewNode(psr, S.then, StatementSequence0(psr), NIL);
@@ -841,7 +939,7 @@ BEGIN
 END If;
 
 PROCEDURE While(psr: Parser; lev: INTEGER): B.Node;
-	VAR while, do, x: B.Node;
+	VAR while, do: B.Node; x: B.Object;
 BEGIN
 	GetSym(psr); x := expression(psr); CheckBool(psr, x); Check(psr, S.do);
 	do := NewNode(psr, S.do, StatementSequence0(psr), NIL);
@@ -852,18 +950,17 @@ BEGIN
 END While;
 
 PROCEDURE For(psr: Parser): B.Node;
-	VAR for, control, becomes, to, by, x: B.Node;
+	VAR for, control, becomes, to, by: B.Node; x: B.Object;
 
-	PROCEDURE ident(): B.Node;
-		VAR obj: B.Object; ident: B.Ident; x: B.Node;
-	BEGIN ident := FindIdent();
-		IF ident # NIL THEN obj := ident.obj;
-			IF obj # NIL THEN
-				IF obj.isVar THEN CheckLev(obj) END ;
-				x := ObjToNode(obj)
-			ELSE Reset(x); Mark(psr, 'undefined identifier')
+	PROCEDURE ident(psr: Parser): B.Object;
+		VAR ident: B.Ident; x: B.Object;
+	BEGIN ident := FindIdent(psr);
+		IF ident # NIL THEN x := ident.obj;
+			IF x # NIL THEN
+				IF x IS B.Var THEN CheckLev(psr, x(B.Var)) END
+			ELSE Reset(psr, x); Mark(psr, 'undefined identifier')
 			END
-		ELSE Reset(x); Mark(psr, 'identifier not found')
+		ELSE Reset(psr, x); Mark(psr, 'identifier not found')
 		END ;
 		GetSym(psr);
 		RETURN x
@@ -872,118 +969,123 @@ PROCEDURE For(psr: Parser): B.Node;
 BEGIN
 	for := NewNode(psr, S.for, NIL, NIL); GetSym(psr);
 	IF psr.sym = S.ident THEN x := ident(psr)
-	ELSE MarkMissing(S.ident)
+	ELSE MarkMissing(psr, S.ident)
 	END ;
 	IF x # NIL THEN CheckInt2(psr, x); CheckVar(psr, x, FALSE) END ;
-	Check(psr, S.becomes); becomes := Node(S.becomes);
-	x := expression(); CheckInt2(x); becomes.left := x;
-	Check(psr, S.to); to := Node(S.to);
-	x := expression(); CheckInt2(x); to.left := x;
+	Check(psr, S.becomes); becomes := NewNode(psr, S.becomes, NIL, NIL);
+	x := expression(psr); CheckInt2(psr, x); becomes.left := x;
+	Check(psr, S.to); to := NewNode(psr, S.to, NIL, NIL);
+	x := expression(psr); CheckInt2(psr, x); to.left := x;
 	IF psr.sym = S.by THEN
-		by := Node(S.by); GetSym(psr);
-		x := ConstExpression(); CheckInt(x);
+		by := NewNode(psr, S.by, NIL, NIL); GetSym(psr);
+		x := ConstExpression(psr); CheckInt(psr, x);
 		by.left := x; to.right := by
 	END ;
 	for.left := control; control.right := becomes; becomes.right := to;
-	Check(psr, S.do); for.right := StatementSequence0(); Check(psr, S.end);
+	Check(psr, S.do); for.right := StatementSequence0(psr); Check(psr, S.end);
 	RETURN for
 END For;
 
-PROCEDURE Case(): B.Node;
-	VAR x, y, case: B.Node;
+PROCEDURE Case(psr: Parser): B.Node;
+	VAR x, y: B.Object; case: B.Node;
 		xform: INTEGER; isTypeCase: BOOLEAN;
 		
-	PROCEDURE TypeCase(x: B.Node): B.Node;
-		VAR bar, colon, is, y: B.Node; obj: B.Object;
-			org, yt: B.Type; tc: TypeCastList; spos: Sys.Int;
+	PROCEDURE TypeCase(psr: Parser; x: B.Object): B.Node;
+		VAR bar, colon, is: B.Node; y: B.Object; org, yt: B.Type;
 	BEGIN
 		IF psr.sym = S.ident THEN
-			bar := Node(S.bar); org := x.type;
-			obj := qualident(); CheckTypeObj(obj, yt);
+			bar := NewNode(psr, S.bar, NIL, NIL); org := x.type;
+			y := qualident(psr); yt := GetType(psr, y);
 			IF org.form = yt.form THEN
-				IF IsExt(yt, org) THEN (*ok*)
+				IF IsExt(psr, yt, org) THEN (*ok*)
 				ELSE Mark(psr, 'not extension'); yt := org
 				END
 			ELSE Mark(psr, msgIvlType); yt := org
 			END ;
-			y := TypeToNode(yt); is := Op(S.is, x, y, S.symPos);
+			is := NewNode2(psr, S.is, x, y, psr.mod.boolType, psr.scn.spos);
 			
-			IF yt # org THEN
-				NEW(tc); tc.node := x; tc.type := yt;
-				tc.next := typeCastStack; typeCastStack := tc
-			END ;
-			colon := Node(S.colon); Check(psr, S.colon);
-			y := StatementSequence0(); typeCastStack := typeCastStack.next;
-			colon.left := is; colon.right := y; bar.left := colon;
-			IF psr.sym = S.bar THEN GetSym(psr); bar.right := TypeCase(x) END
-		ELSIF psr.sym = S.bar THEN GetSym(psr); bar := TypeCase(x)
+			IF yt # org THEN x.type := yt END ;
+			colon := NewNode(psr, S.colon, is, NIL); Check(psr, S.colon);
+			colon.right := StatementSequence0(psr);
+			x.type := org; bar.left := colon;
+			IF psr.sym = S.bar THEN
+				GetSym(psr); bar.right := TypeCase(psr, x)
+			END
+		ELSIF psr.sym = S.bar THEN GetSym(psr); bar := TypeCase(psr, x)
 		END ;
 		RETURN bar
 	END TypeCase;
 	
-	PROCEDURE label(x: B.Node; VAR y: B.Node);
+	PROCEDURE label(psr: Parser; x: B.Object; VAR y: B.Object);
 		CONST errMsg = 'invalid value';
 		VAR xform: INTEGER;
 	BEGIN xform := x.type.form;
-		IF psr.sym = S.int THEN y := factor();
-			IF xform # B.tInt THEN Mark(psr, errMsg) END
-		ELSIF psr.sym = S.string THEN
-			y := factor(); CheckChar(y);
-			IF xform = B.tInt THEN Mark(psr, errMsg) END
-		ELSIF psr.sym = S.ident THEN y := ObjToNode(qualident());
-			IF xform = B.tInt THEN CheckInt(y) ELSE CheckChar(y) END
+		IF psr.sym = S.int THEN y := factor(psr);
+			IF xform = B.tInt THEN (*ok*) ELSE Mark(psr, errMsg) END
+		ELSIF psr.sym = S.string THEN y := factor(psr);
+			IF IsCharStr(psr, y) & (xform = B.tChar) THEN (*ok*)
+			ELSE Mark(psr, errMsg)
+			END
+		ELSIF psr.sym = S.ident THEN y := qualident(psr);
+			IF xform = B.tInt THEN CheckInt(psr, y)
+			ELSIF (xform = B.tChar) & IsCharStr(psr, y) THEN (*ok*)
+			ELSE Mark(psr, errMsg)
+			END
 		ELSE Mark(psr, 'need integer or char value')
 		END
 	END label;
 	
-	PROCEDURE LabelRange(x: B.Node): B.Node;
-		VAR y, z, cond: B.Node; spos: Sys.Int;
-	BEGIN label(x, y);
-		IF psr.sym # S.upto THEN cond := Op(S.eql, x, y, S.symPos)
-		ELSE spos := S.symPos;
-			y := Op(S.geq, x, y, S.symPos);
-			GetSym(psr); label(x, z);
-			z := Op(S.leq, x, y, S.symPos);
-			cond := Op(S.and, x, y, spos)
+	PROCEDURE LabelRange(psr: Parser; x: B.Object): B.Object;
+		VAR y, z, cond: B.Object; spos: Sys.Int;
+	BEGIN label(psr, x, y); spos := psr.scn.spos;
+		IF psr.sym # S.upto THEN
+			cond := NewNode2(psr, S.eql, x, y, psr.mod.boolType, spos)
+		ELSE
+			y := NewNode2(psr, S.geq, x, y, psr.mod.boolType, spos);
+			GetSym(psr); label(psr, x, z);
+			z := NewNode2(psr, S.leq, x, z, psr.mod.boolType, psr.scn.spos);
+			cond := NewNode2(psr, S.and, y, z, psr.mod.boolType, spos)
 		END ;
 		RETURN cond
 	END LabelRange;
 	
-	PROCEDURE NumericCase(x: B.Node): B.Node;
-		VAR bar, colon, label, y, z: B.Node; spos: Sys.Int;
+	PROCEDURE NumericCase(psr: Parser; x: B.Object): B.Node;
+		VAR bar, colon: B.Node; cond, y: B.Object; spos: Sys.Int;
 	BEGIN
-		IF (psr.sym = S.int) OR (psr.sym = S.string) OR (psr.sym = S.ident) THEN
-			label := LabelRange(x);
+		IF (psr.sym = S.int) OR (psr.sym = S.string)
+		OR (psr.sym = S.ident) THEN
+			bar := NewNode(psr, S.bar, NIL, NIL); cond := LabelRange(psr, x);
 			WHILE psr.sym = S.comma DO
-				spos := S.symPos; y := label; GetSym(psr); z := LabelRange(x);
-				label := Op(S.or, x, y, spos)
+				spos := psr.scn.spos; GetSym(psr); y := LabelRange(psr, x);
+				cond := NewNode2(psr, S.or, cond, y, psr.mod.boolType, spos)
 			END ;
-			colon := arch.Node(S.colon); Check(psr, S.colon);
-			colon.left := label; colon.right := StatementSequence0();
-			bar := arch.Node(S.bar); bar.left := colon;
-			IF psr.sym = S.bar THEN GetSym(psr); bar.right := NumericCase(x) END
-		ELSIF psr.sym = S.bar THEN GetSym(psr); bar := NumericCase(x)
+			colon := NewNode(psr, S.colon, cond, NIL); Check(psr, S.colon);
+			colon.right := StatementSequence0(psr); bar.left := colon;
+			IF psr.sym = S.bar THEN
+				GetSym(psr); bar.right := NumericCase(psr, x)
+			END
+		ELSIF psr.sym = S.bar THEN GetSym(psr); bar := NumericCase(psr, x)
 		END
 		RETURN bar
 	END NumericCase;
 		
 BEGIN (* Case *)
-	case := arch.Node(S.case); GetSym(psr);
-	x := expression(); xform := x.type.form; isTypeCase := FALSE;
-	IF (xform IN {B.tInt, B.tChar}) OR IsCharStr(x.type) THEN (*ok*)
-	ELSIF TypeTestable(x) THEN isTypeCase := TRUE
-	ELSE Reset(x); Mark(psr, 'invalid case expression')
+	case := NewNode(psr, S.case, NIL, NIL); GetSym(psr);
+	x := expression(psr); xform := x.type.form; isTypeCase := FALSE;
+	IF (xform IN {B.tInt, B.tChar}) OR IsCharStr(psr, x) THEN (*ok*)
+	ELSIF TypeTestable(psr, x) THEN isTypeCase := TRUE
+	ELSE Reset(psr, x); Mark(psr, 'invalid case expression')
 	END ;
 	Check(psr, S.of); case.left := x;
-	IF isTypeCase THEN case.right := TypeCase(x)
-	ELSE case.right := NumericCase(y)
+	IF isTypeCase THEN case.right := TypeCase(psr, x)
+	ELSE case.right := NumericCase(psr, y)
 	END ;
 	Check(psr, S.end);
 	RETURN case
 END Case;
 
 PROCEDURE StatementSequence(psr: Parser): B.Node;
-	VAR seq, st, prev, becomes, repeat, x, y: B.Node;
+	VAR seq, st, prev, becomes, repeat: B.Node; x, y: B.Object;
 BEGIN
 	seq := NewNode(psr, S.semicolon, NIL, NIL); st := seq;
 	REPEAT (*sync*)
@@ -1002,21 +1104,20 @@ BEGIN
 				y := expression(psr); CheckAssignment(psr, x.type, y);
 				becomes.right := y; st.left := becomes
 			ELSIF psr.sym = S.eql THEN
-				Mark(psr, 'should be :='); GetSym(psr); y := expression()
+				Mark(psr, 'should be :='); GetSym(psr); y := expression(psr)
 			ELSIF (x.type # NIL) & (x.type.form = B.tProc) THEN
 				IF x.type.base = NIL THEN (*ok*)
 				ELSE Mark(psr, 'not proper procedure')
 				END ;
 				st.left := Call(psr, x)
-			ELSIF (x.obj # NIL) & x.obj.isSProc THEN
-				st.left := StdProc(psr, x.obj)
+			ELSIF x IS B.SProc THEN st.left := StdProc(psr, x(B.SProc))
 			ELSE Mark(psr, 'invalid statement')
 			END
 		ELSIF psr.sym = S.if THEN st.left := If(psr, 0)
 		ELSIF psr.sym = S.while THEN st.left := While(psr, 0)
 		ELSIF psr.sym = S.repeat THEN GetSym(psr);
-			repeat := NewNode(psr, S.repeat, StatementSequence0(), NIL);
-			Check(psr, S.until); x := expression(psr); CheckBool(x);
+			repeat := NewNode(psr, S.repeat, StatementSequence0(psr), NIL);
+			Check(psr, S.until); x := expression(psr); CheckBool(psr, x);
 			repeat.right := x; st.left := repeat
 		ELSIF psr.sym = S.for THEN st.left := For(psr)
 		ELSIF psr.sym = S.case THEN st.left := Case(psr)
@@ -1050,11 +1151,11 @@ PROCEDURE IncLev(psr: Parser; x: INTEGER);
 BEGIN INC(psr.mod.curLev, x)
 END IncLev;
 
-PROCEDURE NewIdent(psr: Parser): B.Ident;
+PROCEDURE NewIdent(psr: Parser; name: S.Ident): B.Ident;
 	VAR id, prev, x: B.Ident;
 BEGIN
 	NEW(id); id.export := FALSE; id.used := FALSE;
-	id.name := psr.scn.id; id.spos := psr.scn.symPos;
+	id.name := name; id.spos := psr.scn.spos;
 	x := psr.mod.topScope.first;
 	WHILE x # NIL DO
 		IF x # NIL THEN Mark(psr, 'duplicated ident') END ;
@@ -1066,16 +1167,21 @@ END NewIdent;
 
 PROCEDURE IdentList(psr: Parser): B.Ident;
 	VAR fst, x: B.Ident;
-BEGIN
-	fst := NewIdent(psr); GetSym(psr); CheckExport(psr, fst.export);
+BEGIN fst := NewIdent(psr, psr.scn.id);
+	GetSym(psr); CheckExport(psr, fst.export);
 	WHILE psr.sym = S.comma DO
 		IF psr.sym = S.ident THEN
-			x := NewIdent(psr); GetSym(psr); CheckExport(psr, x.export)
+			x := NewIdent(psr, psr.scn.id);
+			GetSym(psr); CheckExport(psr, x.export)
 		ELSE MarkSflous(psr, S.comma)
 		END
 	END ;
 	RETURN fst
 END IdentList;
+
+PROCEDURE ParseFormalArrayFlags(psr: Parser; tp: B.Type);
+BEGIN ASSERT(FALSE)
+END ParseFormalArrayFlags;
 
 PROCEDURE FormalType(psr: Parser): B.Type;
 	VAR x: B.Object; tp: B.Type;
@@ -1093,15 +1199,17 @@ BEGIN tp := psr.mod.intType;
 END FormalType;
 
 PROCEDURE FPSection(psr: Parser; proc: B.Type);
-	VAR first, id: B.Ident; x: B.Object;
-		tp: B.Type; var: BOOLEAN;
+	VAR first, id: B.Ident; x: B.Par;
+		tp: B.Type; varpar: BOOLEAN;
 BEGIN
-	IF psr.sym # S.var THEN var := FALSE ELSE var := TRUE; GetSym(psr) END ;
+	IF psr.sym # S.var THEN varpar := FALSE
+	ELSE varpar := TRUE; GetSym(psr)
+	END ;
 	IF psr.sym = S.ident THEN
-		first := NewIdent(psr); GetSym(psr);
+		first := NewIdent(psr, psr.scn.id); GetSym(psr);
 		WHILE psr.sym = S.comma DO GetSym(psr);
 			IF psr.sym = S.ident THEN
-				id := NewIdent(psr); GetSym(psr);
+				id := NewIdent(psr, psr.scn.id); GetSym(psr);
 				IF first = NIL THEN first := id END
 			ELSE MarkSflous(psr, S.comma)
 			END
@@ -1110,8 +1218,8 @@ BEGIN
 	END ;
 	Check(psr, S.colon); tp := FormalType(psr); id := first;
 	WHILE id # NIL DO
-		x := NewPar(psr, proc, tp, var); INC(proc.nfpar);
-		x.ronly := ~var & (tp.form IN tStructs);
+		x := NewPar(psr, proc, tp, varpar); INC(proc.nfpars);
+		x.ronly := ~varpar & (tp.form IN B.tStructs);
 		x.ident := id; id.obj := x; id := id.next
 	END
 END FPSection;
@@ -1141,6 +1249,10 @@ BEGIN GetSym(psr);
 	END
 END FormalParameters;
 
+PROCEDURE ParsePointerFlags(psr: Parser; ptr: B.Type);
+BEGIN ASSERT(FALSE)
+END ParsePointerFlags;
+
 PROCEDURE PointerType(psr: Parser; defobj: B.Object): B.Type;
 	VAR ptr, bt: B.Type; name: S.Ident; x: B.Ident;
 BEGIN
@@ -1165,7 +1277,26 @@ BEGIN
 	RETURN ptr
 END PointerType;
 
-PROCEDURE BaseType(): B.Type;
+PROCEDURE FieldList(psr: Parser; rec: B.Type);
+	VAR first, field: B.Ident; ft: B.Type;
+BEGIN first := NewIdent(psr, psr.scn.id);
+	GetSym(psr); CheckExport(psr, first.export);
+	WHILE psr.sym = S.comma DO GetSym(psr);
+		IF psr.sym = S.ident THEN
+			field := NewIdent(psr, psr.scn.id);
+			GetSym(psr); CheckExport(psr, field.export);
+			IF first = NIL THEN first := field END
+		ELSIF psr.sym < S.ident THEN MarkMissing(psr, S.ident)
+		ELSE MarkSflous(psr, S.comma)
+		END
+	END;
+	Check(psr, S.colon); ft := type0(psr); field := first;
+	WHILE field # NIL DO
+		field.obj := NewField(psr, rec, ft); field := field.next
+	END
+END FieldList;
+
+PROCEDURE BaseType(psr: Parser): B.Type;
 	VAR tp, rec: B.Type; x: B.Object;
 BEGIN
 	IF psr.sym = S.ident THEN
@@ -1191,7 +1322,7 @@ PROCEDURE ArrayType(psr: Parser): B.Type;
 		IF x.type.form = B.tInt THEN len := x(B.Const).ival
 		ELSE Mark(psr, 'array length must be int'); len := Sys.ZeroInt
 		END ;
-		IF Sys.NegInt(len) THEN Mark(psr, 'invalid array length') END
+		IF Sys.SignInt(len) THEN Mark(psr, 'invalid array length') END
 	END length;
 	
 BEGIN (* ArrayType *)
@@ -1199,11 +1330,15 @@ BEGIN (* ArrayType *)
 	IF psr.sym = S.comma THEN GetSym(psr);
 		WHILE psr.sym = S.comma DO MarkSflous(psr, S.comma); GetSym(psr) END ;
 		bt := ArrayType(psr)	
-	ELSE Check(psr, S.of); bt := type(psr)
+	ELSE Check(psr, S.of); bt := type0(psr)
 	END ;
 	tp := NewType(psr, B.tArray); tp.len := len; tp.base := bt;
 	RETURN tp
 END ArrayType;
+
+PROCEDURE ParseRecordFlags(psr: Parser; ptr: B.Type);
+BEGIN ASSERT(FALSE)
+END ParseRecordFlags;
 
 PROCEDURE type(psr: Parser): B.Type;
 	VAR tp, ft, bt: B.Type; flds: B.Ident; x: B.Object;
@@ -1213,9 +1348,9 @@ BEGIN
 	ELSIF psr.sym = S.array THEN
 		GetSym(psr); tp := ArrayType(psr)
 	ELSIF psr.sym = S.record THEN
-		GetSym(psr); tp := RecordType(psr); ParseRecordFlags(psr, tp);
+		GetSym(psr); tp := NewType(psr, B.tRec); ParseRecordFlags(psr, tp);
 		IF psr.sym = S.lparen THEN
-			GetSym(psr); bt := BaseType();
+			GetSym(psr); bt := BaseType(psr);
 			IF bt # NIL THEN tp.base := bt; tp.lev := bt.lev+1 END ;
 			Check(psr, S.rparen)
 		END ;
@@ -1227,10 +1362,11 @@ BEGIN
 				END
 			END
 		END ;
-		tp.fields := mod.topScope.first; CloseScope; Check(psr, S.end)
+		tp.fields := psr.mod.topScope.first;
+		CloseScope(psr); Check(psr, S.end)
 	ELSIF psr.sym = S.pointer THEN tp := PointerType(psr, NIL)
 	ELSIF psr.sym = S.procedure THEN
-		GetSym(psr); tp := NewProcType(psr);
+		GetSym(psr); tp := NewType(psr, B.tProc);
 		IF psr.sym = S.lparen THEN FormalParameters(psr, tp) END
 	END ;
 	RETURN tp
@@ -1266,7 +1402,7 @@ BEGIN
 			IF psr.sym # S.pointer THEN
 				tp := type(psr); x := NewTypeObj(psr, tp);
 				id.obj := x; x.ident := id;
-				IF x.form = B.tRec THEN FixUndef(x, id.name) END
+				IF tp.form = B.tRec THEN FixUndef(psr, tp, id.name) END
 			ELSE
 				x := NewTypeObj(psr, psr.mod.intType);
 				id.obj := x; x.ident := id; tp := PointerType(psr, x);
@@ -1291,17 +1427,17 @@ BEGIN
 		ELSE id := NewIdent(psr, psr.scn.id);
 			GetSym(psr); CheckExport(psr, id.export)
 		END ;
-		x := NewProc(psr); tp := NewProcType(psr); x.type := tp;
+		x := NewProc(psr); tp := NewType(psr, B.tProc); x.type := tp;
 		IF id # NIL THEN id.obj := x; x.ident := id END ;
 		
 		IF psr.sym = S.lparen THEN FormalParameters(psr, tp) END ;
 		Check(psr, S.semicolon);
-		OpenScope(psr); IncLev(psr, 1); CloneParameters(psr, x);
+		OpenScope(psr); IncLev(psr, 1); CloneParameters(psr, x(B.Proc));
 
-		DeclarationSequence(psr, x); x.dsc := psr.mod.topScope.first;
+		DeclarationSequence(psr, x); x(B.Proc).decl := psr.mod.topScope.first;
 		
 		IF psr.sym = S.begin THEN
-			GetSym(psr); x.statseq := StatementSequence(psr)
+			GetSym(psr); x(B.Proc).statseq := StatementSequence(psr)
 		END ;
 		
 		rtype := tp.base;
@@ -1309,14 +1445,14 @@ BEGIN
 			IF rtype # NIL THEN (*ok*)
 			ELSE rtype := psr.mod.intType; Mark(psr, 'not function proc')
 			END ;
-			GetSym(psr); x.return := expression(psr);
-			CheckAssignment(psr, rtype, x.return)
+			GetSym(psr); x(B.Proc).return := expression(psr);
+			CheckAssignment(psr, rtype, x(B.Proc).return)
 		ELSIF rtype # NIL THEN MarkMissing(psr, S.return)
 		END ;
 		
 		CloseScope(psr); IncLev(psr, -1); Check(psr, S.end);
 		IF psr.sym = S.ident THEN
-			IF (id # NIL) & (id.name # S.id) THEN
+			IF (id # NIL) & (id.name # psr.scn.id) THEN
 				Mark(psr, 'wrong procedure identifier')
 			END ;
 			GetSym(psr)
@@ -1344,11 +1480,13 @@ END ModuleId;
 PROCEDURE import(psr: Parser);
 	VAR ident: B.Ident; id: B.ModuleId; name: S.Ident;
 BEGIN
-	B.NewIdent(ident); name := psr.scn.id; GetSym(psr);
+	name := psr.scn.id; ident := NewIdent(psr, name); GetSym(psr);
 	IF psr.sym = S.becomes THEN GetSym(psr);
-		IF psr.sym = S.ident THEN ModuleId(id) ELSE MarkMissing(S.ident) END
+		IF psr.sym = S.ident THEN ModuleId(psr, id)
+		ELSE MarkMissing(psr, S.ident)
+		END
 	END;
-	IF S.errcnt = 0 THEN
+	IF ~psr.scn.hasError THEN
 		(*
 		IF name = 'SYSTEM' THEN B.NewSystemModule(ident)
 		ELSIF name # 0X THEN B.NewModule(ident, name)
@@ -1358,11 +1496,13 @@ BEGIN
 	END
 END import;
 
-PROCEDURE ImportList;
+PROCEDURE ImportList(psr: Parser);
 BEGIN GetSym(psr);
-	IF sym = S.ident THEN import ELSE MarkMissing(S.ident) END ;
-	WHILE sym = S.comma DO GetSym(psr);
-		IF sym = S.ident THEN import ELSE MarkMissing(S.ident) END
+	IF psr.sym = S.ident THEN import(psr) ELSE MarkMissing(psr, S.ident) END ;
+	WHILE psr.sym = S.comma DO GetSym(psr);
+		IF psr.sym = S.ident THEN import(psr)
+		ELSE MarkMissing(psr, S.ident)
+		END
 	END ;
 	Check(psr, S.semicolon)
 END ImportList;
@@ -1370,15 +1510,15 @@ END ImportList;
 PROCEDURE Module*(psr: Parser);
 	VAR mod: B.Module;
 BEGIN
-	mod := B.Init(); psr.mod := mod; GetSym(psr);
+	(* mod := B.Init(); *) psr.mod := mod; GetSym(psr);
 	IF psr.sym = S.ident THEN ModuleId(psr, mod.id)
 	ELSE MarkMissing(psr, S.ident)
 	END ;
-	IF psr.scn.errcnt = 0 THEN
+	IF ~psr.scn.hasError THEN
 		Check(psr, S.semicolon);
 		IF psr.sym = S.import THEN ImportList(psr) END
 	END ;
-	IF psr.scn.errcnt = 0 THEN
+	IF ~psr.scn.hasError THEN
 		DeclarationSequence(psr, NIL);
 		IF psr.sym = S.begin THEN
 			GetSym(psr); psr.mod.init := StatementSequence(psr)
@@ -1396,6 +1536,5 @@ END Module;
 
 BEGIN
 	type0 := type; expression0 := expression;
-	StatementSequence0 := StatementSequence;
-	NEW(externalIdentNotFound)
+	StatementSequence0 := StatementSequence
 END Psr.
