@@ -586,8 +586,11 @@ BEGIN
 	END;
 	Align(staticSize, 16); q := B.recList;
 	WHILE q # NIL DO
-		tdSize := (24 + 8*(B.MaxExt + q.type.nTraced)) DIV 16 * 16;
-		q.type.adr := staticSize; INC(staticSize, tdSize); q := q.next
+		IF q.type.mod = NIL THEN
+			tdSize := (24 + 8*(B.MaxExt + q.type.nTraced)) DIV 16 * 16;
+			q.type.adr := staticSize; INC(staticSize, tdSize)
+		END ;
+		q := q.next
 	END;
 	AllocImportModules;
 	IF staticSize + varSize > MaxSize THEN
@@ -2459,12 +2462,35 @@ BEGIN
 		
 		(* Fill value into type descriptors *)
 		t := B.recList;
-		WHILE t # NIL DO
-			tp := t.type; adr := tp.adr; SetRm_regI(reg_B, adr);
+		WHILE t # NIL DO tp := t.type;
+			adr := tp.adr; ASSERT(adr >= 128); SetRm_regI(reg_B, adr);
 			IF SmallConst(tp.size) THEN EmitRmImm(MOVi, 8, tp.size)
 			ELSE ASSERT(FALSE)
 			END;
+			WHILE (tp.len >= 1) & (tp.mod = NIL) DO
+				ASSERT(tp.adr >= 128);
+				SetRm_regI(reg_B, tp.adr); EmitRegRm(LEA, reg_A, 8);
+				SetRm_regI(reg_B, adr+tp.len*8); EmitRegRm(MOV, reg_A, 8);
+				tp := tp.base
+			END;
+			IF tp.len >= 1 THEN ASSERT(tp.adr >= 128);
+				SetRm_regI(reg_B, tp.adr); EmitRegRm(MOVd, reg_C, 8);
+				SetRm_regI(reg_B, adr+tp.len*8); EmitRegRm(MOV, reg_C, 8);
+				tp := tp.base;
+				WHILE tp.len >= 1 DO
+					SetRm_regI(reg_C, tp.len*8); EmitRegRm(MOVd, reg_A, 8);
+					SetRm_regI(reg_B, adr+tp.len*8); EmitRegRm(MOV, reg_A, 8);
+					tp := tp.base
+				END
+			END ;
+			(*
 			WHILE tp.len >= 1 DO
+				IF tp.obj # NIL THEN
+					IF tp.obj.ident # NIL THEN
+						Out.String(tp.obj.ident.name); Out.Char(' ')
+					END ;
+				END ;
+				Out.Int(tp.adr, 0); Out.Char(' '); Out.Int(tp.len, 0); Out.Ln;
 				SetRm_regI(reg_B, tp.adr); ASSERT(tp.adr >= 128);
 				IF tp.mod = NIL THEN EmitRegRm(LEA, reg_A, 8)
 				ELSE EmitRegRm(MOVd, reg_A, 8)
@@ -2472,6 +2498,7 @@ BEGIN
 				SetRm_regI(reg_B, adr + tp.len*8);
 				EmitRegRm(MOV, reg_A, 8); tp := tp.base
 			END;
+			*)
 			t := t.next
 		END;
 		

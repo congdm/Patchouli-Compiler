@@ -286,7 +286,7 @@ PROCEDURE NewRecord*(): Type;
 	VAR tp: Type; p: TypeList;
 BEGIN
 	NewType(tp, tRec); tp.len := 0; tp.union := FALSE;
-	IF curLev >= 0 THEN
+	IF curLev >= 0 THEN (* not external record *)
 		NEW(p); p.type := tp;
 		p.next := recList; recList := p
 	ELSIF curLev = -1 THEN ASSERT(FALSE)
