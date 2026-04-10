@@ -263,6 +263,7 @@ END CheckAssignment;
 
 PROCEDURE CheckArrayIndex(psr: Parser; x, y: B.Object);
 BEGIN
+	(*stub*)
 END CheckArrayIndex;
 
 (* -------------------------------------------------------------------------- *)
@@ -849,7 +850,10 @@ BEGIN
 	IF psr.sym = S.ident THEN x := ident(psr)
 	ELSE MarkMissing(psr, S.ident)
 	END ;
-	IF x # NIL THEN CheckInt2(psr, x); CheckVar(psr, x, FALSE) END ;
+	IF x # NIL THEN CheckInt2(psr, x); CheckVar(psr, x, FALSE)
+	ELSE Reset(psr, x)
+	END ;
+	control := NewNode(psr, S.null, x, NIL);
 	Check(psr, S.becomes); becomes := NewNode(psr, S.becomes, NIL, NIL);
 	x := expression(psr); CheckInt2(psr, x); becomes.left := x;
 	Check(psr, S.to); to := NewNode(psr, S.to, NIL, NIL);
@@ -956,7 +960,7 @@ BEGIN (* Case *)
 	END ;
 	Check(psr, S.of); case.left := x;
 	IF isTypeCase THEN case.right := TypeCase(psr, x)
-	ELSE case.right := NumericCase(psr, y)
+	ELSE case.right := NumericCase(psr, x)
 	END ;
 	Check(psr, S.end);
 	RETURN case
@@ -1036,7 +1040,7 @@ BEGIN
 	id.name := name; id.spos := psr.scn.spos;
 	x := psr.mod.topScope.first;
 	WHILE x # NIL DO
-		IF x # NIL THEN Mark(psr, 'duplicated ident') END ;
+		IF x.name = name THEN Mark(psr, 'duplicated ident') END ;
 		prev := x; x := x.next
 	END ;
 	IF prev # NIL THEN prev.next := id ELSE psr.mod.topScope.first := id END ;
@@ -1058,7 +1062,8 @@ BEGIN fst := NewIdent(psr, psr.scn.id);
 END IdentList;
 
 PROCEDURE ParseFormalArrayFlags(psr: Parser; tp: B.Type);
-BEGIN ASSERT(FALSE)
+BEGIN
+	(*not implemented yet*)
 END ParseFormalArrayFlags;
 
 PROCEDURE FormalType(psr: Parser): B.Type;
@@ -1128,7 +1133,8 @@ BEGIN GetSym(psr);
 END FormalParameters;
 
 PROCEDURE ParsePointerFlags(psr: Parser; ptr: B.Type);
-BEGIN ASSERT(FALSE)
+BEGIN
+	(*not implemented yet*)
 END ParsePointerFlags;
 
 PROCEDURE PointerType(psr: Parser; defobj: B.Object): B.Type;
@@ -1215,7 +1221,8 @@ BEGIN (* ArrayType *)
 END ArrayType;
 
 PROCEDURE ParseRecordFlags(psr: Parser; ptr: B.Type);
-BEGIN ASSERT(FALSE)
+BEGIN
+	(*not implemented yet*)
 END ParseRecordFlags;
 
 PROCEDURE type(psr: Parser): B.Type;
@@ -1346,11 +1353,13 @@ BEGIN
 	modid.context := 0X; modid.name := psr.scn.id; GetSym(psr);
 	IF psr.sym = S.period (* my previous syntax *) THEN GetSym(psr);
 		IF psr.sym = S.ident THEN
-			modid.context := modid.name; modid.name := psr.scn.id
+			modid.context := modid.name; modid.name := psr.scn.id;
+			GetSym(psr)
 		ELSE MarkMissing(psr, S.ident)
 		END
 	ELSIF psr.sym = S.in (* A2 Oberon syntax *) THEN GetSym(psr);
-		IF psr.sym = S.ident THEN modid.context := psr.scn.id
+		IF psr.sym = S.ident THEN
+			modid.context := psr.scn.id; GetSym(psr)
 		ELSE MarkMissing(psr, S.ident)
 		END
 	END
@@ -1364,7 +1373,7 @@ BEGIN
 		IF psr.sym = S.ident THEN ModuleId(psr, id)
 		ELSE MarkMissing(psr, S.ident)
 		END
-	END;
+	END ;
 	IF ~psr.scn.hasError THEN
 		(*
 		IF name = 'SYSTEM' THEN B.NewSystemModule(ident)
@@ -1387,9 +1396,8 @@ BEGIN GetSym(psr);
 END ImportList;
 
 PROCEDURE Module*(psr: Parser, mod: Module);
-	VAR mod: B.Module;
 BEGIN
-	(* mod := B.Init(); *) psr.mod := mod; GetSym(psr);
+	psr.mod := mod; GetSym(psr);
 	IF psr.sym = S.ident THEN ModuleId(psr, mod.id)
 	ELSE MarkMissing(psr, S.ident)
 	END ;
