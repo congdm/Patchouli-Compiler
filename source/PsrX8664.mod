@@ -1,10 +1,10 @@
 MODULE PsrX8664;
 
 IMPORT
-	S := Scn, B := Base, B64 := BaseX8664, P := Psr;
+	Sys, S := Scn, B := Base, B64 := BaseX8664, P := Psr;
 	
-VAR
-	mod: B64.Module; arch: P.IArch;
+TYPE
+	Parser = B.Parser;
 	
 PROCEDURE Align(VAR a: INTEGER; align: INTEGER);
 BEGIN
@@ -14,132 +14,214 @@ BEGIN
 END Align;
 
 (* -------------------------------------------------------------------------- *)
-(* Object *)
+(* Object creation *)
 
-PROCEDURE ZeroIntConst(): B.Object;
-	VAR x: B64.Object;
+PROCEDURE NewConst(psr: Parser; t: B.Type; ival: Sys.Int): B.Const;
+	VAR x: B64.Const;
 BEGIN
-	NEW(x); P.InitObject(x);
-	x.isConst := TRUE; x.type := B.intType; x.value := 0;
+	NEW(x); B.InitConst(x); x.type := t; x.ival := ival;
 	RETURN x
-END ZeroIntConst;
+END NewConst;
 
-PROCEDURE Const(t: B.Type): B.Object;
-	VAR x: B64.Object;
+PROCEDURE NewConstR(psr: Parser; rval: Sys.Real): B.Const;
+	VAR x: B64.Const;
 BEGIN
-	NEW(x); P.InitObject(x);
-	x.isConst := TRUE; x.type := t;
-	IF t = B.intType THEN x.value := S.ival
-	ELSIF t = B.realType THEN x.value := S.ival
+	NEW(x); B.InitConst(x); x.type := psr.mod.realType; x.rval := rval;
+	RETURN x
+END NewConstR;
+
+PROCEDURE NewStr(psr: Parser; str: S.Str; slen: INTEGER): B.Str;
+	VAR x: B64.Str; mod: B64.Module; pos, i: INTEGER;
+BEGIN
+	NEW(x); B.InitStr(x); mod := psr.mod(B64.Module); x.len := slen;
+	IF (mod.strbufSize + slen) > LEN(mod.strbuf) THEN
+		S.Mark(psr.scn, 'too many strings'); x.pos := -1
+	ELSE
+		pos := mod.strbufSize; x.pos := pos; INC(mod.strbufSize, slen);
+		FOR i := 0 TO slen-1 DO
+			mod.strbuf[pos+i] := ORD(str[i])
+		END
+	END ;
+	RETURN x
+END NewStr;
+
+(* -------------------------------------------------------------------------- *)
+(* Const folding *)
+
+PROCEDURE CloneConst(psr: Parser; x: B.Const): B.Const;
+	VAR res: B.Const;
+BEGIN
+	IF x.type.form # B.tReal THEN
+		res := NewConst(psr, x.type, x(B64.Const).ival)
+	ELSE res := NewConstR(psr, x(B64.Const).rval)
+	END ;
+	RETURN res
+END CloneConst;
+
+PROCEDURE OpAbs(psr: Parser; x: B.Const): B.Const;
+	VAR res: B.Const;
+BEGIN
+	IF ~x.named THEN res := x ELSE res := CloneConst(psr, x) END ;
+	IF x.type.form = B.tInt THEN
+		IF Sys.SignInt(x(B64.Const).ival) THEN
+			Sys.NegInt(res(B64.Const).ival); res.type := psr.mod.intType
+		END
+	ELSIF x.type.form = B.tReal THEN Sys.AbsReal(res(B64.Const).rval)
 	ELSE ASSERT(FALSE)
 	END ;
-	RETURN x
-END Const;
+	RETURN res
+END OpAbs;
 
-PROCEDURE Str(str: S.Str; slen: INTEGER): B.Object;
-	VAR x: B64.Object; i, adr: INTEGER;
-BEGIN
-	NEW(x); P.InitObject(x);
-	x.isConst := TRUE; x.isStr := TRUE;
-	x.type := B.strType; x.strlen := slen;
-	IF mod.curLev >= 0 (* not imported str, need to alloc buffer *) THEN 
-		IF mod.strbufsize + slen >= LEN(mod.strbuf) THEN
-			S.Mark('too many strings'); x.adr := -1
-		ELSE
-			adr := mod.strbufsize; x.adr := adr; INC(mod.strbufsize, slen);
-			FOR i := 0 TO slen-1 DO mod.strbuf[adr+i] := str[i] END
-		END
-	ELSE x.adr := -1
+PROCEDURE OpOdd(psr: Parser; x: B.Const): B.Const;
+	VAR res: B.Const;
+BEGIN ASSERT(x.type.form = B.tInt);
+	IF ~x.named THEN res := x ELSE res := CloneConst(psr, x) END ;
+	Sys.ModIntByte(res(B64.Const).ival, 2); res.type := psr.mod.boolType;
+	RETURN res
+END OpOdd;
+
+PROCEDURE OpShift(psr: Parser; op: INTEGER; x, y: B.Const): B.Const;
+	VAR res: B.Const; shfCnt: Sys.Int;
+BEGIN ASSERT(x.type.form = B.tInt); ASSERT(y.type.form = B.tInt);
+	IF ~x.named THEN res := x
+	ELSIF ~y.named THEN res := y ELSE res := CloneConst(psr, x)
 	END ;
-	RETURN x
-END Str;
-
-PROCEDURE NilConst(): B.Object;
-	VAR x: B64.Object;
-BEGIN
-	NEW(x); P.InitObject(x);
-	x.isConst := TRUE; x.type := B.nilType; x.value := 0;
-	RETURN x
-END NilConst;
-
-PROCEDURE BoolConst(v: BOOLEAN): B.Object;
-	VAR x: B64.Object;
-BEGIN
-	NEW(x); P.InitObject(x);
-	x.isConst := TRUE; x.type := B.boolType;
-	IF v THEN x.value := 1 ELSE x.value := 0 END ;
-	RETURN x
-END BoolConst;
-
-PROCEDURE CharConst(ch: CHAR): B.Object;
-	VAR x: B64.Object;
-BEGIN
-	NEW(x); P.InitObject(x);
-	x.isConst := TRUE; x.type := B.charType; x.value := ORD(ch);
-	RETURN x
-END CharConst;
-
-PROCEDURE Par(pt, ft: B.Type; varpar: BOOLEAN): B.Object;
-	VAR x: B64.Object;
-		proc, ftype: B64.Type; parSize: INTEGER;
-BEGIN
-	proc := pt(B64.Type); ftype := ft(B64.Type);
-	
-	NEW(x); P.InitObject(x);
-	x.isVar := TRUE; x.isParam := TRUE;
-	x.type := ft; x.varpar := varpar;
-	
-	x.adr := proc.parblksize + 16; parSize := 8;
-	IF ftype.isOpenArray OR (varpar & ftype.form = B.tRec) THEN
-		IF ~ftype.untagged THEN parSize := 16 END
+	IF ~Sys.SignInt(y(B64.Const).ival) THEN shfCnt := y(B64.Const).ival
+	ELSE S.Mark(psr.scn, 'Shift count should be non-negative')
 	END ;
-	INC(proc.parblksize, parSize);
-	RETURN x
-END Par;
-
-PROCEDURE Var(t: B.Type; owner: B.Object): B.Object;
-	VAR x: B64.Var; vt: B64.Type; proc: B64.Object;
-		blksize: INTEGER;
-BEGIN
-	NEW(x); P.InitObject(x);
-	x.isVar := TRUE; vt := t(B64.Type); x.type := t;
-	IF owner = NIL THEN
-		blksize := mod.varSize; Align(blksize, vt.align);
-		INC(blksize, vt.size); x.adr := -blksize;
-		IF blksize > B64.MaxSize THEN
-			blksize := 0;
-			S.Mark('global variables size limit reached')
-		END ;
-		mod.varSize := blksize
-	ELSE
-		proc := owner(B64.Object); blksize := proc.locblksize;
-		Align(blksize, vt.align); INC(blksize, vt.size);
-		x.adr := -blksize;
-		IF blksize > B64.MaxLocBlkSize THEN
-			blksize := 0;
-			S.Mark('global variables size limit reached')
-		END ;
-		proc.locblksize := blksize
+	IF op = B.opLSL THEN Sys.LShiftLeft(res(B64.Const).ival, shfCnt)
+	ELSIF op = B.opASR THEN Sys.AShiftRight(res(B64.Const).ival, shfCnt)
+	ELSIF op = B.opROR THEN Sys.RotRight(res(B64.Const).ival, shfCnt)
+	ELSE ASSERT(FALSE)
 	END ;
-	RETURN x
-END Var;
+	res.type := psr.mod.intType;
+	RETURN res
+END OpShift;
 
-PROCEDURE Proc(): B.Object;
-	VAR x: B64.Proc;
+PROCEDURE OpFloor(psr: Parser; x: B.Const): B.Const;
+	VAR res: B.Const;
+BEGIN ASSERT(x.type.form = B.tReal);
+	IF ~x.named THEN res := x ELSE res := CloneConst(psr, x) END ;
+	Sys.FloorReal(res(B64.Const).rval);
+	RETURN res
+END OpFloor;
+
+PROCEDURE OpFlt(psr: Parser; x: B.Const): B.Const;
+	VAR res: B.Const;
+BEGIN ASSERT(x.type.form = B.tInt);
+	IF ~x.named THEN res := x ELSE res := CloneConst(psr, x) END ;
+	Sys.IntToReal(x(B64.Const).ival, res(B64.Const).rval);
+	res.type := psr.mod.realType;
+	RETURN res
+END OpFlt;
+
+PROCEDURE OpChr(psr: Parser; x: B.Const): B.Const;
+	VAR res: B.Const;
+BEGIN ASSERT(x.type.form = B.tInt);
+	IF ~x.named THEN res := x ELSE res := CloneConst(psr, x) END ;
+	res.type := psr.mod.charType;
+	RETURN res
+END OpChr;
+
+PROCEDURE OpOrdChar(psr: Parser; x: B.Str): B.Const;
+	VAR res: B.Const; ival: Sys.Int;
 BEGIN
-	NEW(x); P.InitObject(x); 
-	x.isProc := TRUE; x.adr := 0; x.locblksize := 0;
-	RETURN x
-END Proc;
+	IF x(B64.Str).pos >= 0 THEN
+		Sys.ByteToInt(psr.mod(B64.Module).strbuf[x(B64.Str).pos], ival)
+	END ;
+	res := psr.NewConst(psr, psr.mod.intType, ival);
+	RETURN res
+END OpOrdChar;
 
-PROCEDURE ClonePar(org: B.Object): B.Object;
-	VAR x: B64.Object;
+PROCEDURE OpRangeSet(psr: Parser; x, y: B.Const): B.Const;
+	VAR res: B.Const; low, hi, shfCnt: Sys.Int;
+BEGIN ASSERT(x.type.form = B.tInt); ASSERT(y.type.form = B.tInt);
+	IF ~x.named THEN res := x
+	ELSIF ~y.named THEN res := y ELSE res := CloneConst(psr, x)
+	END ;
+	IF ~Sys.SignInt(x(B64.Const).ival) & ~Sys.SignInt(y(B64.Const).ival)
+		& (Sys.CmpIntByte(x(B64.Const).ival, Sys.SizeInt*8) < 0)
+		& (Sys.CmpIntByte(y(B64.Const).ival, Sys.SizeInt*8) < 0) THEN (*ok*)
+	ELSE S.Mark(psr.scn, 'out of limit value')
+	END ;
+	low := Sys.IntMinusOne;
+	Sys.LShiftLeft(low, x(B64.Const).ival);
+	Sys.ByteToInt(Sys.SizeInt*8 - 1, shfCnt);
+	Sys.SubInt(shfCnt, y(B64.Const).ival);
+	hi := Sys.IntMinusOne; Sys.LShiftRight(hi, shfCnt);
+	Sys.AndInt(low, hi); res(B64.Const).ival := low;
+	res.type := psr.mod.setType;
+	RETURN res
+END OpRangeSet;
+
+PROCEDURE OpSingletonSet(psr: Parser; x: B.Const): B.Const;
+	VAR res: B.Const; shfCnt: Sys.Int;
+BEGIN ASSERT(x.type.form = B.tInt);
+	IF ~x.named THEN res := x ELSE res := CloneConst(psr, x) END ;
+	IF ~Sys.SignInt(x(B64.Const).ival)
+		& (Sys.CmpIntByte(x(B64.Const).ival, Sys.SizeInt*8) < 0)
+	THEN (*ok*) ELSE S.Mark(psr.scn, 'out of limit value')
+	END ;
+	shfCnt := x(B64.Const).ival; res(B64.Const).ival := Sys.IntOne;
+	Sys.LShiftLeft(res(B64.Const).ival, shfCnt); res.type := psr.mod.setType;
+	RETURN res
+END OpSingletonSet;
+
+PROCEDURE OpAdd(psr: Parser; op: INTEGER; x, y: B.Const): B.Const;
+	VAR res: B.Const;
 BEGIN
-	NEW(x); P.InitObject(x);
-	x^ := org(B64.Object)^;
-	RETURN x
-END ClonePar;
+	IF ~x.named THEN res := x ELSE res := CloneConst(psr, x) END ;
+	IF x.type.form = B.tInt THEN
+		Sys.AddInt(res(B64.Const).ival, y(B64.Const).ival);
+		res.type := psr.mod.intType
+	ELSIF x.type.form = B.tSet THEN
+		Sys.OrInt(res(B64.Const).ival, y(B64.Const).ival);
+		res.type := psr.mod.setType
+	ELSIF x.type.form = B.tReal THEN
+		Sys.AddReal(res(B64.Const).rval, y(B64.Const).rval);
+		res.type := psr.mod.realType
+	ELSE ASSERT(FALSE)
+	END ;
+	RETURN NIL
+END OpAdd;
 
+PROCEDURE OpNegateBool(psr: Parser; x: B.Const): B.Const;
+	RETURN NIL
+END OpNegateBool;
+
+PROCEDURE OpMultiply(psr: Parser; x, y: B.Const): B.Const;
+	RETURN NIL
+END OpMultiply;
+
+PROCEDURE OpRDivide(psr: Parser; x, y: B.Const): B.Const;
+	RETURN NIL
+END OpRDivide;
+
+PROCEDURE OpIntDiv(psr: Parser; op: INTEGER; x, y: B.Const): B.Const;
+	RETURN NIL
+END OpIntDiv;
+
+PROCEDURE OpAnd(psr: Parser; x, y: B.Const): B.Const;
+	RETURN NIL
+END OpAnd;
+
+PROCEDURE OpNegate(psr: Parser; x: B.Const): B.Const;
+	RETURN NIL
+END OpNegate;
+
+PROCEDURE OpOr(psr: Parser; x, y: B.Const): B.Const;
+	RETURN NIL
+END OpOr;
+
+PROCEDURE OpCompare(psr: Parser; op: INTEGER; x, y: B.Object): B.Const;
+	RETURN NIL
+END OpCompare;
+
+PROCEDURE OpIn(psr: Parser; x, y: B.Const): B.Const;
+	RETURN NIL
+END OpIn;
+
+(*
 (* -------------------------------------------------------------------------- *)
 (* Type *)
 
@@ -378,4 +460,5 @@ BEGIN
 	arch.ProcType := ProcType;
 	arch.FormalArrayType := FormalArrayType;
 	arch.ParseFormalArrayFlags := ParseFormalArrayFlags
+*)
 END PsrX8664.

@@ -28,17 +28,24 @@ TYPE
 	Ident* = ARRAY IdLen+1 OF CHAR;
 
 	Scanner* = POINTER TO RECORD
-		ch: CHAR; eof, escUpto, hasError*: BOOLEAN;
-		pos*, spos*, errcnt*: Sys.Int;
+		f: Sys.File; ch: CHAR; eof, escUpto, hasError*: BOOLEAN;
+		pos*, spos*, errcnt*: INTEGER;
 		sym*: INTEGER; id*: Ident;
-		str*: Str; slen*: INTEGER; strlen*: Sys.Int;
+		str*: Str; slen*: INTEGER;
 		ival*: Sys.Int; rval*: Sys.Real
 	END ;
 	
 PROCEDURE SetInput*(scn: Scanner; fname: ARRAY OF CHAR; pos: INTEGER);
+BEGIN
+	Sys.OpenFile(scn.f, fname); Sys.SetFilePos(scn.f, pos);
+	scn.pos := pos; scn.eof := Sys.FileEOF(scn.f);
+	scn.hasError := FALSE; scn.errcnt := 0
 END SetInput;
 
 PROCEDURE ReadCh(scn: Scanner);
+BEGIN
+	Sys.FileReadCh(scn.f, scn.ch);
+	scn.eof := Sys.FileEOF(scn.f); scn.pos := Sys.FilePos(scn.f)
 END ReadCh;
 
 PROCEDURE Mark*(scn: Scanner; msg: ARRAY OF CHAR);
@@ -51,8 +58,7 @@ BEGIN ReadCh(scn); i := 0;
 		scn.str[i] := scn.ch; INC(i); ReadCh(scn)
 	END ;
 	IF scn.ch # quote THEN Mark(scn, 'string too long') END ;
-	scn.str[i] := 0X; scn.slen := i; Sys.INTEGERToInt(i, scn.strlen);
-	ReadCh(scn)
+	scn.str[i] := 0X; scn.slen := i+1; ReadCh(scn)
 END String;
 
 PROCEDURE Comment(scn: Scanner; lev: INTEGER);
@@ -160,7 +166,7 @@ BEGIN
 		ReadCh(scn)
 	END ;
 	IF (scn.ch = 'E') OR (scn.ch = 'D') THEN (* scale factor *)
-		ReadCh(scn); e := Sys.ZeroInt; 
+		ReadCh(scn); e := Sys.IntZero; 
 		IF scn.ch = '-' THEN negE := TRUE; ReadCh(scn)
 		ELSE negE := FALSE; IF scn.ch = '+' THEN ReadCh(scn) END
 		END ;
@@ -185,7 +191,7 @@ PROCEDURE Number(scn: Scanner);
 		x: Sys.Real; k2: Sys.Int; h: BYTE;
 		d: Sys.Decimal; errormsg: Str;
 BEGIN
-	scn.ival := Sys.ZeroInt; i := 0; n := 0; k2 := Sys.ZeroInt;
+	scn.ival := Sys.IntZero; i := 0; n := 0; k2 := Sys.IntZero;
     REPEAT
 		IF n < LEN(d) THEN d[n] := ORD(scn.ch) - 30H; INC(n)
 		ELSE Mark(scn, 'Too many digits'); n := 0
@@ -201,7 +207,7 @@ BEGIN
 		UNTIL i = n;
 		IF scn.ch = 'X' THEN scn.sym := string;
 			IF Sys.CmpInt(k2, Sys.MaxUnicode) > 0 THEN
-				Mark(scn, 'Not a valid Unicode codepoint'); k2 := Sys.ZeroInt
+				Mark(scn, 'Not a valid Unicode codepoint'); k2 := Sys.IntZero
 			END ;
 			Sys.CodepointToStr(k2, scn.str)
 		ELSIF scn.ch = 'R' THEN scn.sym := real; Sys.HexToReal(k2, scn.rval)

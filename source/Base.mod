@@ -44,14 +44,17 @@ TYPE
 	Ident* = POINTER TO IdentDesc;
 	Scope* = POINTER TO ScopeDesc;
 	
-	ObjDesc* = RECORD class*: INTEGER; type*: Type; ident*: Ident END ;
-	Const* = POINTER TO RECORD (ObjDesc) ival*: Sys.Int; rval*: Sys.Real END ;
-	Field* = POINTER TO RECORD (ObjDesc) off*: Sys.Int END ;
+	ObjDesc* = RECORD
+		class*: BYTE; named*: BOOLEAN;
+		type*: Type; ident*: Ident
+	END ;
+	Const* = POINTER TO RECORD (ObjDesc) END ;
+	Field* = POINTER TO RECORD (ObjDesc) END ;
 	Var* = POINTER TO RECORD (ObjDesc)
 		expno*, lev*: INTEGER; ronly*: BOOLEAN
 	END ;
 	Par* = POINTER TO RECORD (Var) varpar*: BOOLEAN END ;
-	Str* = POINTER TO RECORD (Var) bufpos*, len*: Sys.Int END ;
+	Str* = POINTER TO RECORD (Var) len*: INTEGER END ;
 	TempVar* = POINTER TO RECORD (Var) inited*: BOOLEAN END ;
 	SProc* = POINTER TO RECORD (ObjDesc) id*: INTEGER END ;
 	SFunc* = POINTER TO RECORD (ObjDesc) id*: INTEGER END ;
@@ -66,25 +69,24 @@ TYPE
 	
 	TypeDesc* = RECORD
 		predef*, isOpenArray*: BOOLEAN;
-		spos*: Sys.Int; base*: Type;
-		lev*, form*, nfpars*: INTEGER; len*: Sys.Int;
+		spos*: INTEGER; base*: Type;
+		form*, nfields*, lev*: INTEGER; len*: Sys.Int;
 		fields*: Ident; obj*: Object
 	END ;
 	
 	NodeDesc* = RECORD (ObjDesc)
-		ronly*: BOOLEAN; spos*: Sys.Int;
+		ronly*: BOOLEAN; spos*: INTEGER;
 		op*: INTEGER; left*, right*: Object
 	END ;
 	
 	IdentDesc = RECORD
-		export*, used*: BOOLEAN; spos*: Sys.Int;
+		export*, used*: BOOLEAN; spos*: INTEGER;
 		name*: S.Ident; obj*: Object; next*: Ident
 	END ;
 	
 	ScopeDesc = RECORD first*, last: Ident; dsc*: Scope END ;
 	
 	ModuleId* = RECORD context*, name*: S.Ident END ;
-	
 	Module* = POINTER TO RECORD
 		id*: ModuleId;
 		system*: BOOLEAN; (* flags *)
@@ -113,7 +115,88 @@ TYPE
 		externalIdentNotFound*: Ident;
 		
 		SystemStdFunc*: PROCEDURE (psr: Parser; f: SFunc): Object;
-		SystemStdProc*: PROCEDURE (psr: Parser; f: SProc): Node
+		SystemStdProc*: PROCEDURE (psr: Parser; f: SProc): Node;
+		NewConst*: PROCEDURE (psr: Parser; t: Type; ival: Sys.Int): Const;
+		NewConstR*: PROCEDURE (psr: Parser; rval: Sys.Real): Const;
+		NewStr*: PROCEDURE (psr: Parser; str: S.Str; slen: INTEGER): Str;
+		IsConstZero*: PROCEDURE (psr: Parser; x: Const): BOOLEAN;
+		GetConstInt*: PROCEDURE (psr: Parser; x: Const; VAR res: Sys.Int);
+		OpAbs*: PROCEDURE (psr: Parser; x: Const): Const;
+		OpOdd*: PROCEDURE (psr: Parser; x: Const): Const;
+		OpShift*: PROCEDURE (psr: Parser; op: INTEGER; x, y: Const): Const;
+		OpFloor*: PROCEDURE (psr: Parser; x: Const): Const;
+		OpFlt*: PROCEDURE (psr: Parser; x: Const): Const;
+		OpChr*: PROCEDURE (psr: Parser; x: Const): Const;
+		OpOrd*: PROCEDURE (psr: Parser; x: Const): Const;
+		OpOrdChar*: PROCEDURE (psr: Parser; x: Str): Const;
+		OpRangeSet*: PROCEDURE (psr: Parser; x, y: Const): Const;
+		OpSingletonSet*: PROCEDURE (psr: Parser; x: Const): Const;
+		OpAdd*: PROCEDURE (psr: Parser; op: INTEGER; x, y: Const): Const;
+		OpNegateBool*: PROCEDURE (psr: Parser; x: Const): Const;
+		OpMultiply*: PROCEDURE (psr: Parser; x, y: Const): Const;
+		OpRDivide*: PROCEDURE (psr: Parser; x, y: Const): Const;
+		OpIntDiv*: PROCEDURE (psr: Parser; op: INTEGER; x, y: Const): Const;
+		OpAnd*: PROCEDURE (psr: Parser; x, y: Const): Const;
+		OpNegate*: PROCEDURE (psr: Parser; x: Const): Const;
+		OpOr*: PROCEDURE (psr: Parser; x, y: Const): Const;
+		OpCompare*: PROCEDURE (psr: Parser; op: INTEGER; x, y: Object): Const;
+		OpIn*: PROCEDURE (psr: Parser; x, y: Const): Const
 	END ;
+	
+PROCEDURE InitConst*(x: Const);
+BEGIN x.class := cConst
+END InitConst;
+
+PROCEDURE InitStr*(x: Str);
+BEGIN x.class := cVar; x.ronly := TRUE; x.lev := 0;
+END InitStr;
+
+PROCEDURE InitVar*(x: Var);
+BEGIN x.class := cVar; x.expno := -1; x.ronly := FALSE
+END InitVar;
+
+PROCEDURE InitType*(tp: Type; form: INTEGER);
+BEGIN
+	tp.predef := FALSE; tp.isOpenArray := FALSE; tp.spos := 0; 
+	tp.form := form; tp.nfields := 0; tp.lev := 0; tp.len := Sys.IntZero
+END InitType;
+
+PROCEDURE NewType*(psr: Parser; form: INTEGER): Type;
+	VAR tp: Type;
+BEGIN NEW(tp); InitType(tp, form);
+	RETURN tp
+END NewType;
+
+PROCEDURE NewPar*(psr: Parser; proc, type: Type; varpar: BOOLEAN): Par;
+	VAR x: Par;
+BEGIN
+	NEW(x); InitVar(x); x.varpar := varpar;
+	x.type := type; x.lev := psr.mod.curLev; INC(proc.nfields);
+	RETURN x
+END NewPar;
+
+PROCEDURE NewField*(psr: Parser; rec, ftype: Type): Field;
+	VAR x: Field;
+BEGIN NEW(x); x.class := cField; x.type := ftype; INC(rec.nfields);
+	RETURN x
+END NewField;
+
+PROCEDURE NewTypeObj*(psr: Parser; tp: Type): Object;
+	VAR x: Object;
+BEGIN NEW(x); x.class := cType; x.type := tp;
+	RETURN x
+END NewTypeObj;
+
+PROCEDURE NewVar*(psr: Parser; tp: Type): Var;
+	VAR x: Var;
+BEGIN NEW(x); InitVar(x); x.lev := psr.mod.curLev; x.type := tp;
+	RETURN x
+END NewVar;
+
+PROCEDURE NewProc*(psr: Parser): Proc;
+	VAR x: Proc;
+BEGIN NEW(x); x.class := cProc;
+	RETURN x
+END NewProc;
 
 END Base.

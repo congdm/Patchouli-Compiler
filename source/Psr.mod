@@ -12,61 +12,12 @@ TYPE
 VAR	
 	type0: PROCEDURE(psr: Parser): B.Type;
 	expression0: PROCEDURE(psr: Parser): B.Object;
-	StatementSequence0: PROCEDURE(psr: Parser): B.Node;	
+	StatementSequence0: PROCEDURE(psr: Parser): B.Node;
 
 (* -------------------------------------------------------------------------- *)
 
-PROCEDURE NewConst(psr: Parser; t: B.Type; ival: Sys.Int): B.Const;
-	VAR x: B.Const;
-BEGIN
-	NEW(x); x.class := B.cConst; x.type := t; x.ival := ival;
-	RETURN x
-END NewConst;
-
-PROCEDURE NewConstR(psr: Parser; rval: Sys.Real): B.Const;
-	VAR x: B.Const;
-BEGIN
-	NEW(x); x.class := B.cConst; x.type := psr.mod.realType; x.rval := rval
-	RETURN x
-END NewConstR;
-
-PROCEDURE NewStr(psr: Parser; str: S.Str; slen: Sys.Int): B.Str;
-BEGIN
-	RETURN NIL
-END NewStr;
-
-PROCEDURE NewType(psr: Parser; form: INTEGER): B.Type;
-BEGIN
-	RETURN NIL
-END NewType;
-
-PROCEDURE NewPar(psr: Parser; proc, type: B.Type; varpar: BOOLEAN): B.Par;
-BEGIN
-	RETURN NIL
-END NewPar;
-
-PROCEDURE NewField(psr: Parser; rec, ftype: B.Type): B.Field;
-BEGIN
-	RETURN NIL
-END NewField;
-
-PROCEDURE NewTypeObj(psr: Parser; tp: B.Type): B.Object;
-BEGIN
-	RETURN NIL
-END NewTypeObj;
-
-PROCEDURE NewVar(psr: Parser; tp: B.Type): B.Var;
-BEGIN
-	RETURN NIL
-END NewVar;
-
-PROCEDURE NewProc(psr: Parser): B.Proc;
-BEGIN
-	RETURN NIL
-END NewProc;
-
 PROCEDURE Reset(psr: Parser; VAR x: B.Object);
-BEGIN x := NewConst(psr, psr.mod.intType, Sys.ZeroInt)
+BEGIN x := psr.NewConst(psr, psr.mod.intType, Sys.IntZero)
 END Reset;
 
 (* -------------------------------------------------------------------------- *)
@@ -163,7 +114,7 @@ PROCEDURE SamePars(psr: Parser; p1, p2: B.Ident): BOOLEAN;
 END SamePars;
 
 PROCEDURE SameProc(psr: Parser; t1, t2: B.Type): BOOLEAN;
-	RETURN (t1.base = t2.base) & (t1.nfpars = t2.nfpars)
+	RETURN (t1.base = t2.base) & (t1.nfields = t2.nfields)
 		& SamePars(psr, t1.fields, t2.fields)
 END SameProc;
 
@@ -181,7 +132,7 @@ PROCEDURE CompTypes2(psr: Parser; t1, t2: B.Type): BOOLEAN;
 END CompTypes2;
 
 PROCEDURE IsCharStr(psr: Parser; x: B.Object): BOOLEAN;
-	RETURN (x IS B.Str) & (Sys.CmpIntByte(x(B.Str).len, 2) <= 0)
+	RETURN (x IS B.Str) & (x(B.Str).len <= 2)
 END IsCharStr;
 
 PROCEDURE CheckInt(psr: Parser; x: B.Object);
@@ -230,10 +181,13 @@ BEGIN op := S.null;
 END CheckVar;
 
 PROCEDURE CheckStrLen(psr: Parser; xt: B.Type; y: B.Object);
-BEGIN
-	IF ~xt.isOpenArray & (y IS B.Str)
-		& (Sys.CmpInt(y(B.Str).len, xt.len) > 0)
-	THEN Mark(psr, 'string longer than dest')
+	VAR strlen: Sys.Int;
+BEGIN 
+	IF ~xt.isOpenArray & (y IS B.Str) THEN
+		Sys.INTEGERToInt(y(B.Str).len, strlen);
+		IF Sys.CmpInt(strlen, xt.len) > 0 THEN
+			Mark(psr, 'string longer than dest')
+		END
 	END
 END CheckStrLen;
 
@@ -344,7 +298,7 @@ BEGIN
 	END
 END CheckUndef;
 
-(* new parse tree node *)
+(* new parse tree objects *)
 
 PROCEDURE NewNode(psr: Parser; op: INTEGER; x, y: B.Object): B.Node;
 	VAR z: B.Node;
@@ -355,7 +309,7 @@ BEGIN
 END NewNode;
 
 PROCEDURE NewNode2(
-	psr: Parser; op: INTEGER; x, y: B.Object; t: B.Type; p: Sys.Int
+	psr: Parser; op: INTEGER; x, y: B.Object; t: B.Type; p: INTEGER
 ): B.Node;
 	VAR z: B.Node;
 BEGIN
@@ -421,7 +375,7 @@ PROCEDURE Call(psr: Parser; x: B.Object): B.Node;
 		fpar: B.Ident; nacts: INTEGER;
 		
 	PROCEDURE Parameter(psr: Parser; VAR last: B.Node; fpar: B.Ident);
-		VAR y: B.Object; par: B.Node; spos: Sys.Int;
+		VAR y: B.Object; par: B.Node; spos: INTEGER;
 	BEGIN
 		spos := psr.scn.spos; y := expression0(psr);
 		IF fpar # NIL THEN CheckPar(psr, fpar.obj(B.Par), y) END ;
@@ -442,16 +396,16 @@ BEGIN (* Call *)
 				ELSE MarkSflous(psr, S.comma)
 				END
 			END ;
-			IF nacts = proc.nfpars THEN (*valid*)
-			ELSIF nacts > proc.nfpars THEN Mark(psr, 'too many params')
+			IF nacts = proc.nfields THEN (*valid*)
+			ELSIF nacts > proc.nfields THEN Mark(psr, 'too many params')
 			ELSE Mark(psr, 'not enough params')
 			END ;
 			Check(psr, S.rparen)
 		ELSIF psr.sym = S.rparen THEN
-			IF proc.nfpars # 0 THEN Mark(psr, 'need params') END ;
+			IF proc.nfields # 0 THEN Mark(psr, 'need params') END ;
 			GetSym(psr)
 		END
-	ELSIF proc.nfpars # 0 THEN Mark(psr, 'need params')
+	ELSIF proc.nfields # 0 THEN Mark(psr, 'need params')
 	END ;
 	RETURN call
 END Call;
@@ -459,7 +413,7 @@ END Call;
 PROCEDURE designator(psr: Parser): B.Object;
 	VAR x, y: B.Object; fid: S.Ident; f: B.Ident;
 		node, next: B.Node; xt, yt, recType: B.Type;
-		spos: Sys.Int; ronly: BOOLEAN;
+		spos: INTEGER; ronly: BOOLEAN;
 BEGIN x := qualident(psr);
     IF ~(x IS B.ExtModule) & ~(x.class = B.cType) THEN (*ok*)
     ELSE Reset(psr, x); Mark(psr, 'invalid value')
@@ -531,104 +485,29 @@ END designator;
 
 (* expressions *)
 
-PROCEDURE OpAbs(psr: Parser; x: B.Const): B.Const;
-	RETURN NIL
-END OpAbs;
-
-PROCEDURE OpOdd(psr: Parser; x: B.Const): B.Const;
-	RETURN NIL
-END OpOdd;
-
-PROCEDURE OpShift(psr: Parser; op: INTEGER; x, y: B.Const): B.Const;
-	RETURN NIL
-END OpShift;
-
-PROCEDURE OpFloor(psr: Parser; x: B.Const): B.Const;
-	RETURN NIL
-END OpFloor;
-
-PROCEDURE OpFlt(psr: Parser; x: B.Const): B.Const;
-	RETURN NIL
-END OpFlt;
-
-PROCEDURE OpChr(psr: Parser; x: B.Const): B.Const;
-	RETURN NIL
-END OpChr;
-
-PROCEDURE OpOrdChar(psr: Parser; x: B.Str): B.Const;
-	RETURN NIL
-END OpOrdChar;
-
-PROCEDURE OpRangeSet(psr: Parser; x, y: B.Const): B.Const;
-	RETURN NIL
-END OpRangeSet;
-
-PROCEDURE OpSingletonSet(psr: Parser; x: B.Const): B.Const;
-	RETURN NIL
-END OpSingletonSet;
-
-PROCEDURE OpAdd(psr: Parser; op: INTEGER; x, y: B.Const): B.Const;
-	RETURN NIL
-END OpAdd;
-
-PROCEDURE OpNegateBool(psr: Parser; x: B.Const): B.Const;
-	RETURN NIL
-END OpNegateBool;
-
-PROCEDURE OpMultiply(psr: Parser; x, y: B.Const): B.Const;
-	RETURN NIL
-END OpMultiply;
-
-PROCEDURE OpRDivide(psr: Parser; x, y: B.Const): B.Const;
-	RETURN NIL
-END OpRDivide;
-
-PROCEDURE OpIntDiv(psr: Parser; op: INTEGER; x, y: B.Const): B.Const;
-	RETURN NIL
-END OpIntDiv;
-
-PROCEDURE OpAnd(psr: Parser; x, y: B.Const): B.Const;
-	RETURN NIL
-END OpAnd;
-
-PROCEDURE OpNegate(psr: Parser; x: B.Const): B.Const;
-	RETURN NIL
-END OpNegate;
-
-PROCEDURE OpOr(psr: Parser; x, y: B.Const): B.Const;
-	RETURN NIL
-END OpOr;
-
-PROCEDURE OpCompare(psr: Parser; op: INTEGER; x, y: B.Object): B.Const;
-	RETURN NIL
-END OpCompare;
-
-PROCEDURE OpIn(psr: Parser; x, y: B.Const): B.Const;
-	RETURN NIL
-END OpIn;
-
 PROCEDURE StdFunc(psr: Parser; f: B.SFunc): B.Object;
 	VAR par, par2: B.Node; x, y, z: B.Object; t: B.Type;
-		spos: Sys.Int; ch: CHAR;
+		spos: INTEGER; strlen: Sys.Int; ch: CHAR;
 BEGIN spos := psr.scn.spos; GetSym(psr);
 	IF f.id = B.opABS THEN
 		y := expression0(psr); CheckT(psr, y, {B.tInt, B.tReal});
 		IF ~(y IS B.Const) THEN
 			IF y.type.form = B.tInt THEN t := psr.mod.intType ELSE t := y.type END ;
 			x := NewNode2(psr, B.opABS, y, NIL, t, spos)
-		ELSE x := OpAbs(psr, y(B.Const))
+		ELSE x := psr.OpAbs(psr, y(B.Const))
 		END
 	ELSIF f.id = B.opODD THEN y := expression0(psr); CheckInt(psr, y);
 		IF ~(y IS B.Const) THEN
 			x := NewNode2(psr, B.opODD, y, NIL, psr.mod.boolType, spos)
-		ELSE x := OpOdd(psr, y(B.Const))
+		ELSE x := psr.OpOdd(psr, y(B.Const))
 		END
 	ELSIF f.id = B.opLEN THEN
 		y := designator(psr); CheckT(psr, y, {B.tArray, B.tStr});
 		IF (y.type.form = B.tArray) & ~y.type.isOpenArray THEN
-			x := NewConst(psr, psr.mod.intType, y.type.len)
+			x := psr.NewConst(psr, psr.mod.intType, y.type.len)
 		ELSIF y.type.form = B.tStr THEN
-			x := NewConst(psr, psr.mod.intType, y(B.Str).len)
+			Sys.INTEGERToInt(y(B.Str).len, strlen);
+			x := psr.NewConst(psr, psr.mod.intType, strlen)
 		ELSE x := NewNode2(psr, B.opLEN, y, NIL, psr.mod.intType, spos)
 		END
 	ELSIF (f.id >= B.opLSL) & (f.id <= B.opROR) THEN
@@ -636,17 +515,17 @@ BEGIN spos := psr.scn.spos; GetSym(psr);
 		Check(psr, S.comma); z := expression0(psr); CheckInt(psr, z);
 		IF ~(y IS B.Const) OR ~(z IS B.Const) THEN
 			x := NewNode2(psr, f.id, y, z, psr.mod.intType, spos)
-		ELSE x := OpShift(psr, f.id, y(B.Const), z(B.Const))
+		ELSE x := psr.OpShift(psr, f.id, y(B.Const), z(B.Const))
 		END
 	ELSIF f.id = B.opFLOOR THEN y := expression0(psr); CheckReal(psr, y);
 		IF ~(y IS B.Const) THEN
 			x := NewNode2(psr, B.opFLOOR, y, NIL, psr.mod.intType, spos)
-		ELSE x := OpFloor(psr, y(B.Const))
+		ELSE x := psr.OpFloor(psr, y(B.Const))
 		END
 	ELSIF f.id = B.opFLT THEN y := expression0(psr); CheckInt(psr, y);
 		IF ~(y IS B.Const) THEN
 			x := NewNode2(psr, B.opFLT, y, NIL, psr.mod.realType, spos)
-		ELSE x := OpFlt(psr, y(B.Const))
+		ELSE x := psr.OpFlt(psr, y(B.Const))
 		END
 	ELSIF f.id = B.opORD THEN y := expression0(psr);
 		IF y.type.form # B.tStr THEN CheckT(psr, y, {B.tSet, B.tBool, B.tChar})
@@ -654,14 +533,13 @@ BEGIN spos := psr.scn.spos; GetSym(psr);
 		END ;
 		IF ~(y IS B.Const) & ~(y IS B.Str) THEN
 			x := NewNode2(psr, B.opORD, y, NIL, psr.mod.intType, spos)
-		ELSIF y IS B.Const THEN
-			x := NewConst(psr, psr.mod.intType, y(B.Const).ival)
-		ELSE x := OpOrdChar(psr, y(B.Str))
+		ELSIF y IS B.Const THEN x := psr.OpOrd(psr, y(B.Const))
+		ELSE x := psr.OpOrdChar(psr, y(B.Str))
 		END
 	ELSIF f.id = B.opCHR THEN y := expression0(psr); CheckInt(psr, y);
 		IF ~(y IS B.Const) THEN
 			x := NewNode2(psr, B.opCHR, y, NIL, psr.mod.charType, spos)
-		ELSE x := OpChr(psr, y(B.Const))
+		ELSE x := psr.OpChr(psr, y(B.Const))
 		END
 	ELSE x := psr.SystemStdFunc(psr, f)
 	END ;
@@ -670,34 +548,34 @@ BEGIN spos := psr.scn.spos; GetSym(psr);
 END StdFunc;
 
 PROCEDURE element(psr: Parser): B.Object;
-	VAR x, y: B.Object; spos: Sys.Int;
+	VAR x, y: B.Object; spos: INTEGER;
 BEGIN
 	spos := psr.scn.spos; x := expression0(psr); CheckInt(psr, x);
 	IF psr.sym = S.upto THEN spos := psr.scn.spos;
 		GetSym(psr); y := expression0(psr); CheckInt(psr, y);
 		IF (x IS B.Const) & (y IS B.Const) THEN
-			x := OpRangeSet(psr, x(B.Const), y(B.Const))
+			x := psr.OpRangeSet(psr, x(B.Const), y(B.Const))
 		ELSE x := NewNode2(psr, S.upto, x, y, psr.mod.setType, spos)
 		END ;
-	ELSIF x IS B.Const THEN x := OpSingletonSet(psr, x(B.Const))
+	ELSIF x IS B.Const THEN x := psr.OpSingletonSet(psr, x(B.Const))
 	ELSE x := NewNode2(psr, B.opBitset, x, NIL, psr.mod.setType, spos)
 	END ;
 	RETURN x
 END element;
 
 PROCEDURE set(psr: Parser): B.Object;
-	VAR const: B.Const; x, y: B.Object; node, next: B.Node; spos: Sys.Int;
+	VAR const: B.Const; x, y: B.Object; node, next: B.Node; spos: INTEGER;
 BEGIN
-	const := NewConst(psr, psr.mod.setType, Sys.ZeroInt); GetSym(psr);
+	const := psr.NewConst(psr, psr.mod.setType, Sys.IntZero); GetSym(psr);
 	IF psr.sym # S.rbrace THEN y := element(psr);
 		IF ~(y IS B.Const) THEN x := y
-		ELSE const := OpAdd(psr, S.plus, const, y(B.Const))
+		ELSE const := psr.OpAdd(psr, S.plus, const, y(B.Const))
 		END ;
 		WHILE psr.sym = S.comma DO
 			spos := psr.scn.spos; GetSym(psr);
 			IF psr.sym # S.rbrace THEN y := element(psr);
 				IF y IS B.Const THEN
-					const := OpAdd(psr, S.plus, const, y(B.Const))
+					const := psr.OpAdd(psr, S.plus, const, y(B.Const))
 				ELSIF x # NIL THEN
 					x := NewNode2(psr, S.plus, x, y, psr.mod.setType, spos)
 				ELSE x := y
@@ -705,7 +583,7 @@ BEGIN
 			ELSE MarkSflous(psr, S.comma)
 			END
 		END ;
-		IF (Sys.CmpInt(const(B.Const).ival, Sys.ZeroInt) # 0) & (x # NIL) THEN
+		IF ~psr.IsConstZero(psr, const) & (x # NIL) THEN
 			x := NewNode2(psr, S.plus, x, const, psr.mod.setType, psr.scn.spos)
 		END
 	END ;
@@ -715,20 +593,20 @@ END set;
 
 PROCEDURE factor(psr: Parser): B.Object;
 	CONST msgNotFunc = 'not function';
-	VAR x: B.Object; spos: Sys.Int;
+	VAR x: B.Object; spos: INTEGER;
 BEGIN
 	IF psr.sym = S.int THEN
-		x := NewConst(psr, psr.mod.intType, psr.scn.ival); GetSym(psr)
+		x := psr.NewConst(psr, psr.mod.intType, psr.scn.ival); GetSym(psr)
 	ELSIF psr.sym = S.real THEN
-		x := NewConstR(psr, psr.scn.rval); GetSym(psr)
+		x := psr.NewConstR(psr, psr.scn.rval); GetSym(psr)
 	ELSIF psr.sym = S.string THEN
-		x := NewStr(psr, psr.scn.str, psr.scn.strlen); GetSym(psr)
+		x := psr.NewStr(psr, psr.scn.str, psr.scn.slen); GetSym(psr)
 	ELSIF psr.sym = S.nil THEN
-		x := NewConst(psr, psr.mod.nilType, Sys.ZeroInt); GetSym(psr)
+		x := psr.NewConst(psr, psr.mod.nilType, Sys.IntZero); GetSym(psr)
 	ELSIF psr.sym = S.true THEN
-		x := NewConst(psr, psr.mod.boolType, Sys.OneInt); GetSym(psr)
+		x := psr.NewConst(psr, psr.mod.boolType, Sys.IntOne); GetSym(psr)
 	ELSIF psr.sym = S.false THEN
-		x := NewConst(psr, psr.mod.boolType, Sys.ZeroInt); GetSym(psr)
+		x := psr.NewConst(psr, psr.mod.boolType, Sys.IntZero); GetSym(psr)
 	ELSIF psr.sym = S.lbrace THEN x := set(psr)
 	ELSIF psr.sym = S.ident THEN x := designator(psr);
 		IF x IS B.SFunc THEN
@@ -749,7 +627,7 @@ BEGIN
 		spos := psr.scn.spos; GetSym(psr); x := factor(psr); CheckBool(psr, x);
 		IF ~(x IS B.Const) THEN
 			x := NewNode2(psr, S.not, x, NIL, psr.mod.boolType, spos)
-		ELSE x := OpNegateBool(psr, x(B.Const))
+		ELSE x := psr.OpNegateBool(psr, x(B.Const))
 		END
 	ELSE Reset(psr, x); Mark(psr, 'invalid factor')
 	END ;
@@ -757,7 +635,7 @@ BEGIN
 END factor;
 
 PROCEDURE term(psr: Parser): B.Object;
-	VAR x, y: B.Object; t: B.Type; op: INTEGER; spos: Sys.Int;
+	VAR x, y: B.Object; t: B.Type; op: INTEGER; spos: INTEGER;
 BEGIN x := factor(psr);
 	WHILE psr.sym = S.times DO spos := psr.scn.spos;
 		CheckT(psr, x, B.tTimes); GetSym(psr); y := factor(psr);
@@ -768,7 +646,7 @@ BEGIN x := factor(psr);
 			IF x.type.form = B.tInt THEN t := psr.mod.intType ELSE t := x.type
 			END ;
 			x := NewNode2(psr, S.times, x, y, t, spos)
-		ELSE x := OpMultiply(psr, x(B.Const), y(B.Const))
+		ELSE x := psr.OpMultiply(psr, x(B.Const), y(B.Const))
 		END
 	ELSIF psr.sym = S.rdiv DO spos := psr.scn.spos;
 		CheckT(psr, x, B.tRdivs); GetSym(psr); y := factor(psr);
@@ -777,27 +655,27 @@ BEGIN x := factor(psr);
 		END ;
 		IF ~(x IS B.Const) OR ~(y IS B.Const) THEN
 			x := NewNode2(psr, S.rdiv, x, y, x.type, spos)
-		ELSE x := OpRDivide(psr, x(B.Const), y(B.Const))
+		ELSE x := psr.OpRDivide(psr, x(B.Const), y(B.Const))
 		END
 	ELSIF (psr.sym = S.div) OR (psr.sym = S.mod) DO
 		spos := psr.scn.spos; op := psr.sym; CheckInt(psr, x);
 		GetSym(psr); y := factor(psr); CheckInt(psr, y);
 		IF ~(x IS B.Const) OR ~(y IS B.Const) THEN
 			x := NewNode2(psr, op, x, y, psr.mod.intType, spos)
-		ELSE x := OpIntDiv(psr, op, x(B.Const), y(B.Const))
+		ELSE x := psr.OpIntDiv(psr, op, x(B.Const), y(B.Const))
 		END
 	ELSIF psr.sym = S.and DO spos := psr.scn.spos;
 		CheckBool(psr, x); GetSym(psr); y := factor(psr); CheckBool(psr, y);
 		IF ~(x IS B.Const) OR ~(y IS B.Const) THEN
 			x := NewNode2(psr, S.and, x, y, psr.mod.boolType, spos)
-		ELSE x := OpAnd(psr, x(B.Const), y(B.Const))
+		ELSE x := psr.OpAnd(psr, x(B.Const), y(B.Const))
 		END
 	END ;
 	RETURN x
 END term;
 
 PROCEDURE SimpleExpression(psr: Parser): B.Object;
-	VAR x, y: B.Object; op: INTEGER; spos: Sys.Int; t: B.Type;
+	VAR x, y: B.Object; op: INTEGER; spos: INTEGER; t: B.Type;
 BEGIN
 	IF psr.sym = S.plus THEN GetSym(psr); x := term(psr)
 	ELSIF psr.sym = S.minus THEN
@@ -810,7 +688,7 @@ BEGIN
 			ELSE t := x.type
 			END ;
 			x := NewNode2(psr, S.minus, x, NIL, t, spos)
-		ELSE x := OpNegate(psr, x(B.Const))
+		ELSE x := psr.OpNegate(psr, x(B.Const))
 		END
 	ELSE x := term(psr)
 	END ;
@@ -824,20 +702,20 @@ BEGIN
 			IF x.type.form = B.tInt THEN t := psr.mod.intType ELSE t := x.type
 			END ;
 			x := NewNode2(psr, op, x, y, t, spos)
-		ELSE x := OpAdd(psr, op, x(B.Const), y(B.Const))
+		ELSE x := psr.OpAdd(psr, op, x(B.Const), y(B.Const))
 		END
 	ELSIF psr.sym = S.or DO spos := psr.scn.spos;
 		CheckBool(psr, x); GetSym(psr); y := term(psr); CheckBool(psr, y);
 		IF ~(x IS B.Const) OR ~(y IS B.Const) THEN
 			x := NewNode2(psr, op, x, y, psr.mod.boolType, spos)
-		ELSE x := OpOr(psr, x(B.Const), y(B.Const))
+		ELSE x := psr.OpOr(psr, x(B.Const), y(B.Const))
 		END
 	END ;
 	RETURN x
 END SimpleExpression;
 
 PROCEDURE expression(psr: Parser): B.Object;
-	VAR x, y: B.Object; yt: B.Type; op: INTEGER; spos: Sys.Int;
+	VAR x, y: B.Object; yt: B.Type; op: INTEGER; spos: INTEGER;
 BEGIN x := SimpleExpression(psr);
 	IF (psr.sym >= S.eql) & (psr.sym <= S.geq) THEN
 		spos := psr.scn.spos; op := psr.sym;
@@ -847,14 +725,14 @@ BEGIN x := SimpleExpression(psr);
 		END ;
 		IF ~IsConst(psr, x) OR ~IsConst(psr, y) THEN
 			x := NewNode2(psr, op, x, y, psr.mod.boolType, spos)
-		ELSE x := OpCompare(psr, op, x, y)
+		ELSE x := psr.OpCompare(psr, op, x, y)
 		END
 	ELSIF psr.sym = S.in THEN
 		spos := psr.scn.spos; CheckInt(psr, x);
 		GetSym(psr); y := SimpleExpression(psr); CheckSet(psr, y);
 		IF ~(x IS B.Const) OR ~(y IS B.Const) THEN
 			x := NewNode2(psr, S.in, x, y, psr.mod.boolType, spos)
-		ELSE x := OpIn(psr, x(B.Const), y(B.Const))
+		ELSE x := psr.OpIn(psr, x(B.Const), y(B.Const))
 		END
 	ELSIF psr.sym = S.is THEN spos := psr.scn.spos;
 		CheckLeftIs(psr, x); GetSym(psr);
@@ -869,7 +747,7 @@ BEGIN x := SimpleExpression(psr);
 		END ;
 		IF x.type # yt THEN
 			x := NewNode2(psr, S.is, x, y, psr.mod.boolType, spos)
-		ELSE x := NewConst(psr, psr.mod.boolType, Sys.OneInt)
+		ELSE x := psr.NewConst(psr, psr.mod.boolType, Sys.IntOne)
 		END
 	END ;
 	RETURN x
@@ -1036,7 +914,7 @@ PROCEDURE Case(psr: Parser): B.Node;
 	END label;
 	
 	PROCEDURE LabelRange(psr: Parser; x: B.Object): B.Object;
-		VAR y, z, cond: B.Object; spos: Sys.Int;
+		VAR y, z, cond: B.Object; spos: INTEGER;
 	BEGIN label(psr, x, y); spos := psr.scn.spos;
 		IF psr.sym # S.upto THEN
 			cond := NewNode2(psr, S.eql, x, y, psr.mod.boolType, spos)
@@ -1050,7 +928,7 @@ PROCEDURE Case(psr: Parser): B.Node;
 	END LabelRange;
 	
 	PROCEDURE NumericCase(psr: Parser; x: B.Object): B.Node;
-		VAR bar, colon: B.Node; cond, y: B.Object; spos: Sys.Int;
+		VAR bar, colon: B.Node; cond, y: B.Object; spos: INTEGER;
 	BEGIN
 		IF (psr.sym = S.int) OR (psr.sym = S.string)
 		OR (psr.sym = S.ident) THEN
@@ -1188,7 +1066,7 @@ PROCEDURE FormalType(psr: Parser): B.Type;
 BEGIN tp := psr.mod.intType;
 	IF psr.sym = S.ident THEN x := qualident(psr); tp := GetType(psr, x)
 	ELSIF psr.sym = S.array THEN
-		tp := NewType(psr, B.tArray); GetSym(psr);
+		tp := B.NewType(psr, B.tArray); GetSym(psr);
 		ParseFormalArrayFlags(psr, tp); Check(psr, S.of);
 		IF psr.sym = S.array THEN
 			Mark(psr, 'multidim open array is not supported')
@@ -1218,7 +1096,7 @@ BEGIN
 	END ;
 	Check(psr, S.colon); tp := FormalType(psr); id := first;
 	WHILE id # NIL DO
-		x := NewPar(psr, proc, tp, varpar); INC(proc.nfpars);
+		x := B.NewPar(psr, proc, tp, varpar); INC(proc.nfields);
 		x.ronly := ~varpar & (tp.form IN B.tStructs);
 		x.ident := id; id.obj := x; id := id.next
 	END
@@ -1256,7 +1134,7 @@ END ParsePointerFlags;
 PROCEDURE PointerType(psr: Parser; defobj: B.Object): B.Type;
 	VAR ptr, bt: B.Type; name: S.Ident; x: B.Ident;
 BEGIN
-	ptr := NewType(psr, B.tPtr); GetSym(psr);
+	ptr := B.NewType(psr, B.tPtr); GetSym(psr);
 	ParsePointerFlags(psr, ptr); Check(psr, S.to);
 	IF defobj # NIL THEN defobj.type := ptr END ;
 	IF psr.sym = S.ident THEN name := psr.scn.id; x := qualident0(psr);
@@ -1292,7 +1170,7 @@ BEGIN first := NewIdent(psr, psr.scn.id);
 	END;
 	Check(psr, S.colon); ft := type0(psr); field := first;
 	WHILE field # NIL DO
-		field.obj := NewField(psr, rec, ft); field := field.next
+		field.obj := B.NewField(psr, rec, ft); field := field.next
 	END
 END FieldList;
 
@@ -1319,8 +1197,8 @@ PROCEDURE ArrayType(psr: Parser): B.Type;
 	PROCEDURE length(psr: Parser; VAR len: Sys.Int);
 		VAR x: B.Object;
 	BEGIN x := ConstExpression(psr);
-		IF x.type.form = B.tInt THEN len := x(B.Const).ival
-		ELSE Mark(psr, 'array length must be int'); len := Sys.ZeroInt
+		IF x.type.form = B.tInt THEN psr.GetConstInt(psr, x(B.Const), len)
+		ELSE Mark(psr, 'array length must be int'); len := Sys.IntZero
 		END ;
 		IF Sys.SignInt(len) THEN Mark(psr, 'invalid array length') END
 	END length;
@@ -1332,7 +1210,7 @@ BEGIN (* ArrayType *)
 		bt := ArrayType(psr)	
 	ELSE Check(psr, S.of); bt := type0(psr)
 	END ;
-	tp := NewType(psr, B.tArray); tp.len := len; tp.base := bt;
+	tp := B.NewType(psr, B.tArray); tp.len := len; tp.base := bt;
 	RETURN tp
 END ArrayType;
 
@@ -1348,7 +1226,7 @@ BEGIN
 	ELSIF psr.sym = S.array THEN
 		GetSym(psr); tp := ArrayType(psr)
 	ELSIF psr.sym = S.record THEN
-		GetSym(psr); tp := NewType(psr, B.tRec); ParseRecordFlags(psr, tp);
+		GetSym(psr); tp := B.NewType(psr, B.tRec); ParseRecordFlags(psr, tp);
 		IF psr.sym = S.lparen THEN
 			GetSym(psr); bt := BaseType(psr);
 			IF bt # NIL THEN tp.base := bt; tp.lev := bt.lev+1 END ;
@@ -1366,7 +1244,7 @@ BEGIN
 		CloseScope(psr); Check(psr, S.end)
 	ELSIF psr.sym = S.pointer THEN tp := PointerType(psr, NIL)
 	ELSIF psr.sym = S.procedure THEN
-		GetSym(psr); tp := NewType(psr, B.tProc);
+		GetSym(psr); tp := B.NewType(psr, B.tProc);
 		IF psr.sym = S.lparen THEN FormalParameters(psr, tp) END
 	END ;
 	RETURN tp
@@ -1391,7 +1269,7 @@ BEGIN
 			id := NewIdent(psr, psr.scn.id);
 			GetSym(psr); CheckExport(psr, id.export);
 			Check(psr, S.eql); x := ConstExpression(psr); id.obj := x;
-			IF x.ident = NIL THEN x.ident := id END ;
+			IF x.ident = NIL THEN x.ident := id; x.named := TRUE END ;
 			Check(psr, S.semicolon)
 		END
 	END ;
@@ -1400,12 +1278,13 @@ BEGIN
 			id := NewIdent(psr, psr.scn.id); GetSym(psr);
 			CheckExport(psr, id.export); Check(psr, S.eql);
 			IF psr.sym # S.pointer THEN
-				tp := type(psr); x := NewTypeObj(psr, tp);
-				id.obj := x; x.ident := id;
+				tp := type(psr); x := B.NewTypeObj(psr, tp);
+				id.obj := x; x.ident := id; x.named := TRUE;
 				IF tp.form = B.tRec THEN FixUndef(psr, tp, id.name) END
 			ELSE
-				x := NewTypeObj(psr, psr.mod.intType);
-				id.obj := x; x.ident := id; tp := PointerType(psr, x);
+				x := B.NewTypeObj(psr, psr.mod.intType);
+				id.obj := x; x.ident := id; x.named := TRUE;
+				tp := PointerType(psr, x);
 				IF tp.obj = NIL THEN tp.obj := x END
 			END ;
 			Check(psr, S.semicolon)
@@ -1416,8 +1295,8 @@ BEGIN
 		WHILE psr.sym = S.ident DO
 			id := IdentList(psr); Check(psr, S.colon); tp := type(psr);
 			WHILE id # NIL DO
-				x := NewVar(psr, tp);
-				id.obj := x; x.ident := id; id := id.next
+				x := B.NewVar(psr, tp); id.obj := x;
+				x.ident := id; x.named := TRUE; id := id.next
 			END ;
 			Check(psr, S.semicolon)
 		END
@@ -1427,8 +1306,8 @@ BEGIN
 		ELSE id := NewIdent(psr, psr.scn.id);
 			GetSym(psr); CheckExport(psr, id.export)
 		END ;
-		x := NewProc(psr); tp := NewType(psr, B.tProc); x.type := tp;
-		IF id # NIL THEN id.obj := x; x.ident := id END ;
+		x := B.NewProc(psr); tp := B.NewType(psr, B.tProc); x.type := tp;
+		IF id # NIL THEN id.obj := x; x.ident := id; x.named := TRUE END ;
 		
 		IF psr.sym = S.lparen THEN FormalParameters(psr, tp) END ;
 		Check(psr, S.semicolon);
@@ -1507,7 +1386,7 @@ BEGIN GetSym(psr);
 	Check(psr, S.semicolon)
 END ImportList;
 
-PROCEDURE Module*(psr: Parser);
+PROCEDURE Module*(psr: Parser, mod: Module);
 	VAR mod: B.Module;
 BEGIN
 	(* mod := B.Init(); *) psr.mod := mod; GetSym(psr);
