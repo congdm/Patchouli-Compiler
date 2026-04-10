@@ -262,8 +262,14 @@ BEGIN
 END CheckAssignment;
 
 PROCEDURE CheckArrayIndex(psr: Parser; x, y: B.Object);
+	VAR idx: Sys.Int;
 BEGIN
-	(*stub*)
+	IF ~x.type.isOpenArray & (y IS B.Const) THEN
+    	psr.GetConstInt(psr, y(B.Const), idx);
+    	IF Sys.SignInt(idx) OR (Sys.CmpInt(idx, x.type.len) >= 0) THEN
+      		Mark(psr, 'array index out of range')
+    	END
+	END
 END CheckArrayIndex;
 
 (* -------------------------------------------------------------------------- *)
@@ -708,7 +714,7 @@ BEGIN
 	ELSIF psr.sym = S.or DO spos := psr.scn.spos;
 		CheckBool(psr, x); GetSym(psr); y := term(psr); CheckBool(psr, y);
 		IF ~(x IS B.Const) OR ~(y IS B.Const) THEN
-			x := NewNode2(psr, op, x, y, psr.mod.boolType, spos)
+			x := NewNode2(psr, S.or, x, y, psr.mod.boolType, spos)
 		ELSE x := psr.OpOr(psr, x(B.Const), y(B.Const))
 		END
 	END ;
@@ -1051,7 +1057,7 @@ PROCEDURE IdentList(psr: Parser): B.Ident;
 	VAR fst, x: B.Ident;
 BEGIN fst := NewIdent(psr, psr.scn.id);
 	GetSym(psr); CheckExport(psr, fst.export);
-	WHILE psr.sym = S.comma DO
+	WHILE psr.sym = S.comma DO GetSym(psr);
 		IF psr.sym = S.ident THEN
 			x := NewIdent(psr, psr.scn.id);
 			GetSym(psr); CheckExport(psr, x.export)
