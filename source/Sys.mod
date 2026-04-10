@@ -32,6 +32,7 @@ TYPE
 VAR
 	MaxInt*, MinInt*: Int;
 	IntZero*, IntOne*, IntMinusOne*: Int;
+	RealZero*, RealOne*, RealMinusOne*: Real;
 	MaxUnicode: Int;
 	MaxDecimalExp, MinDecimalExp: Int;
 	
@@ -42,184 +43,15 @@ VAR
 	Unicode110000: Int;
 	UnicodeD800, UnicodeE000: Int;
 
+(* ======================================================================== *)
 
-PROCEDURE CopyIntToReal(x: Int; VAR r: Real);
+PROCEDURE IsZeroInt*(x: Int): BOOLEAN;
 	VAR i: INTEGER;
-BEGIN
-	ASSERT(SizeInt = SizeReal);
-	r.data := x.data
-END CopyIntToReal;
-
-PROCEDURE CopyRealToInt(r: Real; VAR x: Int);
-	VAR i: INTEGER;
-BEGIN
-	ASSERT(SizeInt = SizeReal);
-	x.data := r.data
-END CopyRealToInt;
-
-PROCEDURE ZeroReal(VAR r: Real);
-	VAR i: INTEGER;
-BEGIN
-	FOR i := 0 TO LEN(r.data)-1 DO r.data[i] := 0 END
-END ZeroReal;
-
-PROCEDURE IsZeroInt(x: Int): BOOLEAN;
-	VAR i: INTEGER;
-BEGIN
-	i := 0;
+BEGIN i := 0;
 	WHILE (i < LEN(x.data)) & (x.data[i] = 0) DO INC(i) END ;
 	RETURN i = LEN(x.data)
 END IsZeroInt;
 
-PROCEDURE CmpUInt(x, y: Int): INTEGER;
-	VAR i, res: INTEGER;
-BEGIN
-	i := LEN(x.data)-1;
-	WHILE (i > 0) & (x.data[i] = y.data[i]) DO DEC(i) END ;
-	IF x.data[i] > y.data[i] THEN res := 1
-	ELSIF x.data[i] < y.data[i] THEN res := -1
-	ELSE res := 0
-	END
-	RETURN res
-END CmpUInt;
-
-PROCEDURE GetSign(r: Real): BOOLEAN;
-BEGIN
-	RETURN r.data[LEN(r.data)-1] >= 128
-END GetSign;
-
-PROCEDURE GetExp(r: Real): INTEGER;
-BEGIN
-	RETURN (r.data[LEN(r.data)-1] MOD 128)*16 + r.data[LEN(r.data)-2] DIV 16
-END GetExp;
-
-PROCEDURE GetMant(r: Real; VAR m: Int);
-	VAR i: INTEGER;
-BEGIN
-	FOR i := 0 TO LEN(m.data)-1 DO m.data[i] := 0 END ;
-	FOR i := 0 TO LEN(r.data)-3 DO m.data[i] := r.data[i] END ;
-	m.data[LEN(m.data)-2] := r.data[LEN(r.data)-2] MOD 16
-END GetMant;
-
-PROCEDURE SetMant(VAR r: Real; m: Int);
-	VAR i: INTEGER;
-BEGIN
-	FOR i := 0 TO LEN(r.data)-3 DO r.data[i] := m.data[i] END ;
-	r.data[LEN(r.data)-2] := (r.data[LEN(r.data)-2] DIV 16) * 16 + (m.data[LEN(m.data)-2] MOD 16)
-END SetMant;
-
-PROCEDURE SetExp(VAR r: Real; e: INTEGER);
-	VAR hi, lo: INTEGER;
-BEGIN
-	hi := e DIV 16; lo := e MOD 16;
-	r.data[LEN(r.data)-1] := (r.data[LEN(r.data)-1] DIV 128)*128 + hi;
-	r.data[LEN(r.data)-2] := (r.data[LEN(r.data)-2] MOD 16) + lo*16
-END SetExp;
-
-PROCEDURE IsZeroReal(r: Real): BOOLEAN;
-	VAR m: Int;
-		res: BOOLEAN;
-BEGIN
-	IF GetExp(r) # 0 THEN res := FALSE
-	ELSE GetMant(r, m); res := IsZeroInt(m)
-	END ;
-	RETURN res
-END IsZeroReal;
-
-PROCEDURE SetBit52(VAR m: Int);
-BEGIN
-	IF m.data[LEN(m.data)-2] < 16 THEN m.data[LEN(m.data)-2] := m.data[LEN(m.data)-2] + 16 END
-END SetBit52;
-
-PROCEDURE ClearBit52(VAR m: Int);
-BEGIN
-	IF m.data[LEN(m.data)-2] >= 16 THEN m.data[LEN(m.data)-2] := m.data[LEN(m.data)-2] - 16 END
-END ClearBit52;
-
-PROCEDURE HighestBit(x: Int): INTEGER;
-	VAR i, b, bit, res: INTEGER;
-BEGIN
-	i := LEN(x.data)-1;
-	WHILE (i >= 0) & (x.data[i] = 0) DO DEC(i) END ;
-	IF i < 0 THEN res := -1
-	ELSE
-		b := x.data[i]; bit := 7;
-		WHILE (bit > 0) & (b < (1 SHL bit)) DO DEC(bit) END ;
-		res := i*8 + bit
-	END ;
-	RETURN res
-END HighestBit;
-
-PROCEDURE ShiftRightSafe(VAR x: Int; shfCnt: INTEGER);
-BEGIN
-	IF shfCnt >= 8*LEN(x.data) THEN x := IntZero
-	ELSE LShiftRight0(x, shfCnt)
-	END
-END ShiftRightSafe;
-
-PROCEDURE PackReal(sign: BOOLEAN; exp: INTEGER; mant: Int; VAR r: Real);
-	VAR i: INTEGER;
-BEGIN
-	FOR i := 0 TO LEN(r.data)-1 DO r.data[i] := 0 END ;
-	SetMant(r, mant);
-	SetExp(r, exp);
-	IF sign THEN r.data[LEN(r.data)-1] := r.data[LEN(r.data)-1] + 128 END
-END PackReal;
-
-PROCEDURE NormalizeMant(VAR mant: Int; VAR exp: INTEGER);
-BEGIN
-	WHILE CmpUInt(mant, IntPowOfTwo[53]) >= 0 DO
-		LShiftRight0(mant, 1); INC(exp)
-	END ;
-	WHILE (CmpUInt(mant, IntPowOfTwo[52]) < 0) & (exp > 1) DO
-		LShiftLeft0(mant, 1); DEC(exp)
-	END ;
-	IF (exp = 1) & (CmpUInt(mant, IntPowOfTwo[52]) < 0) THEN exp := 0 END ;
-	IF exp <= 0 THEN
-		LShiftRight0(mant, 1-exp);
-		exp := 0
-	END ;
-	IF exp >= ExpMax THEN
-		mant := IntZero; exp := ExpMax
-	END
-END NormalizeMant;
-
-PROCEDURE RealMul10(VAR r: Real);
-	VAR s: BOOLEAN; e: INTEGER; m: Int;
-BEGIN
-	IF ~IsZeroReal(r) THEN
-		s := GetSign(r); e := GetExp(r);
-		GetMant(r, m);
-		IF e > 0 THEN SetBit52(m) ELSE e := 1 END ;
-		MulIntByte(m, 10);
-		NormalizeMant(m, e);
-		IF e > 0 THEN ClearBit52(m) END ;
-		PackReal(s, e, m, r)
-	END
-END RealMul10;
-
-PROCEDURE RealDiv10(VAR r: Real);
-	VAR s: BOOLEAN; e: INTEGER; m: Int; rem: INTEGER;
-BEGIN
-	IF ~IsZeroReal(r) THEN
-		s := GetSign(r); e := GetExp(r);
-		GetMant(r, m);
-		IF e > 0 THEN SetBit52(m) ELSE e := 1 END ;
-		DivIntByte(m, 10, rem);
-		NormalizeMant(m, e);
-		IF e > 0 THEN ClearBit52(m) END ;
-		PackReal(s, e, m, r)
-	END
-END RealDiv10;
-	
-PROCEDURE INTEGERToInt*(x: INTEGER; VAR res: Int);
-	VAR i: INTEGER;
-BEGIN i := 0; res := IntZero;
-	WHILE (x # 0) & (i < LEN(res.data)) DO
-		res.data[i] := x MOD 256; x := x DIV 256; INC(i)
-	END
-END INTEGERToInt;
-	
 PROCEDURE SignInt*(x: Int): BOOLEAN;
 	RETURN x.data[LEN(x.data)-1] > 127
 END SignInt;
@@ -514,43 +346,169 @@ BEGIN
 	x := IntZero; x.data[0] := rem
 END ModIntByte;
 
+(* ======================================================================== *)
+(* Floating Point *)
+
+PROCEDURE CopyIntToReal(x: Int; VAR r: Real);
+	VAR i: INTEGER;
+BEGIN
+	i := 0;
+	WHILE (i < LEN(x.data)) & (i < LEN(r.data)) DO
+		r.data[i] := x.data[i]; INC(i)
+	END ;
+	WHILE i < LEN(r.data) DO r.data[i] := 0; INC(i) END
+END CopyIntToReal;
+
+PROCEDURE CopyRealToInt(r: Real; VAR x: Int);
+	VAR i: INTEGER;
+BEGIN
+	i := 0;
+	WHILE (i < LEN(x.data)) & (i < LEN(r.data)) DO
+		x.data[i] := r.data[i]; INC(i)
+	END ;
+	WHILE i < LEN(x.data) DO x.data[i] := 0; INC(i) END
+END CopyRealToInt;
+
+PROCEDURE CmpUInt(x, y: Int): INTEGER;
+	VAR i, res: INTEGER;
+BEGIN
+	i := LEN(x.data)-1;
+	WHILE (i > 0) & (x.data[i] = y.data[i]) DO DEC(i) END ;
+	IF x.data[i] > y.data[i] THEN res := 1
+	ELSIF x.data[i] < y.data[i] THEN res := -1
+	ELSE res := 0
+	END
+	RETURN res
+END CmpUInt;
+
+PROCEDURE GetSign(r: Real): BOOLEAN;
+BEGIN
+	RETURN r.data[LEN(r.data)-1] >= 128
+END GetSign;
+
+PROCEDURE GetExp(r: Real): INTEGER;
+BEGIN
+	RETURN (r.data[LEN(r.data)-1] MOD 128)*16 + r.data[LEN(r.data)-2] DIV 16
+END GetExp;
+
+PROCEDURE GetMant(r: Real; VAR m: Int);
+	VAR i: INTEGER;
+BEGIN
+	FOR i := 0 TO LEN(m.data)-1 DO m.data[i] := 0 END ;
+	FOR i := 0 TO LEN(r.data)-3 DO m.data[i] := r.data[i] END ;
+	m.data[LEN(m.data)-2] := r.data[LEN(r.data)-2] MOD 16
+END GetMant;
+
+PROCEDURE SetMant(VAR r: Real; m: Int);
+	VAR i: INTEGER;
+BEGIN
+	FOR i := 0 TO LEN(r.data)-3 DO r.data[i] := m.data[i] END ;
+	r.data[LEN(r.data)-2] := (r.data[LEN(r.data)-2] DIV 16) * 16 + (m.data[LEN(m.data)-2] MOD 16)
+END SetMant;
+
+PROCEDURE SetExp(VAR r: Real; e: INTEGER);
+	VAR hi, lo: INTEGER;
+BEGIN
+	hi := e DIV 16; lo := e MOD 16;
+	r.data[LEN(r.data)-1] := (r.data[LEN(r.data)-1] DIV 128)*128 + hi;
+	r.data[LEN(r.data)-2] := (r.data[LEN(r.data)-2] MOD 16) + lo*16
+END SetExp;
+
+PROCEDURE IsZeroReal(r: Real): BOOLEAN;
+	VAR i: INTEGER;
+BEGIN
+	i := 0;
+	WHILE (i < LEN(r.data)-1) & (r.data[i] = 0) DO INC(i) END ;
+	RETURN (i = LEN(r.data)-1) & (r.data[LEN(r.data)-1] MOD 128 = 0)
+END IsZeroReal;
+
+PROCEDURE SetBit52(VAR m: Int);
+BEGIN
+	IF m.data[LEN(m.data)-2] < 16 THEN m.data[LEN(m.data)-2] := m.data[LEN(m.data)-2] + 16 END
+END SetBit52;
+
+PROCEDURE ClearBit52(VAR m: Int);
+BEGIN
+	IF m.data[LEN(m.data)-2] >= 16 THEN m.data[LEN(m.data)-2] := m.data[LEN(m.data)-2] - 16 END
+END ClearBit52;
+
+PROCEDURE HighestBit(x: Int): INTEGER;
+  VAR i, bit, res, mask: INTEGER;
+BEGIN
+	i := LEN(x.data)-1;
+	WHILE (i >= 0) & (x.data[i] = 0) DO DEC(i) END ;
+	IF i < 0 THEN res := -1
+	ELSE
+		bit := 7; mask := 128;
+		WHILE (bit > 0) & (x.data[i] < mask) DO
+			mask := mask DIV 2; DEC(bit)
+		END ;
+		res := i*8 + bit
+	END ;
+	RETURN res
+END HighestBit;
+
+PROCEDURE PackReal(sign: BOOLEAN; exp: INTEGER; mant: Int; VAR r: Real);
+	VAR i: INTEGER;
+BEGIN
+	FOR i := 0 TO LEN(r.data)-1 DO r.data[i] := 0 END ;
+	SetMant(r, mant);
+	SetExp(r, exp);
+	IF sign THEN r.data[LEN(r.data)-1] := r.data[LEN(r.data)-1] + 128 END
+END PackReal;
+
+PROCEDURE NormalizeMant(VAR mant: Int; VAR exp: INTEGER);
+BEGIN
+	WHILE CmpUInt(mant, IntPowOfTwo[53]) >= 0 DO
+		LShiftRight0(mant, 1); INC(exp)
+	END ;
+	WHILE (CmpUInt(mant, IntPowOfTwo[52]) < 0) & (exp > 1) DO
+		LShiftLeft0(mant, 1); DEC(exp)
+	END ;
+	IF (exp = 1) & (CmpUInt(mant, IntPowOfTwo[52]) < 0) THEN exp := 0 END ;
+	IF exp <= 0 THEN
+		LShiftRight0(mant, 1-exp);
+		exp := 0
+	END ;
+	IF exp >= ExpMax THEN
+		mant := IntZero; exp := ExpMax
+	END
+END NormalizeMant;
+
+PROCEDURE RealMul10(VAR r: Real);
+	VAR s: BOOLEAN; e: INTEGER; m: Int;
+BEGIN
+	IF ~IsZeroReal(r) THEN
+		s := GetSign(r); e := GetExp(r);
+		GetMant(r, m);
+		IF e > 0 THEN SetBit52(m) ELSE e := 1 END ;
+		MulIntByte(m, 10);
+		NormalizeMant(m, e);
+		IF e > 0 THEN ClearBit52(m) END ;
+		PackReal(s, e, m, r)
+	END
+END RealMul10;
+
+PROCEDURE RealDiv10(VAR r: Real);
+	VAR s: BOOLEAN; e: INTEGER; m: Int; rem: INTEGER;
+BEGIN
+	IF ~IsZeroReal(r) THEN
+		s := GetSign(r); e := GetExp(r);
+		GetMant(r, m);
+		IF e > 0 THEN SetBit52(m) ELSE e := 1 END ;
+		DivIntByte(m, 10, rem);
+		NormalizeMant(m, e);
+		IF e > 0 THEN ClearBit52(m) END ;
+		PackReal(s, e, m, r)
+	END
+END RealDiv10;
+
 PROCEDURE AbsReal*(VAR x: Real);
 BEGIN
-	IF x.data[LEN(x.data)-1] >= 128 THEN x.data[LEN(x.data)-1] := x.data[LEN(x.data)-1] - 128 END
-END AbsReal;
-
-PROCEDURE FloorReal*(VAR x: Real);
-	VAR s: BOOLEAN; e, i, fracBits: INTEGER; m: Int; hadFrac: BOOLEAN; one: Real;
-BEGIN
-	IF (GetExp(x) # ExpMax) & ~IsZeroReal(x) THEN
-		s := GetSign(x); e := GetExp(x);
-		IF e = 0 THEN
-			IF s THEN IntToReal(IntMinusOne, x) ELSE ZeroReal(x) END
-		ELSE
-			DEC(e, ExpBias);
-			IF e < 0 THEN
-				IF s THEN IntToReal(IntMinusOne, x) ELSE ZeroReal(x) END
-			ELSIF e < 52 THEN
-				GetMant(x, m);
-				fracBits := 52 - e;
-				hadFrac := FALSE;
-				i := 0;
-				WHILE i < fracBits DO
-					IF (m.data[i DIV 8] DIV (1 SHL (i MOD 8))) MOD 2 = 1 THEN
-						hadFrac := TRUE
-					END ;
-					m.data[i DIV 8] := m.data[i DIV 8] - ((m.data[i DIV 8] DIV (1 SHL (i MOD 8))) MOD 2) * (1 SHL (i MOD 8));
-					INC(i)
-				END ;
-				PackReal(s, e + ExpBias, m, x);
-				IF s & hadFrac THEN
-					IntToReal(IntMinusOne, one);
-					AddReal(x, one)
-				END
-			END
-		END
+	IF x.data[LEN(x.data)-1] >= 128 THEN
+		x.data[LEN(x.data)-1] := x.data[LEN(x.data)-1] - 128
 	END
-END FloorReal;
+END AbsReal;
 
 PROCEDURE AddReal*(VAR x: Real; y: Real);
 	VAR sx, sy, s: BOOLEAN; ex, ey, e: INTEGER;
@@ -585,7 +543,7 @@ BEGIN
 
 	IF ~done THEN
 		IF IsZeroReal(x) THEN x := y
-		ELSIF IsZeroReal(y) THEN
+		ELSIF IsZeroReal(y) THEN (*nothing*)
 		ELSE
 			sx := GetSign(x); sy := GetSign(y);
 			GetMant(x, mx); GetMant(y, my);
@@ -606,7 +564,7 @@ BEGIN
 					tmp := my; SubInt(tmp, mx); mx := tmp; s := sy
 				END
 			END ;
-			IF IsZeroInt(mx) THEN ZeroReal(x)
+			IF IsZeroInt(mx) THEN x := RealZero
 			ELSE
 				NormalizeMant(mx, e);
 				IF e > 0 THEN ClearBit52(mx) END ;
@@ -615,6 +573,88 @@ BEGIN
 		END
 	END
 END AddReal;
+
+PROCEDURE FloorReal*(VAR x: Real);
+	VAR s: BOOLEAN; e, i, fracBits, b1, b2: INTEGER; m: Int; hadFrac: BOOLEAN;
+BEGIN e := GetExp(x);
+	IF (e # ExpMax) & ~IsZeroReal(x) THEN
+		s := GetSign(x); 
+		IF e = 0 THEN
+			IF s THEN x := RealMinusOne ELSE x := RealZero END
+		ELSE
+			DEC(e, ExpBias);
+			IF e < 0 THEN
+				IF s THEN x := RealMinusOne ELSE x := RealZero END
+			ELSIF e < 52 THEN
+				GetMant(x, m); fracBits := 52 - e; hadFrac := FALSE;
+				i := 0;
+				WHILE i < fracBits DO
+					b1 := i DIV 8; b2 := LSL(1, i MOD 8);
+					IF ODD(m.data[b1] DIV b2) THEN hadFrac := TRUE END ;
+					(* Clear the fractional bits one by one, seems inefficient *)
+					DEC(m.data[b1], ((m.data[b1] DIV b2) MOD 2) * b2);
+					INC(i)
+				END ;
+				PackReal(s, e + ExpBias, m, x);
+				IF s & hadFrac THEN
+					AddReal(x, RealMinusOne)
+				END
+			END
+		END
+	END
+END FloorReal;
+
+PROCEDURE IntToReal*(x: Int; VAR res: Real);
+	VAR ax, mant: Int; pos, exp: INTEGER; s: BOOLEAN;
+BEGIN
+	IF IsZeroInt(x) THEN res := RealZero
+	ELSE
+		ax := x; s := SignInt(ax);
+		IF s THEN NegInt(ax) END ;
+		pos := HighestBit(ax);
+		exp := pos + ExpBias;
+		mant := ax;
+		IF pos < 52 THEN LShiftLeft0(mant, 52 - pos)
+		ELSIF pos > 52 THEN LShiftRight0(mant, pos - 52)
+		END ;
+		ClearBit52(mant);
+		PackReal(s, exp, mant, res)
+	END
+END IntToReal;
+
+PROCEDURE DecToReal*(
+	x: Decimal; intLen: INTEGER;
+	f: Decimal; fracLen: INTEGER;
+	e: Int; VAR res: Real
+);
+	VAR i: INTEGER; num, tmp, e0: Int;
+BEGIN
+	num := IntZero;
+	FOR i := 0 TO intLen-1 DO
+		tmp := num; MulIntByte(tmp, 10); AddIntByte(tmp, x.data[i]);
+		num := tmp
+	END ;
+	FOR i := 0 TO fracLen-1 DO
+		tmp := num; MulIntByte(tmp, 10); AddIntByte(tmp, f.data[i]);
+		num := tmp
+	END ;
+	IntToReal(num, res);
+	FOR i := 1 TO fracLen DO RealDiv10(res) END ;
+	IF ~SignInt(e) THEN
+		IF CmpInt(e, MaxDecimalExp) <= 0 THEN e0 := e ELSE e0 := MaxDecimalExp END ;
+		WHILE CmpIntByte(e0, 0) > 0 DO RealMul10(res); SubIntByte(e0, 1) END
+	ELSE
+		IF CmpInt(e, MinDecimalExp) >= 0 THEN e0 := e ELSE e0 := MinDecimalExp END ;
+		WHILE SignInt(e0) DO RealDiv10(res); AddIntByte(e0, 1) END
+	END
+END DecToReal;
+
+PROCEDURE HexToReal*(x: Int; VAR res: Real);
+BEGIN
+	CopyIntToReal(x, res)
+END HexToReal;
+
+(* ======================================================================== *)
 
 PROCEDURE CodepointToStr*(x: Int; VAR res: ARRAY OF Char);
 	VAR u, tmp, t80, t800, t10000, t110000: Int;
@@ -682,55 +722,13 @@ BEGIN
 	RETURN success
 END DecToInt;
 
-PROCEDURE DecToReal*(
-	x: Decimal; intLen: INTEGER;
-	f: Decimal; fracLen: INTEGER;
-	e: Int; VAR res: Real
-);
-	VAR i: INTEGER; num, tmp: Int;
-BEGIN
-	num := IntZero;
-	FOR i := 0 TO intLen-1 DO
-		tmp := num; MulIntByte(tmp, 10); AddIntByte(tmp, x.data[i]);
-		num := tmp
-	END ;
-	FOR i := 0 TO fracLen-1 DO
-		tmp := num; MulIntByte(tmp, 10); AddIntByte(tmp, f.data[i]);
-		num := tmp
-	END ;
-	IntToReal(num, res);
-	FOR i := 1 TO fracLen DO RealDiv10(res) END ;
-	IF ~SignInt(e)
-		IF CmpInt(e, MaxDecimalExp) > 0 THEN e := MaxDecimalExp END ;
-		WHILE CmpInt(e, 0) > 0 DO RealMul10(res); SubIntByte(e, 1) END
-	ELSE
-		IF CmpInt(e, MinDecimalExp) < 0 THEN e := MinDecimalExp END ;
-		WHILE SignInt(e) DO RealDiv10(res); AddIntByte(e, 1) END
+PROCEDURE INTEGERToInt*(x: INTEGER; VAR res: Int);
+	VAR i: INTEGER;
+BEGIN i := 0; res := IntZero;
+	WHILE (x # 0) & (i < LEN(res.data)) DO
+		res.data[i] := x MOD 256; x := x DIV 256; INC(i)
 	END
-END DecToReal;
-
-PROCEDURE HexToReal*(x: Int; VAR res: Real);
-BEGIN
-	CopyIntToReal(x, res)
-END HexToReal;
-
-PROCEDURE IntToReal*(x: Int; VAR res: Real);
-	VAR ax, mant: Int; pos, exp: INTEGER; s: BOOLEAN;
-BEGIN
-	IF IsZeroInt(x) THEN ZeroReal(res)
-	ELSE
-		ax := x; s := SignInt(ax);
-		IF s THEN NegInt(ax) END ;
-		pos := HighestBit(ax);
-		exp := pos + ExpBias;
-		mant := ax;
-		IF pos < 52 THEN LShiftLeft0(mant, 52 - pos)
-		ELSIF pos > 52 THEN LShiftRight0(mant, pos - 52)
-		END ;
-		ClearBit52(mant);
-		PackReal(s, exp, mant, res)
-	END
-END IntToReal;
+END INTEGERToInt;
 
 (* -------------------------------------------------------------------------- *)
 (* File I/O. Standard I/O *)
@@ -795,14 +793,18 @@ BEGIN
 	Unicode110000 := IntZero;
 	Unicode110000.data[2] := 11H;
 	UnicodeD800 := IntZero;
-	UnicodeD800.data[1] := D8H;
+	UnicodeD800.data[1] := 0D8H;
 	UnicodeE000 := IntZero;
-	UnicodeE000.data[1] := E0H;
+	UnicodeE000.data[1] := 0E0H;
 
 	MaxDecimalExp := IntZero;
 	MaxDecimalExp.data[0] := 308 MOD 256;
 	MaxDecimalExp.data[1] := 308 DIV 256;
-	MinDecimalExp := MaxDecimalExp;	NegInt(MinDecimalExp)
+	MinDecimalExp := MaxDecimalExp;	NegInt(MinDecimalExp);
+
+	FOR i := 0 TO LEN(RealZero.data)-1 DO RealZero.data[i] := 0 END ;
+	PackReal(FALSE, ExpBias, IntZero, RealOne);
+	PackReal(TRUE, ExpBias, IntZero, RealMinusOne) 
 END Init;
 
 BEGIN Init
