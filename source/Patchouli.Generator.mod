@@ -2239,6 +2239,7 @@ PROCEDURE Procedure;
 		r: BYTE; x: Item; obj: B.Proc; param, ident: B.Ident; pType: B.Type;
 BEGIN
 	BeginProc; obj := curProc.obj;
+	IF obj.nTraced > 0 THEN SetAlloc(reg_B) END ;
 	IF pass = 3 THEN
 		PushR(reg_BP); EmitRR(MOVd, reg_BP, 8, reg_SP);
 		nSave := 0; nSaveX := 0; r := 0;
